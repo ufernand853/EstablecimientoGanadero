@@ -21,11 +21,19 @@ const confirmSchema = z.object({
 const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
 const contextFile = path.join(dataDir, "context.json");
 const confirmationsFile = path.join(dataDir, "confirmations.json");
+const herdsFile = path.join(dataDir, "herds.json");
 
 type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
   slaughterhouses: { id: string; name: string }[];
+};
+
+type HerdStock = {
+  paddockId: string;
+  category: string;
+  count: number;
+  updatedAt: string;
 };
 
 const loadJsonFile = async <T,>(filePath: string, fallback: T): Promise<T> => {
@@ -52,6 +60,12 @@ const appendConfirmation = async (payload: Record<string, unknown>) => {
     confirmedAt: new Date().toISOString(),
   });
   await writeFile(confirmationsFile, JSON.stringify(existing, null, 2));
+};
+
+const loadHerds = async () => loadJsonFile<HerdStock[]>(herdsFile, []);
+
+const saveHerds = async (herds: HerdStock[]) => {
+  await writeFile(herdsFile, JSON.stringify(herds, null, 2));
 };
 
 app.get("/health", async () => ({ status: "ok" }));
@@ -84,6 +98,51 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds: [],
     summary: "Operaciones confirmadas (stub).",
   });
+});
+
+const herdAdjustSchema = z.object({
+  paddockId: z.string().uuid(),
+  category: z.string().min(2),
+  delta: z.number().int(),
+});
+
+app.get("/stock", async () => {
+  const herds = await loadHerds();
+  return { herds };
+});
+
+app.post("/stock/adjust", async (request, reply) => {
+  const body = herdAdjustSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({
+      code: "VALIDATION_ERROR",
+      issues: body.error.issues,
+    });
+  }
+
+  const herds = await loadHerds();
+  const now = new Date().toISOString();
+  const index = herds.findIndex(
+    (herd) =>
+      herd.paddockId === body.data.paddockId && herd.category === body.data.category,
+  );
+  if (index >= 0) {
+    herds[index] = {
+      ...herds[index],
+      count: herds[index].count + body.data.delta,
+      updatedAt: now,
+    };
+  } else {
+    herds.push({
+      paddockId: body.data.paddockId,
+      category: body.data.category,
+      count: body.data.delta,
+      updatedAt: now,
+    });
+  }
+
+  await saveHerds(herds);
+  return reply.send({ ok: true, herds });
 });
 
 const start = async () => {
