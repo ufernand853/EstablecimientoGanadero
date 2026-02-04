@@ -1,4 +1,7 @@
 import Fastify from "fastify";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { parseCommand } from "@eg/shared";
 
@@ -15,17 +18,40 @@ const confirmSchema = z.object({
   edits: z.record(z.unknown()).optional(),
 });
 
-const commandContext = {
-  paddocks: [
-    { id: "11111111-1111-1111-1111-111111111111", name: "Potrero 3" },
-    { id: "22222222-2222-2222-2222-222222222222", name: "Potrero 7" },
-  ],
-  consignors: [
-    { id: "33333333-3333-3333-3333-333333333333", name: "Pérez" },
-  ],
-  slaughterhouses: [
-    { id: "44444444-4444-4444-4444-444444444444", name: "Las Moras" },
-  ],
+const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
+const contextFile = path.join(dataDir, "context.json");
+const confirmationsFile = path.join(dataDir, "confirmations.json");
+
+type CommandContext = {
+  paddocks: { id: string; name: string }[];
+  consignors: { id: string; name: string }[];
+  slaughterhouses: { id: string; name: string }[];
+};
+
+const loadJsonFile = async <T,>(filePath: string, fallback: T): Promise<T> => {
+  try {
+    const contents = await readFile(filePath, "utf-8");
+    return JSON.parse(contents) as T;
+  } catch (error) {
+    app.log.warn({ filePath, error }, "No se pudo leer el JSON, usando fallback.");
+    return fallback;
+  }
+};
+
+const loadContext = async () =>
+  loadJsonFile<CommandContext>(contextFile, {
+    paddocks: [],
+    consignors: [],
+    slaughterhouses: [],
+  });
+
+const appendConfirmation = async (payload: Record<string, unknown>) => {
+  const existing = await loadJsonFile<Record<string, unknown>[]>(confirmationsFile, []);
+  existing.push({
+    ...payload,
+    confirmedAt: new Date().toISOString(),
+  });
+  await writeFile(confirmationsFile, JSON.stringify(existing, null, 2));
 };
 
 app.get("/health", async () => ({ status: "ok" }));
@@ -38,6 +64,7 @@ app.post("/commands/parse", async (request, reply) => {
       issues: body.error.issues,
     });
   }
+  const commandContext = await loadContext();
   const parsed = parseCommand(body.data.text, commandContext);
   return reply.send(parsed);
 });
@@ -51,6 +78,7 @@ app.post("/commands/confirm", async (request, reply) => {
     });
   }
 
+  await appendConfirmation(body.data as Record<string, unknown>);
   return reply.send({
     applied: true,
     createdEventIds: [],
