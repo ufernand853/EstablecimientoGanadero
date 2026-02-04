@@ -5,44 +5,34 @@ Multi-tenant web app for extensive livestock ranch management with event-sourced
 ## Stack
 - Frontend: Next.js (App Router) + TypeScript + Tailwind CSS + TanStack Query
 - Backend: Fastify + TypeScript
-- DB: PostgreSQL + Prisma
+- DB: JSON fixtures (testing)
 - Validation: Zod (shared)
 - Auth: JWT access + refresh, password hashing
 
 ## Local development
 
-### 1) Start Postgres
-```bash
-cd docker
-docker-compose up -d
-```
-
-### 2) Install deps
+### 1) Install deps
 ```bash
 npm install
 ```
 
-### 3) Migrate and seed
-```bash
-npx prisma migrate dev --name init
-node scripts/seed.ts
-```
-
-### 4) Start API
+### 2) Start API
 ```bash
 npm run dev:api
 ```
 
-### 5) Start Web
+### 3) Start Web
 ```bash
 npm run dev:web
 ```
 
-## Sample credentials
-```
-email: owner@estancias.local
-password: changeme
-```
+## Datos de prueba (JSON)
+La API usa archivos JSON locales para el contexto, confirmaciones y stock:
+- `apps/api/src/data/context.json`: paddocks, consignors y slaughterhouses.
+- `apps/api/src/data/confirmations.json`: historial de confirmaciones.
+- `apps/api/src/data/herds.json`: stock por potrero/categoría.
+
+Edita esos archivos para ajustar los datos de testing sin depender de una base de datos.
 
 ## Sample command strings
 - "Mover 120 terneros del Potrero 3 al Potrero 7 hoy 16:00"
@@ -58,14 +48,12 @@ password: changeme
   apps/
     web/
     api/
+      src/
+        data/
+          context.json
+          confirmations.json
+          herds.json
   packages/
     shared/
-  prisma/
-    schema.prisma
-    migrations/
-  docker/
-    docker-compose.yml
-  scripts/
-    seed.ts
   README.md
 ```
