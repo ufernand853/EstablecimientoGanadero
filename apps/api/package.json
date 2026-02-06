@@ -10,6 +10,7 @@
     "@eg/shared": "*",
     "fastify": "^4.28.1",
     "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.7.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
