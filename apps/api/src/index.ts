@@ -1,12 +1,14 @@
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { parseCommand } from "@eg/shared";
+import { getDb, getMongoClient } from "./db.js";
 
 const app = Fastify({ logger: true });
+
+app.addHook("onClose", async () => {
+  await getMongoClient().close();
+});
 
 const parseSchema = z.object({
   establishmentId: z.string().uuid(),
@@ -18,14 +20,6 @@ const confirmSchema = z.object({
   confirmationToken: z.string(),
   edits: z.record(z.unknown()).optional(),
 });
-
-const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
-const contextFile = path.join(dataDir, "context.json");
-const confirmationsFile = path.join(dataDir, "confirmations.json");
-const establishmentsFile = path.join(dataDir, "establishments.json");
-const paddocksFile = path.join(dataDir, "paddocks.json");
-const herdsFile = path.join(dataDir, "herds.json");
-const movementsFile = path.join(dataDir, "movements.json");
 
 type CommandContext = {
   paddocks: { id: string; name: string }[];
@@ -67,63 +61,127 @@ type HerdMovement = {
   createdAt: string;
 };
 
-const loadJsonFile = async <T,>(filePath: string, fallback: T): Promise<T> => {
-  try {
-    const contents = await readFile(filePath, "utf-8");
-    return JSON.parse(contents) as T;
-  } catch (error) {
-    app.log.warn({ filePath, error }, "No se pudo leer el JSON, usando fallback.");
-    return fallback;
-  }
-};
-
-const loadContext = async () => {
-  const baseContext = await loadJsonFile<CommandContext>(contextFile, {
-    paddocks: [],
-    consignors: [],
-    slaughterhouses: [],
-  });
-  const paddocks = await loadPaddocks();
+const getCollections = async () => {
+  const db = await getDb();
   return {
-    ...baseContext,
-    paddocks: paddocks.length
-      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
-      : baseContext.paddocks,
+    establishments: db.collection<Establishment>("establishments"),
+    paddocks: db.collection<Paddock>("paddocks"),
+    herds: db.collection<HerdStock>("herds"),
+    movements: db.collection<HerdMovement>("movements"),
+    confirmations: db.collection<Record<string, unknown>>("confirmations"),
+    commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
 };
 
-const loadEstablishments = async () =>
-  loadJsonFile<Establishment[]>(establishmentsFile, []);
-
-const saveEstablishments = async (establishments: Establishment[]) => {
-  await writeFile(establishmentsFile, JSON.stringify(establishments, null, 2));
+const loadContext = async () => {
+  const { commandContext } = await getCollections();
+  const baseContext = await commandContext.findOne({ _id: "default" });
+  const safeBaseContext: CommandContext = baseContext
+    ? {
+        paddocks: baseContext.paddocks,
+        consignors: baseContext.consignors,
+        slaughterhouses: baseContext.slaughterhouses,
+      }
+    : {
+        paddocks: [],
+        consignors: [],
+        slaughterhouses: [],
+      };
+  const paddocks = await loadPaddocks();
+  return {
+    ...safeBaseContext,
+    paddocks: paddocks.length
+      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
+      : safeBaseContext.paddocks,
+  };
 };
 
-const loadPaddocks = async () => loadJsonFile<Paddock[]>(paddocksFile, []);
+const loadEstablishments = async () => {
+  const { establishments } = await getCollections();
+  return establishments.find().toArray();
+};
 
-const savePaddocks = async (paddocks: Paddock[]) => {
-  await writeFile(paddocksFile, JSON.stringify(paddocks, null, 2));
+const insertEstablishment = async (establishment: Establishment) => {
+  const { establishments } = await getCollections();
+  await establishments.insertOne(establishment);
+};
+
+const updateEstablishment = async (id: string, data: Partial<Establishment>) => {
+  const { establishments } = await getCollections();
+  await establishments.updateOne({ id }, { $set: data });
+};
+
+const findEstablishmentById = async (id: string) => {
+  const { establishments } = await getCollections();
+  return establishments.findOne({ id });
+};
+
+const loadPaddocks = async () => {
+  const { paddocks } = await getCollections();
+  return paddocks.find().toArray();
+};
+
+const insertPaddock = async (paddock: Paddock) => {
+  const { paddocks } = await getCollections();
+  await paddocks.insertOne(paddock);
+};
+
+const updatePaddock = async (id: string, data: Partial<Paddock>) => {
+  const { paddocks } = await getCollections();
+  await paddocks.updateOne({ id }, { $set: data });
+};
+
+const findPaddockById = async (id: string) => {
+  const { paddocks } = await getCollections();
+  return paddocks.findOne({ id });
 };
 
 const appendConfirmation = async (payload: Record<string, unknown>) => {
-  const existing = await loadJsonFile<Record<string, unknown>[]>(confirmationsFile, []);
-  existing.push({
+  const { confirmations } = await getCollections();
+  await confirmations.insertOne({
     ...payload,
     confirmedAt: new Date().toISOString(),
   });
-  await writeFile(confirmationsFile, JSON.stringify(existing, null, 2));
 };
 
-const loadHerds = async () => loadJsonFile<HerdStock[]>(herdsFile, []);
-
-const saveHerds = async (herds: HerdStock[]) => {
-  await writeFile(herdsFile, JSON.stringify(herds, null, 2));
+const loadHerds = async () => {
+  const { herds } = await getCollections();
+  return herds.find().toArray();
 };
 
-const loadMovements = async () => loadJsonFile<HerdMovement[]>(movementsFile, []);
+const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
+  const { herds } = await getCollections();
+  return herds.findOne({ paddockId, category });
+};
 
-const saveMovements = async (movements: HerdMovement[]) => {
-  await writeFile(movementsFile, JSON.stringify(movements, null, 2));
+const updateHerdStock = async (paddockId: string, category: string, count: number, updatedAt: string) => {
+  const { herds } = await getCollections();
+  await herds.updateOne(
+    { paddockId, category },
+    {
+      $set: { count, updatedAt },
+      $setOnInsert: { paddockId, category },
+    },
+    { upsert: true },
+  );
+};
+
+const saveHerdStock = async (paddockId: string, category: string, delta: number, updatedAt: string) => {
+  const { herds } = await getCollections();
+  await herds.updateOne(
+    { paddockId, category },
+    {
+      $inc: { count: delta },
+      $set: { updatedAt },
+      $setOnInsert: { paddockId, category },
+    },
+    { upsert: true },
+  );
+};
+
+const insertMovement = async (movement: HerdMovement) => {
+  const { movements } = await getCollections();
+  await movements.insertOne(movement);
 };
 
 app.get("/health", async () => ({ status: "ok" }));
@@ -182,7 +240,6 @@ app.post("/establishments", async (request, reply) => {
     });
   }
 
-  const establishments = await loadEstablishments();
   const now = new Date().toISOString();
   const newEstablishment: Establishment = {
     id: randomUUID(),
@@ -191,8 +248,7 @@ app.post("/establishments", async (request, reply) => {
     createdAt: now,
     updatedAt: now,
   };
-  establishments.push(newEstablishment);
-  await saveEstablishments(establishments);
+  await insertEstablishment(newEstablishment);
   return reply.status(201).send(newEstablishment);
 });
 
@@ -204,19 +260,22 @@ app.patch("/establishments/:id", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const establishments = await loadEstablishments();
-  const index = establishments.findIndex((est) => est.id === request.params.id);
-  if (index < 0) {
+  const existing = await findEstablishmentById(request.params.id);
+  if (!existing) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
   }
   const now = new Date().toISOString();
-  establishments[index] = {
-    ...establishments[index],
+  const updated = {
+    ...existing,
     ...body.data,
     updatedAt: now,
   };
-  await saveEstablishments(establishments);
-  return reply.send(establishments[index]);
+  await updateEstablishment(request.params.id, {
+    name: updated.name,
+    timezone: updated.timezone,
+    updatedAt: updated.updatedAt,
+  });
+  return reply.send(updated);
 });
 
 const paddockSchema = z.object({
@@ -229,11 +288,11 @@ const paddockUpdateSchema = z.object({
 });
 
 app.get("/paddocks", async (request) => {
-  const paddocks = await loadPaddocks();
   const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
-  const filtered = establishmentId
-    ? paddocks.filter((paddock) => paddock.establishmentId === establishmentId)
-    : paddocks;
+  const { paddocks } = await getCollections();
+  const filtered = await paddocks
+    .find(establishmentId ? { establishmentId } : {})
+    .toArray();
   return { paddocks: filtered };
 });
 
@@ -245,12 +304,11 @@ app.post("/paddocks", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const establishments = await loadEstablishments();
-  const exists = establishments.some((est) => est.id === body.data.establishmentId);
+  const existing = await findEstablishmentById(body.data.establishmentId);
+  const exists = Boolean(existing);
   if (!exists) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
   }
-  const paddocks = await loadPaddocks();
   const now = new Date().toISOString();
   const newPaddock: Paddock = {
     id: randomUUID(),
@@ -259,8 +317,7 @@ app.post("/paddocks", async (request, reply) => {
     createdAt: now,
     updatedAt: now,
   };
-  paddocks.push(newPaddock);
-  await savePaddocks(paddocks);
+  await insertPaddock(newPaddock);
   return reply.status(201).send(newPaddock);
 });
 
@@ -272,19 +329,21 @@ app.patch("/paddocks/:id", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const paddocks = await loadPaddocks();
-  const index = paddocks.findIndex((paddock) => paddock.id === request.params.id);
-  if (index < 0) {
+  const existing = await findPaddockById(request.params.id);
+  if (!existing) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
   }
   const now = new Date().toISOString();
-  paddocks[index] = {
-    ...paddocks[index],
+  const updated = {
+    ...existing,
     ...body.data,
     updatedAt: now,
   };
-  await savePaddocks(paddocks);
-  return reply.send(paddocks[index]);
+  await updatePaddock(request.params.id, {
+    name: updated.name,
+    updatedAt: updated.updatedAt,
+  });
+  return reply.send(updated);
 });
 
 const herdAdjustSchema = z.object({
@@ -294,16 +353,20 @@ const herdAdjustSchema = z.object({
 });
 
 app.get("/stock", async (request) => {
-  const herds = await loadHerds();
-  const paddocks = await loadPaddocks();
   const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
   if (!establishmentId) {
+    const herds = await loadHerds();
     return { herds };
   }
-  const paddockIds = new Set(
-    paddocks.filter((paddock) => paddock.establishmentId === establishmentId).map((paddock) => paddock.id),
-  );
-  return { herds: herds.filter((herd) => paddockIds.has(herd.paddockId)) };
+  const { paddocks, herds } = await getCollections();
+  const paddockIds = await paddocks
+    .find({ establishmentId }, { projection: { id: 1 } })
+    .toArray();
+  const ids = paddockIds.map((paddock) => paddock.id);
+  const filtered = ids.length
+    ? await herds.find({ paddockId: { $in: ids } }).toArray()
+    : [];
+  return { herds: filtered };
 });
 
 app.post("/stock/adjust", async (request, reply) => {
@@ -315,32 +378,13 @@ app.post("/stock/adjust", async (request, reply) => {
     });
   }
 
-  const paddocks = await loadPaddocks();
-  if (!paddocks.some((paddock) => paddock.id === body.data.paddockId)) {
+  const paddock = await findPaddockById(body.data.paddockId);
+  if (!paddock) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
   }
-  const herds = await loadHerds();
   const now = new Date().toISOString();
-  const index = herds.findIndex(
-    (herd) =>
-      herd.paddockId === body.data.paddockId && herd.category === body.data.category,
-  );
-  if (index >= 0) {
-    herds[index] = {
-      ...herds[index],
-      count: herds[index].count + body.data.delta,
-      updatedAt: now,
-    };
-  } else {
-    herds.push({
-      paddockId: body.data.paddockId,
-      category: body.data.category,
-      count: body.data.delta,
-      updatedAt: now,
-    });
-  }
-
-  await saveHerds(herds);
+  await saveHerdStock(body.data.paddockId, body.data.category, body.data.delta, now);
+  const herds = await loadHerds();
   return reply.send({ ok: true, herds });
 });
 
@@ -354,11 +398,11 @@ const movementSchema = z.object({
 });
 
 app.get("/movements", async (request) => {
-  const movements = await loadMovements();
   const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
-  const filtered = establishmentId
-    ? movements.filter((movement) => movement.establishmentId === establishmentId)
-    : movements;
+  const { movements } = await getCollections();
+  const filtered = await movements
+    .find(establishmentId ? { establishmentId } : {})
+    .toArray();
   return { movements: filtered };
 });
 
@@ -373,9 +417,10 @@ app.post("/movements", async (request, reply) => {
   const { establishmentId, fromPaddockId, toPaddockId, category, quantity, occurredAt } =
     body.data;
 
-  const paddocks = await loadPaddocks();
-  const fromPaddock = paddocks.find((paddock) => paddock.id === fromPaddockId);
-  const toPaddock = paddocks.find((paddock) => paddock.id === toPaddockId);
+  const [fromPaddock, toPaddock] = await Promise.all([
+    findPaddockById(fromPaddockId),
+    findPaddockById(toPaddockId),
+  ]);
   if (!fromPaddock || !toPaddock) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
   }
@@ -389,45 +434,17 @@ app.post("/movements", async (request, reply) => {
     });
   }
 
-  const herds = await loadHerds();
   const now = new Date().toISOString();
-  const fromIndex = herds.findIndex(
-    (herd) => herd.paddockId === fromPaddockId && herd.category === category,
-  );
-  if (fromIndex < 0 || herds[fromIndex].count < quantity) {
+  const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
+  if (!fromHerd || fromHerd.count < quantity) {
     return reply.status(409).send({
       code: "INSUFFICIENT_STOCK",
       message: "No hay suficiente stock en el potrero de origen.",
     });
   }
+  await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
+  await saveHerdStock(toPaddockId, category, quantity, now);
 
-  herds[fromIndex] = {
-    ...herds[fromIndex],
-    count: herds[fromIndex].count - quantity,
-    updatedAt: now,
-  };
-
-  const toIndex = herds.findIndex(
-    (herd) => herd.paddockId === toPaddockId && herd.category === category,
-  );
-  if (toIndex >= 0) {
-    herds[toIndex] = {
-      ...herds[toIndex],
-      count: herds[toIndex].count + quantity,
-      updatedAt: now,
-    };
-  } else {
-    herds.push({
-      paddockId: toPaddockId,
-      category,
-      count: quantity,
-      updatedAt: now,
-    });
-  }
-
-  await saveHerds(herds);
-
-  const movements = await loadMovements();
   const movement: HerdMovement = {
     id: randomUUID(),
     establishmentId,
@@ -438,9 +455,9 @@ app.post("/movements", async (request, reply) => {
     occurredAt: occurredAt ?? now,
     createdAt: now,
   };
-  movements.push(movement);
-  await saveMovements(movements);
+  await insertMovement(movement);
 
+  const herds = await loadHerds();
   return reply.status(201).send({ ok: true, movement, herds });
 });
 
