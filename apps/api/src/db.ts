@@ -1,6 +1,25 @@
 import { MongoClient } from "mongodb";
 
-const MONGODB_URI = process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017";
+const buildMongoUri = () => {
+  if (process.env.MONGODB_URI) {
+    return process.env.MONGODB_URI;
+  }
+
+  const host = process.env.MONGODB_HOST ?? "127.0.0.1";
+  const port = process.env.MONGODB_PORT ?? "27017";
+  const username = process.env.MONGODB_USERNAME;
+  const password = process.env.MONGODB_PASSWORD;
+  const authSource = process.env.MONGODB_AUTH_SOURCE ?? "admin";
+  const dbName = process.env.MONGODB_DB ?? "establecimiento_ganadero";
+
+  if (!username || !password) {
+    return `mongodb://${host}:${port}`;
+  }
+
+  return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(dbName)}?authSource=${encodeURIComponent(authSource)}`;
+};
+
+const MONGODB_URI = buildMongoUri();
 const MONGODB_DB = process.env.MONGODB_DB ?? "establecimiento_ganadero";
 
 let client: MongoClient | null = null;
