@@ -10,7 +10,7 @@ const buildMongoUri = () => {
   const username = process.env.MONGODB_USERNAME;
   const password = process.env.MONGODB_PASSWORD;
   const authSource = process.env.MONGODB_AUTH_SOURCE ?? "admin";
-  const dbName = process.env.MONGODB_DB ?? "seguros";
+  const dbName = process.env.MONGODB_DB ?? "establecimiento_ganadero";
 
   if (!username || !password) {
     return `mongodb://${host}:${port}`;
@@ -20,7 +20,7 @@ const buildMongoUri = () => {
 };
 
 const MONGODB_URI = buildMongoUri();
-const MONGODB_DB = process.env.MONGODB_DB ?? "seguros";
+const MONGODB_DB = process.env.MONGODB_DB ?? "establecimiento_ganadero";
 
 let client: MongoClient | null = null;
 

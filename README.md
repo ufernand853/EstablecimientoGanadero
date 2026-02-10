@@ -21,14 +21,16 @@ npm install
 npm run dev:api
 ```
 
-Para este entorno, usa la URI y base de datos de `seguros` (ver `.env.example`):
+Para este entorno, usa la URI con el usuario/password provistos y la base `establecimiento_ganadero` (ver `.env.example`):
 
 ```bash
-export MONGODB_URI="mongodb://adminulifer:ID.,Gv-Wxbc6@localhost:27017/seguros?authSource=admin"
-export MONGODB_DB="seguros"
+export MONGODB_URI="mongodb://adminulifer:ID.,Gv-Wxbc6@localhost:27017/establecimiento_ganadero?authSource=admin"
+export MONGODB_DB="establecimiento_ganadero"
 ```
 
 También puedes configurar por partes (`MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `MONGODB_AUTH_SOURCE`).
+
+MongoDB crea la base automáticamente cuando se inserta el primer documento, así que si no existe se crea por defecto al operar la API.
 
 ### 3) Start Web
 ```bash
