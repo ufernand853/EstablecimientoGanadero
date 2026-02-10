@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { getApiUrl } from "../lib/api-url";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = getApiUrl();
 
 type Establishment = { id: string; name: string };
 type Paddock = { id: string; establishmentId: string; name: string };
