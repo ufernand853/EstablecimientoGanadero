@@ -66,6 +66,24 @@ type HerdMovement = {
   createdAt: string;
 };
 
+type Consignor = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type Slaughterhouse = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -73,14 +91,18 @@ const getCollections = async () => {
     paddocks: db.collection<Paddock>("paddocks"),
     herds: db.collection<HerdStock>("herds"),
     movements: db.collection<HerdMovement>("movements"),
+    consignors: db.collection<Consignor>("consignors"),
+    slaughterhouses: db.collection<Slaughterhouse>("slaughterhouses"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
 };
 
 const loadContext = async () => {
-  const { commandContext } = await getCollections();
+  const { commandContext, consignors, slaughterhouses } = await getCollections();
   const baseContext = await commandContext.findOne({ _id: "default" });
+  const consignorDocs = await consignors.find({ status: "ACTIVE" }).toArray();
+  const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE" }).toArray();
   const safeBaseContext: CommandContext = baseContext
     ? {
         paddocks: baseContext.paddocks,
@@ -98,6 +120,12 @@ const loadContext = async () => {
     paddocks: paddocks.length
       ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
       : safeBaseContext.paddocks,
+    consignors: consignorDocs.length
+      ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
+      : safeBaseContext.consignors,
+    slaughterhouses: slaughterhouseDocs.length
+      ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
+      : safeBaseContext.slaughterhouses,
   };
 };
 
@@ -114,6 +142,22 @@ const insertEstablishment = async (establishment: Establishment) => {
 const updateEstablishment = async (id: string, data: Partial<Establishment>) => {
   const { establishments } = await getCollections();
   await establishments.updateOne({ id }, { $set: data });
+};
+
+const deleteEstablishment = async (id: string) => {
+  const { establishments, paddocks, herds, movements, consignors, slaughterhouses } = await getCollections();
+  const paddockDocs = await paddocks.find({ establishmentId: id }).toArray();
+  const paddockIds = paddockDocs.map((paddock) => paddock.id);
+  if (paddockIds.length) {
+    await herds.deleteMany({ paddockId: { $in: paddockIds } });
+  }
+  await Promise.all([
+    paddocks.deleteMany({ establishmentId: id }),
+    movements.deleteMany({ establishmentId: id }),
+    consignors.deleteMany({ establishmentId: id }),
+    slaughterhouses.deleteMany({ establishmentId: id }),
+    establishments.deleteOne({ id }),
+  ]);
 };
 
 const findEstablishmentById = async (id: string) => {
@@ -134,6 +178,18 @@ const insertPaddock = async (paddock: Paddock) => {
 const updatePaddock = async (id: string, data: Partial<Paddock>) => {
   const { paddocks } = await getCollections();
   await paddocks.updateOne({ id }, { $set: data });
+};
+
+const deletePaddock = async (paddock: Paddock) => {
+  const { paddocks, herds, movements } = await getCollections();
+  await Promise.all([
+    paddocks.deleteOne({ id: paddock.id }),
+    herds.deleteMany({ paddockId: paddock.id }),
+    movements.deleteMany({
+      establishmentId: paddock.establishmentId,
+      $or: [{ fromPaddockId: paddock.id }, { toPaddockId: paddock.id }],
+    }),
+  ]);
 };
 
 const findPaddockById = async (id: string) => {
@@ -189,6 +245,28 @@ const insertMovement = async (movement: HerdMovement) => {
   await movements.insertOne(movement);
 };
 
+const consignorSchema = z.object({
+  establishmentId: z.string().uuid(),
+  name: z.string().min(2),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const consignorUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const slaughterhouseSchema = z.object({
+  establishmentId: z.string().uuid(),
+  name: z.string().min(2),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const slaughterhouseUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
 app.get("/health", async () => ({ status: "ok" }));
 
 app.post("/commands/parse", async (request, reply) => {
@@ -213,12 +291,94 @@ app.post("/commands/confirm", async (request, reply) => {
     });
   }
 
-  await appendConfirmation(body.data as Record<string, unknown>);
+  const parsed = body.data.edits && typeof body.data.edits === "object"
+    ? (body.data.edits as { parsed?: { intent?: string; proposedOperations?: Array<{ payload?: Record<string, unknown>; occurredAt?: string }> } }).parsed
+    : undefined;
+
+  const createdEventIds: string[] = [];
+  if (parsed?.intent === "MOVE") {
+    const movePayload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const quantity = Number(movePayload.qty);
+    const category = typeof movePayload.category === "string" ? movePayload.category : "";
+    const fromPaddockId = typeof movePayload.fromPaddockId === "string" ? movePayload.fromPaddockId : "";
+    const toPaddockId = typeof movePayload.toPaddockId === "string" ? movePayload.toPaddockId : "";
+    const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
+
+    if (!quantity || !category || !fromPaddockId || !toPaddockId) {
+      return reply.status(400).send({
+        code: "INVALID_MOVE_PAYLOAD",
+        message: "No se pudo confirmar el movimiento porque faltan datos en la previsualización.",
+      });
+    }
+
+    const [fromPaddock, toPaddock] = await Promise.all([
+      findPaddockById(fromPaddockId),
+      findPaddockById(toPaddockId),
+    ]);
+
+    if (!fromPaddock || !toPaddock) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+    }
+
+    if (
+      fromPaddock.establishmentId !== body.data.establishmentId ||
+      toPaddock.establishmentId !== body.data.establishmentId
+    ) {
+      return reply.status(400).send({
+        code: "ESTABLISHMENT_MISMATCH",
+        message: "Los potreros no pertenecen al establecimiento indicado.",
+      });
+    }
+
+    const now = new Date().toISOString();
+    const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
+    if (!fromHerd || fromHerd.count < quantity) {
+      return reply.status(409).send({
+        code: "INSUFFICIENT_STOCK",
+        message: "No hay suficiente stock en el potrero de origen.",
+      });
+    }
+
+    await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
+    await saveHerdStock(toPaddockId, category, quantity, now);
+
+    const movement: HerdMovement = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      fromPaddockId,
+      toPaddockId,
+      category,
+      quantity,
+      occurredAt: occurredAt ?? now,
+      createdAt: now,
+    };
+    await insertMovement(movement);
+    createdEventIds.push(movement.id);
+  }
+
+  await appendConfirmation({
+    ...body.data,
+    parsedIntent: parsed?.intent ?? null,
+    createdEventIds,
+  } as Record<string, unknown>);
+
   return reply.send({
     applied: true,
-    createdEventIds: [],
-    summary: "Operaciones confirmadas (stub).",
+    createdEventIds,
+    summary: createdEventIds.length
+      ? "Operaciones confirmadas y aplicadas."
+      : "Confirmación guardada sin operaciones automáticas.",
   });
+});
+
+app.get("/confirmations", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const { confirmations } = await getCollections();
+  const filtered = await confirmations
+    .find(establishmentId ? { establishmentId } : {})
+    .sort({ confirmedAt: -1 })
+    .toArray();
+  return { confirmations: filtered };
 });
 
 const establishmentSchema = z.object({
@@ -234,6 +394,14 @@ const establishmentUpdateSchema = z.object({
 app.get("/establishments", async () => {
   const establishments = await loadEstablishments();
   return { establishments };
+});
+
+app.get("/establishments/:id", async (request, reply) => {
+  const establishment = await findEstablishmentById(request.params.id);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  return reply.send(establishment);
 });
 
 app.post("/establishments", async (request, reply) => {
@@ -283,6 +451,15 @@ app.patch("/establishments/:id", async (request, reply) => {
   return reply.send(updated);
 });
 
+app.delete("/establishments/:id", async (request, reply) => {
+  const existing = await findEstablishmentById(request.params.id);
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  await deleteEstablishment(request.params.id);
+  return reply.status(204).send();
+});
+
 const paddockSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
@@ -299,6 +476,14 @@ app.get("/paddocks", async (request) => {
     .find(establishmentId ? { establishmentId } : {})
     .toArray();
   return { paddocks: filtered };
+});
+
+app.get("/paddocks/:id", async (request, reply) => {
+  const paddock = await findPaddockById(request.params.id);
+  if (!paddock) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+  }
+  return reply.send(paddock);
 });
 
 app.post("/paddocks", async (request, reply) => {
@@ -349,6 +534,15 @@ app.patch("/paddocks/:id", async (request, reply) => {
     updatedAt: updated.updatedAt,
   });
   return reply.send(updated);
+});
+
+app.delete("/paddocks/:id", async (request, reply) => {
+  const existing = await findPaddockById(request.params.id);
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+  }
+  await deletePaddock(existing);
+  return reply.status(204).send();
 });
 
 const herdAdjustSchema = z.object({
@@ -464,6 +658,148 @@ app.post("/movements", async (request, reply) => {
 
   const herds = await loadHerds();
   return reply.status(201).send({ ok: true, movement, herds });
+});
+
+app.get("/consignors", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const { consignors } = await getCollections();
+  const filtered = await consignors.find(establishmentId ? { establishmentId } : {}).toArray();
+  return { consignors: filtered };
+});
+
+app.get("/consignors/:id", async (request, reply) => {
+  const { consignors } = await getCollections();
+  const consignor = await consignors.findOne({ id: request.params.id });
+  if (!consignor) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Consignatario no encontrado." });
+  }
+  return reply.send(consignor);
+});
+
+app.post("/consignors", async (request, reply) => {
+  const body = consignorSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const now = new Date().toISOString();
+  const consignor: Consignor = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    name: body.data.name,
+    status: body.data.status ?? "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { consignors } = await getCollections();
+  await consignors.insertOne(consignor);
+  return reply.status(201).send(consignor);
+});
+
+app.patch("/consignors/:id", async (request, reply) => {
+  const body = consignorUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { consignors } = await getCollections();
+  const existing = await consignors.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Consignatario no encontrado." });
+  }
+  const updated = {
+    ...existing,
+    ...body.data,
+    updatedAt: new Date().toISOString(),
+  };
+  await consignors.updateOne(
+    { id: request.params.id },
+    { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } },
+  );
+  return reply.send(updated);
+});
+
+app.delete("/consignors/:id", async (request, reply) => {
+  const { consignors } = await getCollections();
+  const existing = await consignors.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Consignatario no encontrado." });
+  }
+  await consignors.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
+});
+
+app.get("/slaughterhouses", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const { slaughterhouses } = await getCollections();
+  const filtered = await slaughterhouses.find(establishmentId ? { establishmentId } : {}).toArray();
+  return { slaughterhouses: filtered };
+});
+
+app.get("/slaughterhouses/:id", async (request, reply) => {
+  const { slaughterhouses } = await getCollections();
+  const slaughterhouse = await slaughterhouses.findOne({ id: request.params.id });
+  if (!slaughterhouse) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+  }
+  return reply.send(slaughterhouse);
+});
+
+app.post("/slaughterhouses", async (request, reply) => {
+  const body = slaughterhouseSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const now = new Date().toISOString();
+  const slaughterhouse: Slaughterhouse = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    name: body.data.name,
+    status: body.data.status ?? "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { slaughterhouses } = await getCollections();
+  await slaughterhouses.insertOne(slaughterhouse);
+  return reply.status(201).send(slaughterhouse);
+});
+
+app.patch("/slaughterhouses/:id", async (request, reply) => {
+  const body = slaughterhouseUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { slaughterhouses } = await getCollections();
+  const existing = await slaughterhouses.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+  }
+  const updated = {
+    ...existing,
+    ...body.data,
+    updatedAt: new Date().toISOString(),
+  };
+  await slaughterhouses.updateOne(
+    { id: request.params.id },
+    { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } },
+  );
+  return reply.send(updated);
+});
+
+app.delete("/slaughterhouses/:id", async (request, reply) => {
+  const { slaughterhouses } = await getCollections();
+  const existing = await slaughterhouses.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+  }
+  await slaughterhouses.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
 });
 
 const start = async () => {
