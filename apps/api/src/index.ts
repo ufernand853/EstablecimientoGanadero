@@ -291,12 +291,94 @@ app.post("/commands/confirm", async (request, reply) => {
     });
   }
 
-  await appendConfirmation(body.data as Record<string, unknown>);
+  const parsed = body.data.edits && typeof body.data.edits === "object"
+    ? (body.data.edits as { parsed?: { intent?: string; proposedOperations?: Array<{ payload?: Record<string, unknown>; occurredAt?: string }> } }).parsed
+    : undefined;
+
+  const createdEventIds: string[] = [];
+  if (parsed?.intent === "MOVE") {
+    const movePayload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const quantity = Number(movePayload.qty);
+    const category = typeof movePayload.category === "string" ? movePayload.category : "";
+    const fromPaddockId = typeof movePayload.fromPaddockId === "string" ? movePayload.fromPaddockId : "";
+    const toPaddockId = typeof movePayload.toPaddockId === "string" ? movePayload.toPaddockId : "";
+    const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
+
+    if (!quantity || !category || !fromPaddockId || !toPaddockId) {
+      return reply.status(400).send({
+        code: "INVALID_MOVE_PAYLOAD",
+        message: "No se pudo confirmar el movimiento porque faltan datos en la previsualización.",
+      });
+    }
+
+    const [fromPaddock, toPaddock] = await Promise.all([
+      findPaddockById(fromPaddockId),
+      findPaddockById(toPaddockId),
+    ]);
+
+    if (!fromPaddock || !toPaddock) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+    }
+
+    if (
+      fromPaddock.establishmentId !== body.data.establishmentId ||
+      toPaddock.establishmentId !== body.data.establishmentId
+    ) {
+      return reply.status(400).send({
+        code: "ESTABLISHMENT_MISMATCH",
+        message: "Los potreros no pertenecen al establecimiento indicado.",
+      });
+    }
+
+    const now = new Date().toISOString();
+    const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
+    if (!fromHerd || fromHerd.count < quantity) {
+      return reply.status(409).send({
+        code: "INSUFFICIENT_STOCK",
+        message: "No hay suficiente stock en el potrero de origen.",
+      });
+    }
+
+    await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
+    await saveHerdStock(toPaddockId, category, quantity, now);
+
+    const movement: HerdMovement = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      fromPaddockId,
+      toPaddockId,
+      category,
+      quantity,
+      occurredAt: occurredAt ?? now,
+      createdAt: now,
+    };
+    await insertMovement(movement);
+    createdEventIds.push(movement.id);
+  }
+
+  await appendConfirmation({
+    ...body.data,
+    parsedIntent: parsed?.intent ?? null,
+    createdEventIds,
+  } as Record<string, unknown>);
+
   return reply.send({
     applied: true,
-    createdEventIds: [],
-    summary: "Operaciones confirmadas (stub).",
+    createdEventIds,
+    summary: createdEventIds.length
+      ? "Operaciones confirmadas y aplicadas."
+      : "Confirmación guardada sin operaciones automáticas.",
   });
+});
+
+app.get("/confirmations", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const { confirmations } = await getCollections();
+  const filtered = await confirmations
+    .find(establishmentId ? { establishmentId } : {})
+    .sort({ confirmedAt: -1 })
+    .toArray();
+  return { confirmations: filtered };
 });
 
 const establishmentSchema = z.object({
