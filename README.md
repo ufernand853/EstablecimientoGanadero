@@ -21,6 +21,15 @@ npm install
 npm run dev:api
 ```
 
+Para este entorno, usa la URI y base de datos de `seguros` (ver `.env.example`):
+
+```bash
+export MONGODB_URI="mongodb://adminulifer:ID.,Gv-Wxbc6@localhost:27017/seguros?authSource=admin"
+export MONGODB_DB="seguros"
+```
+
+También puedes configurar por partes (`MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `MONGODB_AUTH_SOURCE`).
+
 ### 3) Start Web
 ```bash
 npm run dev:web
