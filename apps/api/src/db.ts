@@ -19,8 +19,14 @@ const buildMongoUri = () => {
   return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(dbName)}?authSource=${encodeURIComponent(authSource)}`;
 };
 
+const getDbNameFromUri = (uri: string) => {
+  const dbNameMatch = uri.match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]+)/i);
+  return dbNameMatch?.[1] ? decodeURIComponent(dbNameMatch[1]) : null;
+};
+
 const MONGODB_URI = buildMongoUri();
-const MONGODB_DB = process.env.MONGODB_DB ?? "establecimiento_ganadero";
+const MONGODB_DB =
+  process.env.MONGODB_DB ?? getDbNameFromUri(MONGODB_URI) ?? "establecimiento_ganadero";
 
 let client: MongoClient | null = null;
 
