@@ -7,6 +7,7 @@ const seed = async () => {
   const paddocks = db.collection("paddocks");
   const herds = db.collection("herds");
   const commandContext = db.collection("command_context");
+  const herdCategories = db.collection("herd_categories");
 
   const hasEstablishments = await establishments.countDocuments();
   if (hasEstablishments > 0) {
@@ -47,6 +48,34 @@ const seed = async () => {
       paddockId: paddockSeed[1]?.id,
       category: "VAQUILLONAS",
       count: 80,
+      updatedAt: now,
+    },
+  ]);
+
+
+  await herdCategories.insertMany([
+    {
+      id: randomUUID(),
+      establishmentId,
+      name: "TERNEROS",
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: randomUUID(),
+      establishmentId,
+      name: "VAQUILLONAS",
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: randomUUID(),
+      establishmentId,
+      name: "TOROS",
+      status: "ACTIVE",
+      createdAt: now,
       updatedAt: now,
     },
   ]);
