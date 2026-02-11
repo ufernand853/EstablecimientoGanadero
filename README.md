@@ -37,6 +37,20 @@ MongoDB crea la base automáticamente cuando se inserta el primer documento, as�
 npm run dev:web
 ```
 
+
+## Ejecutar como servicio (Linux/systemd)
+Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
+
+Guía rápida (1 comando de instalación):
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+npm install
+npm --workspace apps/web run build
+./deploy/systemd/install-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
+```
+
+Ver más detalle en `deploy/systemd/README.md`.
+
 ## Datos de prueba (JSON)
 La API usa archivos JSON locales para el contexto, confirmaciones y stock:
 - `apps/api/src/data/context.json`: paddocks, consignors y slaughterhouses.
