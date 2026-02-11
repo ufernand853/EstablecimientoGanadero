@@ -2,3 +2,5 @@ node_modules/
 .next/
 dist/
 .env
+packages/shared/tests/*.js
+packages/shared/tests/*.d.ts
