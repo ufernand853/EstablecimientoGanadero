@@ -6,6 +6,7 @@ export default function HomePage() {
     { href: "/herds", label: "Lotes y categorías" },
     { href: "/operations", label: "Operaciones" },
     { href: "/commands", label: "Movimientos por texto" },
+    { href: "/masters/herd-categories", label: "Categorías" },
     { href: "/masters/consignors", label: "Consignatarios" },
     { href: "/masters/slaughterhouses", label: "Frigoríficos" },
     { href: "/slaughter-shipments", label: "Consignaciones" },

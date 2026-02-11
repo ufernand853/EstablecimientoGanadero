@@ -84,6 +84,15 @@ type Slaughterhouse = {
   updatedAt: string;
 };
 
+type HerdCategoryMaster = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -93,6 +102,7 @@ const getCollections = async () => {
     movements: db.collection<HerdMovement>("movements"),
     consignors: db.collection<Consignor>("consignors"),
     slaughterhouses: db.collection<Slaughterhouse>("slaughterhouses"),
+    herdCategories: db.collection<HerdCategoryMaster>("herd_categories"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
@@ -145,7 +155,7 @@ const updateEstablishment = async (id: string, data: Partial<Establishment>) => 
 };
 
 const deleteEstablishment = async (id: string) => {
-  const { establishments, paddocks, herds, movements, consignors, slaughterhouses } = await getCollections();
+  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories } = await getCollections();
   const paddockDocs = await paddocks.find({ establishmentId: id }).toArray();
   const paddockIds = paddockDocs.map((paddock) => paddock.id);
   if (paddockIds.length) {
@@ -156,6 +166,7 @@ const deleteEstablishment = async (id: string) => {
     movements.deleteMany({ establishmentId: id }),
     consignors.deleteMany({ establishmentId: id }),
     slaughterhouses.deleteMany({ establishmentId: id }),
+    herdCategories.deleteMany({ establishmentId: id }),
     establishments.deleteOne({ id }),
   ]);
 };
@@ -263,6 +274,17 @@ const slaughterhouseSchema = z.object({
 });
 
 const slaughterhouseUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const herdCategorySchema = z.object({
+  establishmentId: z.string().uuid(),
+  name: z.string().min(2),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const herdCategoryUpdateSchema = z.object({
   name: z.string().min(2).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
@@ -799,6 +821,109 @@ app.delete("/slaughterhouses/:id", async (request, reply) => {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
   }
   await slaughterhouses.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
+});
+
+app.get("/herd-categories", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const status = (request.query as { status?: "ACTIVE" | "INACTIVE" }).status;
+  const { herdCategories } = await getCollections();
+  const query: Record<string, unknown> = {};
+  if (establishmentId) query.establishmentId = establishmentId;
+  if (status) query.status = status;
+  const categories = await herdCategories.find(query).sort({ name: 1 }).toArray();
+  return { categories };
+});
+
+app.get("/herd-categories/:id", async (request, reply) => {
+  const { herdCategories } = await getCollections();
+  const category = await herdCategories.findOne({ id: request.params.id });
+  if (!category) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+  }
+  return reply.send(category);
+});
+
+app.post("/herd-categories", async (request, reply) => {
+  const body = herdCategorySchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const normalizedName = body.data.name.trim().toUpperCase();
+  const { herdCategories } = await getCollections();
+  const duplicated = await herdCategories.findOne({
+    establishmentId: body.data.establishmentId,
+    name: normalizedName,
+  });
+  if (duplicated) {
+    return reply.status(409).send({
+      code: "CATEGORY_ALREADY_EXISTS",
+      message: "La categoría ya existe para el establecimiento seleccionado.",
+    });
+  }
+  const now = new Date().toISOString();
+  const category: HerdCategoryMaster = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    name: normalizedName,
+    status: body.data.status ?? "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await herdCategories.insertOne(category);
+  return reply.status(201).send(category);
+});
+
+app.patch("/herd-categories/:id", async (request, reply) => {
+  const body = herdCategoryUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { herdCategories } = await getCollections();
+  const existing = await herdCategories.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+  }
+  const nextName = body.data.name ? body.data.name.trim().toUpperCase() : existing.name;
+  if (nextName !== existing.name) {
+    const duplicated = await herdCategories.findOne({
+      establishmentId: existing.establishmentId,
+      name: nextName,
+    });
+    if (duplicated && duplicated.id !== request.params.id) {
+      return reply.status(409).send({
+        code: "CATEGORY_ALREADY_EXISTS",
+        message: "Ya existe otra categoría con ese nombre.",
+      });
+    }
+  }
+
+  const updated = {
+    ...existing,
+    ...body.data,
+    name: nextName,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await herdCategories.updateOne(
+    { id: request.params.id },
+    { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } },
+  );
+
+  return reply.send(updated);
+});
+
+app.delete("/herd-categories/:id", async (request, reply) => {
+  const { herdCategories } = await getCollections();
+  const existing = await herdCategories.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+  }
+  await herdCategories.deleteOne({ id: request.params.id });
   return reply.status(204).send();
 });
 

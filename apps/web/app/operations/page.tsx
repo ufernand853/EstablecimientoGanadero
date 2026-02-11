@@ -7,6 +7,7 @@ const API_URL = getApiUrl();
 
 type Establishment = { id: string; name: string };
 type Paddock = { id: string; establishmentId: string; name: string };
+type HerdCategory = { id: string; establishmentId: string; name: string; status: "ACTIVE" | "INACTIVE" };
 type Movement = {
   id: string;
   establishmentId: string;
@@ -21,6 +22,7 @@ export default function OperationsPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
+  const [categories, setCategories] = useState<HerdCategory[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [fromPaddockId, setFromPaddockId] = useState("");
   const [toPaddockId, setToPaddockId] = useState("");
@@ -36,17 +38,23 @@ export default function OperationsPage() {
     if (!currentId) return;
     setEstablishmentId(currentId);
 
-    const [paddocksResp, movementsResp] = await Promise.all([
+    const [paddocksResp, movementsResp, categoriesResp] = await Promise.all([
       fetch(`${API_URL}/paddocks?establishmentId=${currentId}`, { cache: "no-store" }),
       fetch(`${API_URL}/movements?establishmentId=${currentId}`, { cache: "no-store" }),
+      fetch(`${API_URL}/herd-categories?establishmentId=${currentId}&status=ACTIVE`, { cache: "no-store" }),
     ]);
     const paddocksData = (await paddocksResp.json()) as { paddocks: Paddock[] };
     const movementsData = (await movementsResp.json()) as { movements: Movement[] };
+    const categoriesData = (await categoriesResp.json()) as { categories: HerdCategory[] };
     setPaddocks(paddocksData.paddocks);
     setMovements(movementsData.movements);
+    setCategories(categoriesData.categories);
     if (paddocksData.paddocks.length) {
       setFromPaddockId((prev) => prev || paddocksData.paddocks[0]?.id || "");
       setToPaddockId((prev) => prev || paddocksData.paddocks[1]?.id || paddocksData.paddocks[0]?.id || "");
+    }
+    if (categoriesData.categories.length) {
+      setCategory((prev) => categoriesData.categories.some((item) => item.name === prev) ? prev : categoriesData.categories[0]?.name || "");
     }
   };
 
@@ -91,10 +99,13 @@ export default function OperationsPage() {
           <select className="rounded bg-slate-800 p-2 text-sm" value={toPaddockId} onChange={(e) => setToPaddockId(e.target.value)}>
             {paddocks.map((p) => <option key={p.id} value={p.id}>Hacia: {p.name}</option>)}
           </select>
-          <input className="rounded bg-slate-800 p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value.toUpperCase())} />
+          <select className="rounded bg-slate-800 p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+          </select>
           <input className="rounded bg-slate-800 p-2 text-sm" type="number" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} min={1} />
           <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Guardar</button>
         </form>
+        {categories.length === 0 && <p className="mt-2 text-sm text-amber-300">No hay categorías activas para operar.</p>}
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </section>
 

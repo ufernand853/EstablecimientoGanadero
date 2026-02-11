@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     { href: "/herds", label: "Stock" },
     { href: "/operations", label: "Operaciones" },
     { href: "/commands", label: "Movimientos por texto" },
+    { href: "/masters/herd-categories", label: "Categorías" },
   ];
 
   return (

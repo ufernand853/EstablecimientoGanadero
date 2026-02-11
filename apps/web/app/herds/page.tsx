@@ -8,10 +8,12 @@ const API_URL = getApiUrl();
 type Establishment = { id: string; name: string };
 type Paddock = { id: string; establishmentId: string; name: string };
 type Herd = { paddockId: string; category: string; count: number; updatedAt: string };
+type HerdCategory = { id: string; establishmentId: string; name: string; status: "ACTIVE" | "INACTIVE" };
 
 export default function HerdsPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
+  const [categories, setCategories] = useState<HerdCategory[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [herds, setHerds] = useState<Herd[]>([]);
   const [paddockId, setPaddockId] = useState("");
@@ -38,6 +40,18 @@ export default function HerdsPage() {
     }
   };
 
+  const loadCategories = async (selectedEstablishmentId: string) => {
+    if (!selectedEstablishmentId) return;
+    const response = await fetch(`${API_URL}/herd-categories?establishmentId=${selectedEstablishmentId}&status=ACTIVE`, {
+      cache: "no-store",
+    });
+    const data = (await response.json()) as { categories: HerdCategory[] };
+    setCategories(data.categories);
+    if (data.categories.length) {
+      setCategory((prev) => data.categories.some((item) => item.name === prev) ? prev : data.categories[0]?.name ?? "");
+    }
+  };
+
   const loadStock = async (selectedEstablishmentId: string) => {
     if (!selectedEstablishmentId) return;
     const response = await fetch(`${API_URL}/stock?establishmentId=${selectedEstablishmentId}`, { cache: "no-store" });
@@ -52,7 +66,7 @@ export default function HerdsPage() {
 
   useEffect(() => {
     if (!establishmentId) return;
-    Promise.all([loadPaddocks(establishmentId), loadStock(establishmentId)]).catch(() => setError("No se pudo cargar stock."));
+    Promise.all([loadPaddocks(establishmentId), loadCategories(establishmentId), loadStock(establishmentId)]).catch(() => setError("No se pudo cargar stock."));
   }, [establishmentId]);
 
   const handleAdjust = async (event: FormEvent) => {
@@ -86,10 +100,13 @@ export default function HerdsPage() {
           <select className="rounded bg-slate-800 p-2 text-sm" value={paddockId} onChange={(e) => setPaddockId(e.target.value)}>
             {paddocks.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <input className="rounded bg-slate-800 p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value.toUpperCase())} placeholder="Categoría" />
+          <select className="rounded bg-slate-800 p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+          </select>
           <input className="rounded bg-slate-800 p-2 text-sm" type="number" value={delta} onChange={(e) => setDelta(Number(e.target.value))} placeholder="Delta" />
           <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Aplicar</button>
         </form>
+        {categories.length === 0 && <p className="mt-2 text-sm text-amber-300">No hay categorías activas para este establecimiento.</p>}
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </section>
       <section className="rounded-lg bg-slate-900 p-4">
