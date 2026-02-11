@@ -58,6 +58,11 @@ const similarity = (a: string, b: string) => {
 
 const fuzzyFind = (value: string, items: NameEntity[], threshold = 0.72) => {
   const normalized = normalize(value);
+  const exactMatch = items.find((item) => normalize(item.name) === normalized);
+  if (exactMatch) {
+    return { match: exactMatch, alternatives: [] };
+  }
+
   const scored = items.map((item) => ({
     item,
     score: similarity(normalized, normalize(item.name)),
@@ -121,8 +126,9 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     const qtyMatch = text.match(/(\d+)/);
     const qty = qtyMatch ? Number(qtyMatch[1]) : null;
     const category = findCategory(text);
-    const fromMatch = text.match(/del?\s+([^a]+?)\s+al/i);
-    const toMatch = text.match(/al\s+([^,]+?)(?:\s+hoy|$)/i);
+    const [originSegment = "", destinationSegment = ""] = text.split(/\sal\s+/i, 2);
+    const fromMatch = originSegment.match(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*(.+)$/i);
+    const toMatch = destinationSegment.match(/^([^,]+?)(?:\s+hoy|$)/i);
     const fromName = fromMatch?.[1]?.trim() ?? "";
     const toName = toMatch?.[1]?.trim() ?? "";
     const from = fromName ? fuzzyFind(fromName, context.paddocks) : { match: null, alternatives: [] };
