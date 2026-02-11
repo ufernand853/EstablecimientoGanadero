@@ -1,0 +1,18 @@
+[Unit]
+Description=Establecimiento Ganadero API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/workspace/EstablecimientoGanadero
+Environment=NODE_ENV=production
+EnvironmentFile=/workspace/EstablecimientoGanadero/.env
+ExecStart=/usr/bin/env npm --workspace apps/api run start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
