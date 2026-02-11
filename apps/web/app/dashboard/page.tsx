@@ -24,11 +24,21 @@ type Movement = {
   occurredAt: string;
 };
 
+type HealthSchedule = {
+  scheduleStatus: "UPCOMING" | "OVERDUE";
+};
+
+type HealthEvent = {
+  status: "PENDING" | "COMPLETED" | "CANCELLED" | "OVERDUE";
+};
+
 export default function DashboardPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
   const [herds, setHerds] = useState<Herd[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
+  const [healthEvents, setHealthEvents] = useState<HealthEvent[]>([]);
+  const [healthSchedules, setHealthSchedules] = useState<HealthSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,27 +65,35 @@ export default function DashboardPage() {
         setPaddocks([]);
         setHerds([]);
         setMovements([]);
+        setHealthEvents([]);
+        setHealthSchedules([]);
         return;
       }
 
       const query = `establishmentId=${encodeURIComponent(firstEstablishment.id)}`;
-      const [paddocksResponse, stockResponse, movementsResponse] = await Promise.all([
+      const [paddocksResponse, stockResponse, movementsResponse, healthEventsResponse, healthSchedulesResponse] = await Promise.all([
         fetch(`${API_URL}/paddocks?${query}`, { cache: "no-store" }),
         fetch(`${API_URL}/stock?${query}`, { cache: "no-store" }),
         fetch(`${API_URL}/movements?${query}`, { cache: "no-store" }),
+        fetch(`${API_URL}/health-events?${query}`, { cache: "no-store" }),
+        fetch(`${API_URL}/health-schedules?${query}`, { cache: "no-store" }),
       ]);
 
-      if (!paddocksResponse.ok || !stockResponse.ok || !movementsResponse.ok) {
+      if (!paddocksResponse.ok || !stockResponse.ok || !movementsResponse.ok || !healthEventsResponse.ok || !healthSchedulesResponse.ok) {
         throw new Error("No se pudieron cargar los datos del dashboard.");
       }
 
       const paddocksData = (await paddocksResponse.json()) as { paddocks: Paddock[] };
       const stockData = (await stockResponse.json()) as { herds: Herd[] };
       const movementsData = (await movementsResponse.json()) as { movements: Movement[] };
+      const healthEventsData = (await healthEventsResponse.json()) as { healthEvents: HealthEvent[] };
+      const healthSchedulesData = (await healthSchedulesResponse.json()) as { schedules: HealthSchedule[] };
 
       setPaddocks(paddocksData.paddocks);
       setHerds(stockData.herds);
       setMovements(movementsData.movements);
+      setHealthEvents(healthEventsData.healthEvents);
+      setHealthSchedules(healthSchedulesData.schedules);
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Error inesperado.");
     } finally {
@@ -91,6 +109,8 @@ export default function DashboardPage() {
     const totalStock = herds.reduce((accumulator, herd) => accumulator + herd.count, 0);
     const occupiedPaddocks = new Set(herds.filter((herd) => herd.count > 0).map((herd) => herd.paddockId)).size;
     const upcomingOperations = movements.filter((movement) => new Date(movement.occurredAt) > new Date()).length;
+    const overdueHealth = healthSchedules.filter((item) => item.scheduleStatus === "OVERDUE").length;
+    const pendingHealth = healthEvents.filter((item) => item.status === "PENDING").length;
 
     return [
       {
@@ -105,8 +125,16 @@ export default function DashboardPage() {
         title: "Operaciones próximas",
         value: String(upcomingOperations),
       },
+      {
+        title: "Sanidad pendiente",
+        value: String(pendingHealth),
+      },
+      {
+        title: "Sanidad vencida",
+        value: String(overdueHealth),
+      },
     ];
-  }, [herds, paddocks.length, movements]);
+  }, [healthEvents, healthSchedules, herds, paddocks.length, movements]);
 
   return (
     <main className="space-y-6">
@@ -127,6 +155,18 @@ export default function DashboardPage() {
           {error}
         </section>
       )}
+
+      <section className="rounded-lg bg-emerald-900/30 p-4 text-sm text-emerald-100">
+        <p className="font-semibold">Nuevos módulos disponibles</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a className="rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" href="/health">
+            Ir a Gestión sanitaria
+          </a>
+          <a className="rounded bg-slate-800 px-3 py-2 text-xs text-slate-200" href="/insemination">
+            Ir a Inseminación
+          </a>
+        </div>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-3">
         {cards.map((card) => (
