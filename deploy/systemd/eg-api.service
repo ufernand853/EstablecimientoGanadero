@@ -7,7 +7,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/workspace/EstablecimientoGanadero
 Environment=NODE_ENV=production
-EnvironmentFile=/workspace/EstablecimientoGanadero/.env
+EnvironmentFile=-/workspace/EstablecimientoGanadero/.env
 ExecStart=/usr/bin/env npm --workspace apps/api run start
 Restart=always
 RestartSec=5

@@ -2,38 +2,52 @@
 
 Estas unidades permiten ejecutar la app en Linux como servicios persistentes, independientes de la sesión SSH.
 
-## 1) Preparar app
+## Opción recomendada (1 comando): generar + instalar servicios
+
+Desde la raíz del repo:
 
 ```bash
-cd /workspace/EstablecimientoGanadero
-npm install
-npm --workspace apps/web run build
+cd /home/adminuser/EstablecimientoGanadero
+./deploy/systemd/install-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
 ```
 
-## 2) Ajustar plantillas
+Este script:
 
-Antes de instalar, revisa en ambos archivos:
+- genera `eg-api.service` y `eg-web.service` temporalmente,
+- los copia a `/etc/systemd/system/`,
+- hace `daemon-reload`,
+- y ejecuta `enable --now` para ambos servicios.
 
-- `User=ubuntu` (cámbialo por el usuario real del servidor)
-- `WorkingDirectory=/workspace/EstablecimientoGanadero` (ajústalo a tu path real)
-- `EnvironmentFile=/workspace/EstablecimientoGanadero/.env` (si usas otra ubicación)
+> También puedes omitir argumentos y tomará por defecto `--user $(id -un)` y `--project-dir $(pwd)`.
 
-Archivos:
 
-- `deploy/systemd/eg-api.service`
-- `deploy/systemd/eg-web.service`
-
-## 3) Instalar servicios en systemd
+Para pruebas sin tocar systemd, usa:
 
 ```bash
-sudo cp deploy/systemd/eg-api.service /etc/systemd/system/
-sudo cp deploy/systemd/eg-web.service /etc/systemd/system/
+./deploy/systemd/install-services.sh --systemd-dir /tmp/systemd-test --skip-systemctl
+```
+
+## Alternativa manual (si prefieres separar pasos)
+
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+./deploy/systemd/render-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
+sudo cp deploy/systemd/generated/eg-api.service /etc/systemd/system/
+sudo cp deploy/systemd/generated/eg-web.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now eg-api.service
 sudo systemctl enable --now eg-web.service
 ```
 
-## 4) Verificar estado y logs
+## Preparar app
+
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+npm install
+npm --workspace apps/web run build
+```
+
+## Verificar estado y logs
 
 ```bash
 sudo systemctl status eg-api.service --no-pager
@@ -42,7 +56,7 @@ journalctl -u eg-api.service -f
 journalctl -u eg-web.service -f
 ```
 
-## 5) Operación diaria
+## Operación diaria
 
 ```bash
 sudo systemctl restart eg-api.service
@@ -53,10 +67,10 @@ sudo systemctl start eg-api.service
 sudo systemctl start eg-web.service
 ```
 
-## 6) Actualizaciones de código
+## Actualizaciones de código
 
 ```bash
-cd /workspace/EstablecimientoGanadero
+cd /home/adminuser/EstablecimientoGanadero
 git pull
 npm install
 npm --workspace apps/web run build
@@ -67,4 +81,6 @@ sudo systemctl restart eg-api.service eg-web.service
 
 - API usa `npm --workspace apps/api run start`.
 - Web usa `npm --workspace apps/web run start` y requiere build previo.
-- Si no quieres acoplar Web->API, elimina `Requires=eg-api.service` y `After=... eg-api.service` de `eg-web.service`.
+- `eg-web.service` usa `Wants=eg-api.service` (dependencia blanda), para evitar que web falle si API no inicia.
+- Si quieres acoplamiento estricto, cambia `Wants` por `Requires` y agrega `After=network.target eg-api.service`.
+- `EnvironmentFile=-.../.env` usa prefijo `-` para no fallar si falta el `.env`.
