@@ -16,28 +16,23 @@ Multi-tenant web app for extensive livestock ranch management with event-sourced
 npm install
 ```
 
-### 2) Start API
+### 2) Configure MongoDB env
+La API ahora carga variables automáticamente desde `.env` y, si no existe, desde `.env.example`.
+
+```bash
+cp .env.example .env
+```
+
+Si prefieres configurar manualmente, define `MONGODB_URI` (o usa variables separadas: `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `MONGODB_AUTH_SOURCE`, `MONGODB_DB`).
+
+### 3) Start API
 ```bash
 npm run dev:api
 ```
 
-Para este entorno, usa la URI con el usuario/password provistos y la base `establecimiento_ganadero` (ver `.env.example`):
-
-```bash
-export MONGODB_URI="mongodb://adminulifer:ID.,Gv-Wxbc6@localhost:27017/establecimiento_ganadero?authSource=admin"
-```
-
-Con esa `MONGODB_URI` alcanza (la API toma el nombre de base desde la URL). Si quieres forzarlo manualmente, define además:
-
-```bash
-export MONGODB_DB="establecimiento_ganadero"
-```
-
-También puedes configurar por partes (`MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USERNAME`, `MONGODB_PASSWORD`, `MONGODB_AUTH_SOURCE`).
-
 MongoDB crea la base automáticamente cuando se inserta el primer documento, así que si no existe se crea por defecto al operar la API.
 
-### 3) Start Web
+### 4) Start Web
 ```bash
 npm run dev:web
 ```
