@@ -66,6 +66,29 @@ type HerdMovement = {
   createdAt: string;
 };
 
+type HealthEventType = "VACCINATION" | "DEWORMING" | "TREATMENT";
+
+type HealthEventStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "OVERDUE";
+
+type HealthEvent = {
+  id: string;
+  establishmentId: string;
+  type: HealthEventType;
+  category: string;
+  qty: number;
+  product: string;
+  dose: string | null;
+  route: string | null;
+  notes: string | null;
+  responsible: string | null;
+  occurredAt: string;
+  nextDueAt: string | null;
+  status: HealthEventStatus;
+  source: "MANUAL" | "COMMAND";
+  createdAt: string;
+  updatedAt: string;
+};
+
 type Consignor = {
   id: string;
   establishmentId: string;
@@ -103,6 +126,7 @@ const getCollections = async () => {
     consignors: db.collection<Consignor>("consignors"),
     slaughterhouses: db.collection<Slaughterhouse>("slaughterhouses"),
     herdCategories: db.collection<HerdCategoryMaster>("herd_categories"),
+    healthEvents: db.collection<HealthEvent>("health_events"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
@@ -155,7 +179,7 @@ const updateEstablishment = async (id: string, data: Partial<Establishment>) => 
 };
 
 const deleteEstablishment = async (id: string) => {
-  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories } = await getCollections();
+  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories, healthEvents } = await getCollections();
   const paddockDocs = await paddocks.find({ establishmentId: id }).toArray();
   const paddockIds = paddockDocs.map((paddock) => paddock.id);
   if (paddockIds.length) {
@@ -167,6 +191,7 @@ const deleteEstablishment = async (id: string) => {
     consignors.deleteMany({ establishmentId: id }),
     slaughterhouses.deleteMany({ establishmentId: id }),
     herdCategories.deleteMany({ establishmentId: id }),
+    healthEvents.deleteMany({ establishmentId: id }),
     establishments.deleteOne({ id }),
   ]);
 };
@@ -256,6 +281,11 @@ const insertMovement = async (movement: HerdMovement) => {
   await movements.insertOne(movement);
 };
 
+const insertHealthEvent = async (healthEvent: HealthEvent) => {
+  const { healthEvents } = await getCollections();
+  await healthEvents.insertOne(healthEvent);
+};
+
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
@@ -287,6 +317,37 @@ const herdCategorySchema = z.object({
 const herdCategoryUpdateSchema = z.object({
   name: z.string().min(2).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const healthEventSchema = z.object({
+  establishmentId: z.string().uuid(),
+  type: z.enum(["VACCINATION", "DEWORMING", "TREATMENT"]),
+  category: z.string().min(2),
+  qty: z.number().int().positive(),
+  product: z.string().min(2),
+  dose: z.string().min(1).optional().nullable(),
+  route: z.string().min(1).optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
+  responsible: z.string().min(2).optional().nullable(),
+  occurredAt: z.string().datetime().optional(),
+  nextDueAt: z.string().datetime().optional().nullable(),
+  protocolDays: z.number().int().positive().optional(),
+  status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "OVERDUE"]).optional(),
+  source: z.enum(["MANUAL", "COMMAND"]).optional(),
+});
+
+const healthEventUpdateSchema = z.object({
+  type: z.enum(["VACCINATION", "DEWORMING", "TREATMENT"]).optional(),
+  category: z.string().min(2).optional(),
+  qty: z.number().int().positive().optional(),
+  product: z.string().min(2).optional(),
+  dose: z.string().min(1).nullable().optional(),
+  route: z.string().min(1).nullable().optional(),
+  notes: z.string().min(1).nullable().optional(),
+  responsible: z.string().min(2).nullable().optional(),
+  occurredAt: z.string().datetime().optional(),
+  nextDueAt: z.string().datetime().nullable().optional(),
+  status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "OVERDUE"]).optional(),
 });
 
 app.get("/health", async () => ({ status: "ok" }));
@@ -378,6 +439,44 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(movement.id);
   }
 
+  if (parsed?.intent === "VACCINATION") {
+    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const qty = Number(payload.qty);
+    const category = typeof payload.category === "string" ? payload.category : "";
+    const product = typeof payload.product === "string" ? payload.product : "";
+    const dose = typeof payload.dose === "string" ? payload.dose : null;
+    const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
+
+    if (!qty || !category || !product) {
+      return reply.status(400).send({
+        code: "INVALID_VACCINATION_PAYLOAD",
+        message: "No se pudo confirmar la vacunación porque faltan datos en la previsualización.",
+      });
+    }
+
+    const now = new Date().toISOString();
+    const healthEvent: HealthEvent = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      type: "VACCINATION",
+      category,
+      qty,
+      product,
+      dose,
+      route: null,
+      notes: null,
+      responsible: null,
+      occurredAt: occurredAt ?? now,
+      nextDueAt: null,
+      status: "COMPLETED",
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertHealthEvent(healthEvent);
+    createdEventIds.push(healthEvent.id);
+  }
+
   await appendConfirmation({
     ...body.data,
     parsedIntent: parsed?.intent ?? null,
@@ -391,6 +490,105 @@ app.post("/commands/confirm", async (request, reply) => {
       ? "Operaciones confirmadas y aplicadas."
       : "Confirmación guardada sin operaciones automáticas.",
   });
+});
+
+app.get("/health-events", async (request) => {
+  const { establishmentId, status, type } = request.query as {
+    establishmentId?: string;
+    status?: HealthEventStatus;
+    type?: HealthEventType;
+  };
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (status) filter.status = status;
+  if (type) filter.type = type;
+  const { healthEvents } = await getCollections();
+  const events = await healthEvents.find(filter).sort({ occurredAt: -1 }).toArray();
+  return { healthEvents: events };
+});
+
+app.post("/health-events", async (request, reply) => {
+  const body = healthEventSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const now = new Date().toISOString();
+  const occurredAt = body.data.occurredAt ?? now;
+  const nextDueAt = body.data.nextDueAt
+    ?? (body.data.protocolDays
+      ? new Date(new Date(occurredAt).getTime() + body.data.protocolDays * 24 * 60 * 60 * 1000).toISOString()
+      : null);
+  const healthEvent: HealthEvent = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    type: body.data.type,
+    category: body.data.category,
+    qty: body.data.qty,
+    product: body.data.product,
+    dose: body.data.dose ?? null,
+    route: body.data.route ?? null,
+    notes: body.data.notes ?? null,
+    responsible: body.data.responsible ?? null,
+    occurredAt,
+    nextDueAt,
+    status: body.data.status ?? "COMPLETED",
+    source: body.data.source ?? "MANUAL",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await insertHealthEvent(healthEvent);
+  return reply.status(201).send(healthEvent);
+});
+
+app.patch("/health-events/:id", async (request, reply) => {
+  const body = healthEventUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { healthEvents } = await getCollections();
+  const existing = await healthEvents.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Evento sanitario no encontrado." });
+  }
+
+  const updated: HealthEvent = {
+    ...existing,
+    ...body.data,
+    updatedAt: new Date().toISOString(),
+  };
+  await healthEvents.updateOne(
+    { id: request.params.id },
+    {
+      $set: {
+        ...body.data,
+        updatedAt: updated.updatedAt,
+      },
+    },
+  );
+  return reply.send(updated);
+});
+
+app.get("/health-schedules", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const nowIso = new Date().toISOString();
+  const { healthEvents } = await getCollections();
+  const filter: Record<string, unknown> = {
+    nextDueAt: { $ne: null },
+    status: { $nin: ["CANCELLED"] },
+  };
+  if (establishmentId) filter.establishmentId = establishmentId;
+  const events = await healthEvents.find(filter).sort({ nextDueAt: 1 }).toArray();
+  const schedules = events.map((event) => ({
+    ...event,
+    scheduleStatus: event.nextDueAt && event.nextDueAt < nowIso ? "OVERDUE" : "UPCOMING",
+  }));
+  return { schedules };
 });
 
 app.get("/confirmations", async (request) => {

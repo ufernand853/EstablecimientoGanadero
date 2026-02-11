@@ -14,7 +14,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     { href: "/paddocks", label: "Potreros" },
     { href: "/herds", label: "Stock" },
     { href: "/operations", label: "Operaciones" },
-    { href: "/commands", label: "Movimientos por texto" },
+    { href: "/health", label: "Gestión sanitaria" },
+    { href: "/commands", label: "Comandos por texto" },
+    { href: "/insemination", label: "Inseminación" },
     { href: "/masters/herd-categories", label: "Categorías" },
   ];
 
