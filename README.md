@@ -25,6 +25,11 @@ Para este entorno, usa la URI con el usuario/password provistos y la base `estab
 
 ```bash
 export MONGODB_URI="mongodb://adminulifer:ID.,Gv-Wxbc6@localhost:27017/establecimiento_ganadero?authSource=admin"
+```
+
+Con esa `MONGODB_URI` alcanza (la API toma el nombre de base desde la URL). Si quieres forzarlo manualmente, define además:
+
+```bash
 export MONGODB_DB="establecimiento_ganadero"
 ```
 
