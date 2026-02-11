@@ -24,6 +24,13 @@ describe("parseCommand", () => {
     expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 120 });
   });
 
+
+  it("parses MOVE commands using desde ... al", () => {
+    const result = parseCommand("Mover 30 terneros desde el Potrero 3 al Potrero 7", context);
+    expect(result.intent).toBe("MOVE");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
+  });
   it("parses MOVE with missing destination", () => {
     const result = parseCommand("Mover 50 terneros del Potrero 3", context);
     expect(result.intent).toBe("MOVE");
