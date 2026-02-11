@@ -1,4 +1,23 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { config as loadEnv } from "dotenv";
 import { MongoClient } from "mongodb";
+
+const loadEnvironment = () => {
+  const envPath = resolve(process.cwd(), ".env");
+  const envExamplePath = resolve(process.cwd(), ".env.example");
+
+  if (existsSync(envPath)) {
+    loadEnv({ path: envPath });
+    return;
+  }
+
+  if (existsSync(envExamplePath)) {
+    loadEnv({ path: envExamplePath });
+  }
+};
+
+loadEnvironment();
 
 const buildMongoUri = () => {
   if (process.env.MONGODB_URI) {
