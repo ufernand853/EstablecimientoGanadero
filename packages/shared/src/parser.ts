@@ -174,6 +174,48 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
+
+  if (normalized.startsWith("desparasitar")) {
+    const qtyMatch = text.match(/(\d+)/);
+    const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
+    const productMatch = text.match(/desparasitar\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
+    const category = findCategory(text);
+
+    result.intent = "DEWORMING";
+    result.confidence = 0.65;
+    if (!category) warnings.push("Falta categoría del lote a desparasitar.");
+    result.proposedOperations.push({
+      type: "DEWORMING",
+      occurredAt: parseDate(text),
+      payload: {
+        qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        product: productMatch?.[1]?.trim() ?? "desparasitación",
+        dose: doseMatch?.[1] ?? null,
+      },
+    });
+  }
+
+  if (normalized.startsWith("tratar") || normalized.startsWith("tratamiento")) {
+    const qtyMatch = text.match(/(\d+)/);
+    const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
+    const productMatch = text.match(/(?:tratar|tratamiento)\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
+    const category = findCategory(text);
+
+    result.intent = "TREATMENT";
+    result.confidence = 0.6;
+    if (!category) warnings.push("Falta categoría del lote en tratamiento.");
+    result.proposedOperations.push({
+      type: "TREATMENT",
+      occurredAt: parseDate(text),
+      payload: {
+        qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        product: productMatch?.[1]?.trim() ?? "tratamiento",
+        dose: doseMatch?.[1] ?? null,
+      },
+    });
+  }
   if (normalized.startsWith("iniciar entore")) {
     const cows = findCategory(text) ?? "VACAS";
     const bullsMatch = text.match(/con\s+(\d+)\s+toros/i);

@@ -48,6 +48,18 @@ describe("parseCommand", () => {
     expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 45 });
   });
 
+
+  it("parses DEWORMING commands", () => {
+    const result = parseCommand("Desparasitar 120 terneros ivermectina 5ml hoy", context);
+    expect(result.intent).toBe("DEWORMING");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 120 });
+  });
+
+  it("parses TREATMENT commands", () => {
+    const result = parseCommand("Tratar 30 vacas antibiótico 10ml", context);
+    expect(result.intent).toBe("TREATMENT");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 30 });
+  });
   it("parses BREEDING_START commands", () => {
     const result = parseCommand("Iniciar entore de vacas con 3 toros desde 15/11 hasta 15/01", context);
     expect(result.intent).toBe("BREEDING_START");
