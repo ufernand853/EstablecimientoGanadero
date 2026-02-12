@@ -149,6 +149,30 @@ type AnimalPhoto = {
   uploadedAt: string;
 };
 
+type OperationalEventKind = "BREEDING_START" | "WEANING" | "BRANDING" | "SLAUGHTER_SHIPMENT";
+
+type OperationalEvent = {
+  id: string;
+  establishmentId: string;
+  kind: OperationalEventKind;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+  source: "COMMAND";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AISettings = {
+  _id: "ai_settings";
+  openAiApiKey: string;
+  openAiModel: string;
+  updatedAt: string;
+};
+
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -162,9 +186,33 @@ const getCollections = async () => {
     healthEvents: db.collection<HealthEvent>("health_events"),
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
+    operationalEvents: db.collection<OperationalEvent>("operational_events"),
+    aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
+};
+
+const loadAISettings = async () => {
+  const { aiSettings } = await getCollections();
+  return aiSettings.findOne({ _id: "ai_settings" });
+};
+
+const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
+  const { aiSettings } = await getCollections();
+  const now = new Date().toISOString();
+  await aiSettings.updateOne(
+    { _id: "ai_settings" },
+    {
+      $set: {
+        openAiApiKey,
+        openAiModel,
+        updatedAt: now,
+      },
+    },
+    { upsert: true },
+  );
+  return now;
 };
 
 const loadContext = async () => {
@@ -313,7 +361,34 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
   };
 };
 
-const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, prompt: string) => {
+const extractOpenAIErrorMessage = (status: number, details: string) => {
+  try {
+    const parsed = JSON.parse(details) as { error?: { message?: string; code?: string } };
+    const message = parsed.error?.message?.trim();
+    const code = parsed.error?.code?.trim();
+    if (message && code) {
+      return `${message} (code: ${code})`;
+    }
+    if (message) {
+      return message;
+    }
+  } catch {
+    // ignore JSON parse issues
+  }
+
+  const compact = details.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return `Error HTTP ${status} al consultar OpenAI.`;
+  }
+  return compact.slice(0, 220);
+};
+
+const composeLocalAssistantResponse = (
+  snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>,
+  prompt: string,
+  reason: "MISSING_KEY" | "UPSTREAM_ERROR" = "MISSING_KEY",
+  upstreamDetail?: string,
+) => {
   const totalAnimals = snapshot.stock.reduce((acc, item) => acc + item.count, 0);
   const topStocks = [...snapshot.stock]
     .sort((a, b) => b.count - a.count)
@@ -321,23 +396,35 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
     .map((item) => `${item.category}: ${item.count} cabezas`)
     .join(", ");
 
+  const intro = reason === "MISSING_KEY"
+    ? "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:"
+    : "La API externa de IA devolvió un error. Respondo con resumen local de datos:";
+
+  const closing = reason === "MISSING_KEY"
+    ? `Tu consulta fue: "${prompt}". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`
+    : `Tu consulta fue: "${prompt}". Revisá la API key/modelo configurados en Admin API key para volver a habilitar respuestas generativas completas.`;
+
   return [
-    "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:",
+    intro,
     `- Stock total estimado: ${totalAnimals} cabezas.`,
     `- Potreros registrados: ${snapshot.paddocks.length}.`,
     `- Categorías activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorías"}.`,
     `- Resumen top stock: ${topStocks || "sin stock registrado"}.`,
     `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
     `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
+    ...(upstreamDetail ? [`- Detalle OpenAI: ${upstreamDetail}.`] : []),
     "",
-    `Tu consulta fue: \"${prompt}\". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`,
+    closing,
   ].join("\n");
 };
 
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const persistedSettings = await loadAISettings();
+  const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const prompt = messages[messages.length - 1]?.content ?? "";
+
   if (!apiKey) {
-    return composeLocalAssistantResponse(snapshot, messages[messages.length - 1]?.content ?? "");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const systemPrompt = [
@@ -348,47 +435,38 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      input: [
-        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+      model: persistedSettings?.openAiModel || DEFAULT_OPENAI_MODEL,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
         ...messages.map((message) => ({
           role: message.role,
-          content: [{ type: "input_text", text: message.content }],
+          content: message.content,
         })),
       ],
-      temperature: 0.4,
     }),
   });
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Fallo la API de IA: ${response.status} ${details}`);
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
+    app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
+    return composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", upstreamMessage);
   }
 
   const payload = await response.json() as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    choices?: Array<{ message?: { content?: string | null } }>;
   };
 
-  if (payload.output_text?.trim()) {
-    return payload.output_text;
-  }
-
-  const outputText = payload.output
-    ?.flatMap((item) => item.content ?? [])
-    .filter((item) => item.type === "output_text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
-
-  return outputText || "No se pudo generar una respuesta en este momento.";
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", "La respuesta de OpenAI llegó vacía");
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -421,6 +499,58 @@ const saveHerdStock = async (paddockId: string, category: string, delta: number,
   );
 };
 
+const loadEstablishmentPaddockIds = async (establishmentId: string) => {
+  const { paddocks } = await getCollections();
+  const paddockDocs = await paddocks.find({ establishmentId }, { projection: { id: 1 } }).toArray();
+  return paddockDocs.map((paddock) => paddock.id);
+};
+
+const getCategoryAvailability = async (establishmentId: string, category: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return 0;
+  }
+  const { herds } = await getCollections();
+  const rows = await herds.find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } }).toArray();
+  return rows.reduce((total, row) => total + row.count, 0);
+};
+
+const consumeStockAcrossPaddocks = async (establishmentId: string, category: string, quantity: number, updatedAt: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return null;
+  }
+
+  const { herds } = await getCollections();
+  const candidates = await herds
+    .find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } })
+    .sort({ count: -1 })
+    .toArray();
+
+  const available = candidates.reduce((acc, row) => acc + row.count, 0);
+  if (available < quantity) {
+    return null;
+  }
+
+  let remaining = quantity;
+  const allocations: Array<{ paddockId: string; quantity: number }> = [];
+
+  for (const row of candidates) {
+    if (remaining <= 0) {
+      break;
+    }
+    const consumed = Math.min(row.count, remaining);
+    if (consumed <= 0) {
+      continue;
+    }
+    await updateHerdStock(row.paddockId, category, row.count - consumed, updatedAt);
+    allocations.push({ paddockId: row.paddockId, quantity: consumed });
+    remaining -= consumed;
+  }
+
+  return allocations;
+};
+
 const insertMovement = async (movement: HerdMovement) => {
   const { movements } = await getCollections();
   await movements.insertOne(movement);
@@ -431,10 +561,111 @@ const insertHealthEvent = async (healthEvent: HealthEvent) => {
   await healthEvents.insertOne(healthEvent);
 };
 
+const insertOperationalEvent = async (event: OperationalEvent) => {
+  const { operationalEvents } = await getCollections();
+  await operationalEvents.insertOne(event);
+};
+
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const aiSettingsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+  apiKey: z.string().min(12),
+  model: z.string().min(3).max(120).optional(),
+});
+
+app.post("/admin/openai-settings", async (request, reply) => {
+  const parsed = aiSettingsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.status(400);
+    return { message: "Payload inválido.", issues: parsed.error.flatten() };
+  }
+
+  const { username, password, apiKey, model } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    reply.status(401);
+    return { message: "Credenciales de admin inválidas." };
+  }
+
+  const normalizedModel = model?.trim() || DEFAULT_OPENAI_MODEL;
+  const updatedAt = await upsertAISettings(apiKey.trim(), normalizedModel);
+
+  return {
+    ok: true,
+    message: "API key de OpenAI guardada correctamente.",
+    model: normalizedModel,
+    updatedAt,
+  };
+});
+
+
+app.get("/admin/openai-settings", async () => {
+  const settings = await loadAISettings();
+  return {
+    configured: Boolean(settings?.openAiApiKey),
+    model: settings?.openAiModel || DEFAULT_OPENAI_MODEL,
+    updatedAt: settings?.updatedAt ?? null,
+  };
+});
+
+const adminCredentialsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+app.post("/admin/openai-settings/test", async (request, reply) => {
+  const parsed = adminCredentialsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ message: "Credenciales inválidas." });
+  }
+
+  const { username, password } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return reply.status(401).send({ message: "Credenciales de admin inválidas." });
+  }
+
+  const settings = await loadAISettings();
+  const apiKey = settings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const model = settings?.openAiModel || DEFAULT_OPENAI_MODEL;
+
+  if (!apiKey) {
+    return reply.status(400).send({ message: "No hay API key configurada para probar." });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(12000),
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 8,
+      messages: [
+        { role: "system", content: "Respondé únicamente: OK" },
+        { role: "user", content: "ping" },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
+    return reply.status(502).send({ message: `OpenAI rechazó la configuración: ${upstreamMessage}` });
+  }
+
+  return {
+    ok: true,
+    message: "Conexión con OpenAI validada correctamente.",
+    model,
+  };
 });
 
 const consignorUpdateSchema = z.object({
@@ -607,7 +838,7 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(movement.id);
   }
 
-  if (parsed?.intent === "VACCINATION") {
+  if (parsed && ["VACCINATION", "DEWORMING", "TREATMENT"].includes(parsed.intent)) {
     const payload = parsed.proposedOperations?.[0]?.payload ?? {};
     const qty = Number(payload.qty);
     const category = typeof payload.category === "string" ? payload.category : "";
@@ -617,8 +848,8 @@ app.post("/commands/confirm", async (request, reply) => {
 
     if (!qty || !category || !product) {
       return reply.status(400).send({
-        code: "INVALID_VACCINATION_PAYLOAD",
-        message: "No se pudo confirmar la vacunación porque faltan datos en la previsualización.",
+        code: "INVALID_HEALTH_EVENT_PAYLOAD",
+        message: "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.",
       });
     }
 
@@ -626,7 +857,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const healthEvent: HealthEvent = {
       id: randomUUID(),
       establishmentId: body.data.establishmentId,
-      type: "VACCINATION",
+      type: parsed.intent,
       category,
       qty,
       product,
@@ -643,6 +874,97 @@ app.post("/commands/confirm", async (request, reply) => {
     };
     await insertHealthEvent(healthEvent);
     createdEventIds.push(healthEvent.id);
+  }
+
+  if (parsed && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent)) {
+    const operation = parsed.proposedOperations?.[0];
+    const now = new Date().toISOString();
+    const payload = (operation?.payload ?? {}) as Record<string, unknown>;
+
+    if (parsed.intent === "WEANING") {
+      const qty = Number(payload.qty);
+      const fromCategory = typeof payload.category === "string" ? payload.category : "";
+      const toCategory = typeof payload.toCategory === "string" ? payload.toCategory : "TERNEROS_DESTETADOS";
+      if (!qty || !fromCategory) {
+        return reply.status(400).send({
+          code: "INVALID_WEANING_PAYLOAD",
+          message: "No se pudo confirmar el destete porque faltan categoría o cantidad.",
+        });
+      }
+
+      const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, fromCategory, qty, now);
+      if (!allocations) {
+        return reply.status(409).send({
+          code: "INSUFFICIENT_STOCK",
+          message: `No hay stock suficiente de ${fromCategory} para destetar ${qty} cabezas.`,
+        });
+      }
+
+      for (const allocation of allocations) {
+        await saveHerdStock(allocation.paddockId, toCategory, allocation.quantity, now);
+      }
+
+      payload.allocations = allocations;
+      payload.toCategory = toCategory;
+    }
+
+    if (parsed.intent === "SLAUGHTER_SHIPMENT") {
+      const items = Array.isArray(payload.items)
+        ? payload.items as Array<Record<string, unknown>>
+        : [];
+
+      const requiredByCategory = new Map<string, number>();
+      for (const item of items) {
+        const category = typeof item.category === "string" ? item.category : "";
+        const qty = Number(item.qty);
+        if (!category || !qty) {
+          return reply.status(400).send({
+            code: "INVALID_SHIPMENT_PAYLOAD",
+            message: "No se pudo confirmar la consignación porque faltan categorías o cantidades.",
+          });
+        }
+        requiredByCategory.set(category, (requiredByCategory.get(category) ?? 0) + qty);
+      }
+
+      for (const [category, needed] of requiredByCategory.entries()) {
+        const available = await getCategoryAvailability(body.data.establishmentId, category);
+        if (available < needed) {
+          return reply.status(409).send({
+            code: "INSUFFICIENT_STOCK",
+            message: `Stock insuficiente para consignación en categoría ${category}. Disponible: ${available}, requerido: ${needed}.`,
+          });
+        }
+      }
+
+      const itemAllocations: Array<{ category: string; qty: number; allocations: Array<{ paddockId: string; quantity: number }> }> = [];
+      for (const item of items) {
+        const category = String(item.category);
+        const qty = Number(item.qty);
+        const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, category, qty, now);
+        if (!allocations) {
+          return reply.status(409).send({
+            code: "INSUFFICIENT_STOCK",
+            message: `No se pudo descontar stock para categoría ${category}.`,
+          });
+        }
+        itemAllocations.push({ category, qty, allocations });
+      }
+
+      payload.allocations = itemAllocations;
+    }
+
+    const operationalEvent: OperationalEvent = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      kind: parsed.intent as OperationalEventKind,
+      occurredAt: operation?.occurredAt ? operation.occurredAt.toISOString() : now,
+      payload,
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertOperationalEvent(operationalEvent);
+    createdEventIds.push(operationalEvent.id);
   }
 
   await appendConfirmation({

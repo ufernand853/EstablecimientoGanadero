@@ -45,6 +45,8 @@ export const categorySynonyms: Record<HerdCategory, string[]> = {
 export const operationTypes = [
   "MOVE",
   "VACCINATION",
+  "DEWORMING",
+  "TREATMENT",
   "BREEDING_START",
   "BREEDING_END",
   "WEANING",

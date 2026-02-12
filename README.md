@@ -37,6 +37,12 @@ MongoDB crea la base automáticamente cuando se inserta el primer documento, as�
 npm run dev:web
 ```
 
+### Configurar API key de OpenAI desde frontend
+- Ingresá al módulo `Admin API key` en `/admin/ai-settings`.
+- Completá usuario/contraseña admin y la `OPENAI_API_KEY`.
+- La API guarda la clave en MongoDB (colección `settings`) y la usa en `Modo IA`.
+- El módulo de comandos ahora puede confirmar eventos de sanidad (`vacunar`, `desparasitar`, `tratar`) y gestionar stock en comandos operativos clave: `mover`, `destete` y `consignación` (además registra `entore` y `yerra` como eventos operativos).
+
 
 ## Ejecutar como servicio (Linux/systemd)
 Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
