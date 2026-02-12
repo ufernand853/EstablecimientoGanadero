@@ -26,6 +26,15 @@ const confirmSchema = z.object({
   edits: z.record(z.unknown()).optional(),
 });
 
+const aiChatSchema = z.object({
+  establishmentId: z.string().uuid(),
+  prompt: z.string().min(2),
+  history: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1),
+  })).max(20).optional(),
+});
+
 type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
@@ -114,6 +123,11 @@ type HerdCategoryMaster = {
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
   updatedAt: string;
+};
+
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
 };
 
 const getCollections = async () => {
@@ -244,6 +258,110 @@ const appendConfirmation = async (payload: Record<string, unknown>) => {
 const loadHerds = async () => {
   const { herds } = await getCollections();
   return herds.find().toArray();
+};
+
+const buildEstablishmentSnapshot = async (establishmentId: string) => {
+  const { paddocks, herds, movements, healthEvents, consignors, slaughterhouses, herdCategories } = await getCollections();
+  const [paddockDocs, herdDocs, movementDocs, healthEventDocs, consignorDocs, slaughterhouseDocs, categoryDocs] = await Promise.all([
+    paddocks.find({ establishmentId }).toArray(),
+    herds.find().toArray(),
+    movements.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
+    healthEvents.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
+    consignors.find({ establishmentId, status: "ACTIVE" }).toArray(),
+    slaughterhouses.find({ establishmentId, status: "ACTIVE" }).toArray(),
+    herdCategories.find({ establishmentId, status: "ACTIVE" }).toArray(),
+  ]);
+
+  const paddockIds = new Set(paddockDocs.map((paddock) => paddock.id));
+  const herdByPaddock = herdDocs.filter((herd) => paddockIds.has(herd.paddockId));
+
+  return {
+    paddocks: paddockDocs.map((paddock) => ({ id: paddock.id, name: paddock.name })),
+    stock: herdByPaddock,
+    recentMovements: movementDocs,
+    recentHealthEvents: healthEventDocs,
+    activeConsignors: consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name })),
+    activeSlaughterhouses: slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name })),
+    activeCategories: categoryDocs.map((category) => ({ id: category.id, name: category.name })),
+  };
+};
+
+const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, prompt: string) => {
+  const totalAnimals = snapshot.stock.reduce((acc, item) => acc + item.count, 0);
+  const topStocks = [...snapshot.stock]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((item) => `${item.category}: ${item.count} cabezas`)
+    .join(", ");
+
+  return [
+    "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:",
+    `- Stock total estimado: ${totalAnimals} cabezas.`,
+    `- Potreros registrados: ${snapshot.paddocks.length}.`,
+    `- Categorías activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorías"}.`,
+    `- Resumen top stock: ${topStocks || "sin stock registrado"}.`,
+    `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
+    `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
+    "",
+    `Tu consulta fue: \"${prompt}\". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`,
+  ].join("\n");
+};
+
+const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return composeLocalAssistantResponse(snapshot, messages[messages.length - 1]?.content ?? "");
+  }
+
+  const systemPrompt = [
+    "Sos un asistente experto en gestión ganadera argentina.",
+    "Respondé siempre en español claro, con pasos accionables y cálculos simples cuando ayuden.",
+    "Si faltan datos, avisalo y pedí aclaración de forma breve.",
+    `Establecimiento activo: ${establishment.name} (${establishment.id}).`,
+    `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
+  ].join("\n");
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      input: [
+        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+        ...messages.map((message) => ({
+          role: message.role,
+          content: [{ type: "input_text", text: message.content }],
+        })),
+      ],
+      temperature: 0.4,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Fallo la API de IA: ${response.status} ${details}`);
+  }
+
+  const payload = await response.json() as {
+    output_text?: string;
+    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+  };
+
+  if (payload.output_text?.trim()) {
+    return payload.output_text;
+  }
+
+  const outputText = payload.output
+    ?.flatMap((item) => item.content ?? [])
+    .filter((item) => item.type === "output_text" && typeof item.text === "string")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  return outputText || "No se pudo generar una respuesta en este momento.";
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -490,6 +608,46 @@ app.post("/commands/confirm", async (request, reply) => {
       ? "Operaciones confirmadas y aplicadas."
       : "Confirmación guardada sin operaciones automáticas.",
   });
+});
+
+app.post("/ai/chat", async (request, reply) => {
+  const body = aiChatSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({
+      code: "VALIDATION_ERROR",
+      issues: body.error.issues,
+    });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
+  const messages: AIMessage[] = [
+    ...(body.data.history ?? []),
+    { role: "user", content: body.data.prompt },
+  ];
+
+  try {
+    const response = await callOpenAIChat(messages, snapshot, establishment);
+    return reply.send({
+      response,
+      contextMeta: {
+        paddocks: snapshot.paddocks.length,
+        stockRows: snapshot.stock.length,
+        movements: snapshot.recentMovements.length,
+        healthEvents: snapshot.recentHealthEvents.length,
+      },
+    });
+  } catch (chatError) {
+    request.log.error(chatError);
+    return reply.status(502).send({
+      code: "AI_UPSTREAM_ERROR",
+      message: chatError instanceof Error ? chatError.message : "No se pudo consultar el servicio de IA.",
+    });
+  }
 });
 
 app.get("/health-events", async (request) => {
