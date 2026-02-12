@@ -477,7 +477,12 @@ const animalSchema = z.object({
 });
 
 const animalPhotoSchema = z.object({
-  imageUrl: z.string().url(),
+  imageUrl: z.string().refine((value) => {
+    if (value.startsWith("data:image/")) {
+      return true;
+    }
+    return z.string().url().safeParse(value).success;
+  }, "Debe ser una URL válida o una imagen en base64."),
   caption: z.string().min(1).optional().nullable(),
   takenAt: z.string().datetime().optional().nullable(),
 });
@@ -1399,6 +1404,11 @@ app.post("/animals/:id/photos", async (request, reply) => {
     takenAt: body.data.takenAt ?? null,
     uploadedAt: new Date().toISOString(),
   };
+
+  if (photo.imageUrl.startsWith("data:image/") && photo.imageUrl.length > 14_000_000) {
+    return reply.status(413).send({ code: "IMAGE_TOO_LARGE", message: "La imagen supera el tamaño máximo permitido." });
+  }
+
   await animalPhotos.insertOne(photo);
   await animals.updateOne({ id: request.params.id }, { $set: { updatedAt: photo.uploadedAt } });
   return reply.status(201).send(photo);
