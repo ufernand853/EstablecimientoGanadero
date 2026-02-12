@@ -346,7 +346,11 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
   };
 };
 
-const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, prompt: string) => {
+const composeLocalAssistantResponse = (
+  snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>,
+  prompt: string,
+  reason: "MISSING_KEY" | "UPSTREAM_ERROR" = "MISSING_KEY",
+) => {
   const totalAnimals = snapshot.stock.reduce((acc, item) => acc + item.count, 0);
   const topStocks = [...snapshot.stock]
     .sort((a, b) => b.count - a.count)
@@ -354,8 +358,16 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
     .map((item) => `${item.category}: ${item.count} cabezas`)
     .join(", ");
 
+  const intro = reason === "MISSING_KEY"
+    ? "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:"
+    : "La API externa de IA devolvió un error. Respondo con resumen local de datos:";
+
+  const closing = reason === "MISSING_KEY"
+    ? `Tu consulta fue: "${prompt}". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`
+    : `Tu consulta fue: "${prompt}". Revisá la API key/modelo configurados en Admin API key para volver a habilitar respuestas generativas completas.`;
+
   return [
-    "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:",
+    intro,
     `- Stock total estimado: ${totalAnimals} cabezas.`,
     `- Potreros registrados: ${snapshot.paddocks.length}.`,
     `- Categorías activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorías"}.`,
@@ -363,7 +375,7 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
     `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
     `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
     "",
-    `Tu consulta fue: \"${prompt}\". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`,
+    closing,
   ].join("\n");
 };
 
@@ -406,7 +418,7 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
   if (!response.ok) {
     const details = await response.text();
     app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
-    return composeLocalAssistantResponse(snapshot, prompt);
+    return composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR");
   }
 
   const payload = await response.json() as {
@@ -414,7 +426,7 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
   };
 
   const content = payload.choices?.[0]?.message?.content?.trim();
-  return content || composeLocalAssistantResponse(snapshot, prompt);
+  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR");
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -491,6 +503,16 @@ app.post("/admin/openai-settings", async (request, reply) => {
     message: "API key de OpenAI guardada correctamente.",
     model: normalizedModel,
     updatedAt,
+  };
+});
+
+
+app.get("/admin/openai-settings", async () => {
+  const settings = await loadAISettings();
+  return {
+    configured: Boolean(settings?.openAiApiKey),
+    model: settings?.openAiModel || process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    updatedAt: settings?.updatedAt ?? null,
   };
 });
 

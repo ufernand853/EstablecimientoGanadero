@@ -1,9 +1,15 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { getApiUrl } from "../../lib/api-url";
 
 const API_URL = getApiUrl();
+
+type SettingsStatus = {
+  configured: boolean;
+  model: string;
+  updatedAt: string | null;
+};
 
 export default function AISettingsPage() {
   const [username, setUsername] = useState("admin");
@@ -13,6 +19,24 @@ export default function AISettingsPage() {
   const [status, setStatus] = useState<"idle" | "saving">("idle");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+
+  const loadSettingsStatus = async () => {
+    try {
+      const response = await fetch(`${API_URL}/admin/openai-settings`);
+      if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as SettingsStatus;
+      setSettingsStatus(data);
+    } catch {
+      // no-op
+    }
+  };
+
+  useEffect(() => {
+    loadSettingsStatus();
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -44,6 +68,7 @@ export default function AISettingsPage() {
 
       setApiKey("");
       setResult(`Configuración guardada. Modelo activo: ${data.model ?? model}. Fecha: ${data.updatedAt ?? "ahora"}.`);
+      await loadSettingsStatus();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Error inesperado.");
     } finally {
@@ -59,6 +84,13 @@ export default function AISettingsPage() {
           Guardá la API key de OpenAI para habilitar respuestas generativas en Modo IA.
         </p>
       </header>
+
+      {settingsStatus ? (
+        <p className="text-xs text-slate-400">
+          Estado actual: {settingsStatus.configured ? "API key configurada" : "Sin API key guardada"} · Modelo: {settingsStatus.model}
+          {settingsStatus.updatedAt ? ` · Última actualización: ${new Date(settingsStatus.updatedAt).toLocaleString("es-AR")}` : ""}
+        </p>
+      ) : null}
 
       <section className="rounded-lg bg-slate-900 p-4">
         <form className="grid gap-3" onSubmit={handleSubmit}>
