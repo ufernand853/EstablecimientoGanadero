@@ -13,6 +13,7 @@ export default function HomePage() {
     { href: "/masters/slaughterhouses", label: "Frigoríficos" },
     { href: "/slaughter-shipments", label: "Consignaciones" },
     { href: "/commands", label: "Modo IA" },
+    { href: "/admin/ai-settings", label: "Admin API key IA" },
   ];
 
   return (
