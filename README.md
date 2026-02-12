@@ -82,3 +82,6 @@ Edita esos archivos para ajustar los datos de testing sin depender de una base d
     shared/
   README.md
 ```
+
+## Propuesta: ficha individual con fotos
+- Ver `docs/propuesta-ficha-animal-y-fotos.md` para una propuesta concreta de implementación (caravana, nombre, fecha de nacimiento, y fotos por animal).

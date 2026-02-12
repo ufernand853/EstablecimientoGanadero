@@ -116,6 +116,30 @@ type HerdCategoryMaster = {
   updatedAt: string;
 };
 
+type Animal = {
+  id: string;
+  establishmentId: string;
+  earTag: string;
+  name: string;
+  sex: "MACHO" | "HEMBRA" | "OTRO";
+  breed: string | null;
+  birthDate: string | null;
+  category: string | null;
+  status: "ACTIVO" | "VENDIDO" | "MUERTO";
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AnimalPhoto = {
+  id: string;
+  animalId: string;
+  imageUrl: string;
+  caption: string | null;
+  takenAt: string | null;
+  uploadedAt: string;
+};
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -127,6 +151,8 @@ const getCollections = async () => {
     slaughterhouses: db.collection<Slaughterhouse>("slaughterhouses"),
     herdCategories: db.collection<HerdCategoryMaster>("herd_categories"),
     healthEvents: db.collection<HealthEvent>("health_events"),
+    animals: db.collection<Animal>("animals"),
+    animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
@@ -179,11 +205,16 @@ const updateEstablishment = async (id: string, data: Partial<Establishment>) => 
 };
 
 const deleteEstablishment = async (id: string) => {
-  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories, healthEvents } = await getCollections();
+  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories, healthEvents, animals, animalPhotos } = await getCollections();
   const paddockDocs = await paddocks.find({ establishmentId: id }).toArray();
   const paddockIds = paddockDocs.map((paddock) => paddock.id);
   if (paddockIds.length) {
     await herds.deleteMany({ paddockId: { $in: paddockIds } });
+  }
+  const animalDocs = await animals.find({ establishmentId: id }).toArray();
+  const animalIds = animalDocs.map((animal) => animal.id);
+  if (animalIds.length) {
+    await animalPhotos.deleteMany({ animalId: { $in: animalIds } });
   }
   await Promise.all([
     paddocks.deleteMany({ establishmentId: id }),
@@ -192,6 +223,7 @@ const deleteEstablishment = async (id: string) => {
     slaughterhouses.deleteMany({ establishmentId: id }),
     herdCategories.deleteMany({ establishmentId: id }),
     healthEvents.deleteMany({ establishmentId: id }),
+    animals.deleteMany({ establishmentId: id }),
     establishments.deleteOne({ id }),
   ]);
 };
@@ -317,6 +349,24 @@ const herdCategorySchema = z.object({
 const herdCategoryUpdateSchema = z.object({
   name: z.string().min(2).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const animalSchema = z.object({
+  establishmentId: z.string().uuid(),
+  earTag: z.string().min(2),
+  name: z.string().min(2),
+  sex: z.enum(["MACHO", "HEMBRA", "OTRO"]).optional(),
+  breed: z.string().min(2).optional().nullable(),
+  birthDate: z.string().datetime().optional().nullable(),
+  category: z.string().min(2).optional().nullable(),
+  status: z.enum(["ACTIVO", "VENDIDO", "MUERTO"]).optional(),
+  notes: z.string().min(1).optional().nullable(),
+});
+
+const animalPhotoSchema = z.object({
+  imageUrl: z.string().url(),
+  caption: z.string().min(1).optional().nullable(),
+  takenAt: z.string().datetime().optional().nullable(),
 });
 
 const healthEventSchema = z.object({
@@ -1122,6 +1172,88 @@ app.delete("/herd-categories/:id", async (request, reply) => {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
   }
   await herdCategories.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
+});
+
+app.get("/animals", async (request) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  const { animals } = await getCollections();
+  const query: Record<string, unknown> = {};
+  if (establishmentId) query.establishmentId = establishmentId;
+  const list = await animals.find(query).sort({ updatedAt: -1 }).toArray();
+  return { animals: list };
+});
+
+app.post("/animals", async (request, reply) => {
+  const body = animalSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const { animals } = await getCollections();
+  const normalizedEarTag = body.data.earTag.trim().toUpperCase();
+  const duplicated = await animals.findOne({ establishmentId: body.data.establishmentId, earTag: normalizedEarTag });
+  if (duplicated) {
+    return reply.status(409).send({ code: "EAR_TAG_ALREADY_EXISTS", message: "La caravana ya existe para este establecimiento." });
+  }
+  const now = new Date().toISOString();
+  const animal: Animal = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    earTag: normalizedEarTag,
+    name: body.data.name.trim(),
+    sex: body.data.sex ?? "OTRO",
+    breed: body.data.breed?.trim() || null,
+    birthDate: body.data.birthDate ?? null,
+    category: body.data.category?.trim() || null,
+    status: body.data.status ?? "ACTIVO",
+    notes: body.data.notes?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await animals.insertOne(animal);
+  return reply.status(201).send(animal);
+});
+
+app.get("/animals/:id/photos", async (request, reply) => {
+  const { animals, animalPhotos } = await getCollections();
+  const animal = await animals.findOne({ id: request.params.id });
+  if (!animal) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Animal no encontrado." });
+  }
+  const photos = await animalPhotos.find({ animalId: request.params.id }).sort({ uploadedAt: -1 }).toArray();
+  return { photos };
+});
+
+app.post("/animals/:id/photos", async (request, reply) => {
+  const body = animalPhotoSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { animals, animalPhotos } = await getCollections();
+  const animal = await animals.findOne({ id: request.params.id });
+  if (!animal) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Animal no encontrado." });
+  }
+  const photo: AnimalPhoto = {
+    id: randomUUID(),
+    animalId: request.params.id,
+    imageUrl: body.data.imageUrl,
+    caption: body.data.caption?.trim() || null,
+    takenAt: body.data.takenAt ?? null,
+    uploadedAt: new Date().toISOString(),
+  };
+  await animalPhotos.insertOne(photo);
+  await animals.updateOne({ id: request.params.id }, { $set: { updatedAt: photo.uploadedAt } });
+  return reply.status(201).send(photo);
+});
+
+app.delete("/animals/:id/photos/:photoId", async (request, reply) => {
+  const { animalPhotos } = await getCollections();
+  await animalPhotos.deleteOne({ id: request.params.photoId, animalId: request.params.id });
   return reply.status(204).send();
 });
 

@@ -13,6 +13,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     { href: "/establishments", label: "Establecimientos" },
     { href: "/paddocks", label: "Potreros" },
     { href: "/herds", label: "Stock" },
+    { href: "/animals", label: "Animales" },
     { href: "/operations", label: "Operaciones" },
     { href: "/health", label: "Gestión sanitaria" },
     { href: "/commands", label: "Comandos por texto" },
