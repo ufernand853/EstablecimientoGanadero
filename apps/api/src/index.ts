@@ -370,8 +370,10 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
   const persistedSettings = await loadAISettings();
   const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const prompt = messages[messages.length - 1]?.content ?? "";
+
   if (!apiKey) {
-    return composeLocalAssistantResponse(snapshot, messages[messages.length - 1]?.content ?? "");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const systemPrompt = [
@@ -382,7 +384,7 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -390,39 +392,29 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     },
     body: JSON.stringify({
       model: persistedSettings?.openAiModel || process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      input: [
-        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
         ...messages.map((message) => ({
           role: message.role,
-          content: [{ type: "input_text", text: message.content }],
+          content: message.content,
         })),
       ],
-      temperature: 0.4,
     }),
   });
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Fallo la API de IA: ${response.status} ${details}`);
+    app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const payload = await response.json() as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    choices?: Array<{ message?: { content?: string | null } }>;
   };
 
-  if (payload.output_text?.trim()) {
-    return payload.output_text;
-  }
-
-  const outputText = payload.output
-    ?.flatMap((item) => item.content ?? [])
-    .filter((item) => item.type === "output_text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
-
-  return outputText || "No se pudo generar una respuesta en este momento.";
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  return content || composeLocalAssistantResponse(snapshot, prompt);
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
