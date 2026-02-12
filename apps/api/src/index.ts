@@ -158,6 +158,7 @@ type AISettings = {
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 const getCollections = async () => {
   const db = await getDb();
@@ -346,10 +347,33 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
   };
 };
 
+const extractOpenAIErrorMessage = (status: number, details: string) => {
+  try {
+    const parsed = JSON.parse(details) as { error?: { message?: string; code?: string } };
+    const message = parsed.error?.message?.trim();
+    const code = parsed.error?.code?.trim();
+    if (message && code) {
+      return `${message} (code: ${code})`;
+    }
+    if (message) {
+      return message;
+    }
+  } catch {
+    // ignore JSON parse issues
+  }
+
+  const compact = details.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return `Error HTTP ${status} al consultar OpenAI.`;
+  }
+  return compact.slice(0, 220);
+};
+
 const composeLocalAssistantResponse = (
   snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>,
   prompt: string,
   reason: "MISSING_KEY" | "UPSTREAM_ERROR" = "MISSING_KEY",
+  upstreamDetail?: string,
 ) => {
   const totalAnimals = snapshot.stock.reduce((acc, item) => acc + item.count, 0);
   const topStocks = [...snapshot.stock]
@@ -374,6 +398,7 @@ const composeLocalAssistantResponse = (
     `- Resumen top stock: ${topStocks || "sin stock registrado"}.`,
     `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
     `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
+    ...(upstreamDetail ? [`- Detalle OpenAI: ${upstreamDetail}.`] : []),
     "",
     closing,
   ].join("\n");
@@ -403,7 +428,7 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: persistedSettings?.openAiModel || process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      model: persistedSettings?.openAiModel || DEFAULT_OPENAI_MODEL,
       temperature: 0.4,
       messages: [
         { role: "system", content: systemPrompt },
@@ -417,8 +442,9 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
 
   if (!response.ok) {
     const details = await response.text();
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
     app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
-    return composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR");
+    return composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", upstreamMessage);
   }
 
   const payload = await response.json() as {
@@ -426,7 +452,7 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
   };
 
   const content = payload.choices?.[0]?.message?.content?.trim();
-  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR");
+  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", "La respuesta de OpenAI llegó vacía");
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -495,7 +521,7 @@ app.post("/admin/openai-settings", async (request, reply) => {
     return { message: "Credenciales de admin inválidas." };
   }
 
-  const normalizedModel = model?.trim() || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const normalizedModel = model?.trim() || DEFAULT_OPENAI_MODEL;
   const updatedAt = await upsertAISettings(apiKey.trim(), normalizedModel);
 
   return {
@@ -511,8 +537,63 @@ app.get("/admin/openai-settings", async () => {
   const settings = await loadAISettings();
   return {
     configured: Boolean(settings?.openAiApiKey),
-    model: settings?.openAiModel || process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    model: settings?.openAiModel || DEFAULT_OPENAI_MODEL,
     updatedAt: settings?.updatedAt ?? null,
+  };
+});
+
+const adminCredentialsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+app.post("/admin/openai-settings/test", async (request, reply) => {
+  const parsed = adminCredentialsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ message: "Credenciales inválidas." });
+  }
+
+  const { username, password } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return reply.status(401).send({ message: "Credenciales de admin inválidas." });
+  }
+
+  const settings = await loadAISettings();
+  const apiKey = settings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const model = settings?.openAiModel || DEFAULT_OPENAI_MODEL;
+
+  if (!apiKey) {
+    return reply.status(400).send({ message: "No hay API key configurada para probar." });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(12000),
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 8,
+      messages: [
+        { role: "system", content: "Respondé únicamente: OK" },
+        { role: "user", content: "ping" },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
+    return reply.status(502).send({ message: `OpenAI rechazó la configuración: ${upstreamMessage}` });
+  }
+
+  return {
+    ok: true,
+    message: "Conexión con OpenAI validada correctamente.",
+    model,
   };
 });
 

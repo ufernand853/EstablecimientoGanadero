@@ -15,11 +15,13 @@ export default function AISettingsPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gpt-4.1-mini");
+  const [model, setModel] = useState("gpt-4o-mini");
   const [status, setStatus] = useState<"idle" | "saving">("idle");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+  const [testStatus, setTestStatus] = useState<"idle" | "testing">("idle");
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   const loadSettingsStatus = async () => {
     try {
@@ -73,6 +75,39 @@ export default function AISettingsPage() {
       setError(submitError instanceof Error ? submitError.message : "Error inesperado.");
     } finally {
       setStatus("idle");
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setError(null);
+    setTestResult(null);
+
+    if (!username.trim() || !password.trim()) {
+      setError("Completá usuario y contraseña para probar la conexión.");
+      return;
+    }
+
+    setTestStatus("testing");
+    try {
+      const response = await fetch(`${API_URL}/admin/openai-settings/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+        }),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as { message?: string; model?: string };
+      if (!response.ok) {
+        throw new Error(data.message || "No se pudo validar la conexión con OpenAI.");
+      }
+
+      setTestResult(`Conexión OK con modelo ${data.model ?? settingsStatus?.model ?? model}.`);
+    } catch (testError) {
+      setTestResult(testError instanceof Error ? testError.message : "Error inesperado al probar conexión.");
+    } finally {
+      setTestStatus("idle");
     }
   };
 
@@ -133,20 +168,32 @@ export default function AISettingsPage() {
               className="rounded bg-slate-800 p-2"
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              placeholder="gpt-4.1-mini"
+              placeholder="gpt-4o-mini"
             />
           </label>
 
           {error ? <p className="text-sm text-rose-400">{error}</p> : null}
           {result ? <p className="text-sm text-emerald-400">{result}</p> : null}
 
-          <button
-            type="submit"
-            disabled={status === "saving"}
-            className="mt-2 rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-70"
-          >
-            {status === "saving" ? "Guardando..." : "Guardar API key"}
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={status === "saving"}
+              className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-70"
+            >
+              {status === "saving" ? "Guardando..." : "Guardar API key"}
+            </button>
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testStatus === "testing"}
+              className="rounded bg-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-70"
+            >
+              {testStatus === "testing" ? "Probando..." : "Probar conexión OpenAI"}
+            </button>
+          </div>
+
+          {testResult ? <p className="text-sm text-sky-300">{testResult}</p> : null}
         </form>
       </section>
     </main>
