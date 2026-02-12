@@ -239,14 +239,19 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     const qtyMatch = text.match(/(\d+)/);
     const herdMatch = text.match(/lote\s+([a-z0-9-]+)/i);
     const weightMatch = text.match(/peso\s+(\d+)/i);
+    const category = findCategory(text);
+    const toCategory = category === "TERNERAS" ? "VAQUILLONAS" : "TERNEROS_DESTETADOS";
 
     result.intent = "WEANING";
     result.confidence = 0.75;
+    if (!category) warnings.push("Falta categoría del lote a destetar.");
     result.proposedOperations.push({
       type: "WEANING",
       occurredAt: parseDate(text),
       payload: {
         qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        toCategory,
         herdCode: herdMatch?.[1]?.toUpperCase() ?? null,
         avgWeightKg: weightMatch ? Number(weightMatch[1]) : null,
       },

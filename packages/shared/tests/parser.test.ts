@@ -68,6 +68,7 @@ describe("parseCommand", () => {
   it("parses WEANING commands", () => {
     const result = parseCommand("Destetar 85 terneros del lote VAC-2025-01, peso 170kg", context);
     expect(result.intent).toBe("WEANING");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ category: "TERNEROS", toCategory: "TERNEROS_DESTETADOS" });
   });
 
   it("parses WEANING without weight", () => {

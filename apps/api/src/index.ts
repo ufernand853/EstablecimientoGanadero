@@ -499,6 +499,58 @@ const saveHerdStock = async (paddockId: string, category: string, delta: number,
   );
 };
 
+const loadEstablishmentPaddockIds = async (establishmentId: string) => {
+  const { paddocks } = await getCollections();
+  const paddockDocs = await paddocks.find({ establishmentId }, { projection: { id: 1 } }).toArray();
+  return paddockDocs.map((paddock) => paddock.id);
+};
+
+const getCategoryAvailability = async (establishmentId: string, category: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return 0;
+  }
+  const { herds } = await getCollections();
+  const rows = await herds.find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } }).toArray();
+  return rows.reduce((total, row) => total + row.count, 0);
+};
+
+const consumeStockAcrossPaddocks = async (establishmentId: string, category: string, quantity: number, updatedAt: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return null;
+  }
+
+  const { herds } = await getCollections();
+  const candidates = await herds
+    .find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } })
+    .sort({ count: -1 })
+    .toArray();
+
+  const available = candidates.reduce((acc, row) => acc + row.count, 0);
+  if (available < quantity) {
+    return null;
+  }
+
+  let remaining = quantity;
+  const allocations: Array<{ paddockId: string; quantity: number }> = [];
+
+  for (const row of candidates) {
+    if (remaining <= 0) {
+      break;
+    }
+    const consumed = Math.min(row.count, remaining);
+    if (consumed <= 0) {
+      continue;
+    }
+    await updateHerdStock(row.paddockId, category, row.count - consumed, updatedAt);
+    allocations.push({ paddockId: row.paddockId, quantity: consumed });
+    remaining -= consumed;
+  }
+
+  return allocations;
+};
+
 const insertMovement = async (movement: HerdMovement) => {
   const { movements } = await getCollections();
   await movements.insertOne(movement);
@@ -827,12 +879,86 @@ app.post("/commands/confirm", async (request, reply) => {
   if (parsed && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent)) {
     const operation = parsed.proposedOperations?.[0];
     const now = new Date().toISOString();
+    const payload = (operation?.payload ?? {}) as Record<string, unknown>;
+
+    if (parsed.intent === "WEANING") {
+      const qty = Number(payload.qty);
+      const fromCategory = typeof payload.category === "string" ? payload.category : "";
+      const toCategory = typeof payload.toCategory === "string" ? payload.toCategory : "TERNEROS_DESTETADOS";
+      if (!qty || !fromCategory) {
+        return reply.status(400).send({
+          code: "INVALID_WEANING_PAYLOAD",
+          message: "No se pudo confirmar el destete porque faltan categoría o cantidad.",
+        });
+      }
+
+      const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, fromCategory, qty, now);
+      if (!allocations) {
+        return reply.status(409).send({
+          code: "INSUFFICIENT_STOCK",
+          message: `No hay stock suficiente de ${fromCategory} para destetar ${qty} cabezas.`,
+        });
+      }
+
+      for (const allocation of allocations) {
+        await saveHerdStock(allocation.paddockId, toCategory, allocation.quantity, now);
+      }
+
+      payload.allocations = allocations;
+      payload.toCategory = toCategory;
+    }
+
+    if (parsed.intent === "SLAUGHTER_SHIPMENT") {
+      const items = Array.isArray(payload.items)
+        ? payload.items as Array<Record<string, unknown>>
+        : [];
+
+      const requiredByCategory = new Map<string, number>();
+      for (const item of items) {
+        const category = typeof item.category === "string" ? item.category : "";
+        const qty = Number(item.qty);
+        if (!category || !qty) {
+          return reply.status(400).send({
+            code: "INVALID_SHIPMENT_PAYLOAD",
+            message: "No se pudo confirmar la consignación porque faltan categorías o cantidades.",
+          });
+        }
+        requiredByCategory.set(category, (requiredByCategory.get(category) ?? 0) + qty);
+      }
+
+      for (const [category, needed] of requiredByCategory.entries()) {
+        const available = await getCategoryAvailability(body.data.establishmentId, category);
+        if (available < needed) {
+          return reply.status(409).send({
+            code: "INSUFFICIENT_STOCK",
+            message: `Stock insuficiente para consignación en categoría ${category}. Disponible: ${available}, requerido: ${needed}.`,
+          });
+        }
+      }
+
+      const itemAllocations: Array<{ category: string; qty: number; allocations: Array<{ paddockId: string; quantity: number }> }> = [];
+      for (const item of items) {
+        const category = String(item.category);
+        const qty = Number(item.qty);
+        const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, category, qty, now);
+        if (!allocations) {
+          return reply.status(409).send({
+            code: "INSUFFICIENT_STOCK",
+            message: `No se pudo descontar stock para categoría ${category}.`,
+          });
+        }
+        itemAllocations.push({ category, qty, allocations });
+      }
+
+      payload.allocations = itemAllocations;
+    }
+
     const operationalEvent: OperationalEvent = {
       id: randomUUID(),
       establishmentId: body.data.establishmentId,
       kind: parsed.intent as OperationalEventKind,
       occurredAt: operation?.occurredAt ? operation.occurredAt.toISOString() : now,
-      payload: (operation?.payload ?? {}) as Record<string, unknown>,
+      payload,
       source: "COMMAND",
       createdAt: now,
       updatedAt: now,
