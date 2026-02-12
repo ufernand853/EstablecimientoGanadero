@@ -149,6 +149,19 @@ type AnimalPhoto = {
   uploadedAt: string;
 };
 
+type OperationalEventKind = "BREEDING_START" | "WEANING" | "BRANDING" | "SLAUGHTER_SHIPMENT";
+
+type OperationalEvent = {
+  id: string;
+  establishmentId: string;
+  kind: OperationalEventKind;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+  source: "COMMAND";
+  createdAt: string;
+  updatedAt: string;
+};
+
 type AISettings = {
   _id: "ai_settings";
   openAiApiKey: string;
@@ -173,6 +186,7 @@ const getCollections = async () => {
     healthEvents: db.collection<HealthEvent>("health_events"),
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
+    operationalEvents: db.collection<OperationalEvent>("operational_events"),
     aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
@@ -495,6 +509,11 @@ const insertHealthEvent = async (healthEvent: HealthEvent) => {
   await healthEvents.insertOne(healthEvent);
 };
 
+const insertOperationalEvent = async (event: OperationalEvent) => {
+  const { operationalEvents } = await getCollections();
+  await operationalEvents.insertOne(event);
+};
+
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
@@ -767,7 +786,7 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(movement.id);
   }
 
-  if (parsed?.intent === "VACCINATION") {
+  if (parsed && ["VACCINATION", "DEWORMING", "TREATMENT"].includes(parsed.intent)) {
     const payload = parsed.proposedOperations?.[0]?.payload ?? {};
     const qty = Number(payload.qty);
     const category = typeof payload.category === "string" ? payload.category : "";
@@ -777,8 +796,8 @@ app.post("/commands/confirm", async (request, reply) => {
 
     if (!qty || !category || !product) {
       return reply.status(400).send({
-        code: "INVALID_VACCINATION_PAYLOAD",
-        message: "No se pudo confirmar la vacunación porque faltan datos en la previsualización.",
+        code: "INVALID_HEALTH_EVENT_PAYLOAD",
+        message: "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.",
       });
     }
 
@@ -786,7 +805,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const healthEvent: HealthEvent = {
       id: randomUUID(),
       establishmentId: body.data.establishmentId,
-      type: "VACCINATION",
+      type: parsed.intent,
       category,
       qty,
       product,
@@ -803,6 +822,23 @@ app.post("/commands/confirm", async (request, reply) => {
     };
     await insertHealthEvent(healthEvent);
     createdEventIds.push(healthEvent.id);
+  }
+
+  if (parsed && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent)) {
+    const operation = parsed.proposedOperations?.[0];
+    const now = new Date().toISOString();
+    const operationalEvent: OperationalEvent = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      kind: parsed.intent as OperationalEventKind,
+      occurredAt: operation?.occurredAt ? operation.occurredAt.toISOString() : now,
+      payload: (operation?.payload ?? {}) as Record<string, unknown>,
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertOperationalEvent(operationalEvent);
+    createdEventIds.push(operationalEvent.id);
   }
 
   await appendConfirmation({

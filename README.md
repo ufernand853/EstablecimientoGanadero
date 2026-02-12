@@ -41,6 +41,7 @@ npm run dev:web
 - Ingresá al módulo `Admin API key` en `/admin/ai-settings`.
 - Completá usuario/contraseña admin y la `OPENAI_API_KEY`.
 - La API guarda la clave en MongoDB (colección `settings`) y la usa en `Modo IA`.
+- El módulo de comandos ahora puede confirmar eventos de sanidad (`vacunar`, `desparasitar`, `tratar`) y registrar también eventos operativos (`entore`, `destete`, `yerra`, `consignación`) desde texto.
 
 
 ## Ejecutar como servicio (Linux/systemd)
