@@ -38,12 +38,18 @@ declare global {
 }
 
 export default function CommandsPage() {
+  const messageIdRef = useRef(0);
+  const createMessageId = () => {
+    messageIdRef.current += 1;
+    return `msg-${Date.now()}-${messageIdRef.current}`;
+  };
+
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
-      id: crypto.randomUUID(),
+      id: createMessageId(),
       role: "assistant",
       content: "Hola, soy tu asistente IA para gestión ganadera. Preguntame sobre stock, movimientos, sanidad o planificación.",
     },
@@ -69,6 +75,8 @@ export default function CommandsPage() {
         }
       } catch (fetchError) {
         setError(fetchError instanceof Error ? fetchError.message : "Error inesperado.");
+        setEstablishments([]);
+        setEstablishmentId("");
       }
     };
 
@@ -144,7 +152,7 @@ export default function CommandsPage() {
     }
 
     const nextUserMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createMessageId(),
       role: "user",
       content: prompt,
     };
@@ -181,7 +189,7 @@ export default function CommandsPage() {
       };
 
       const aiMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: createMessageId(),
         role: "assistant",
         content: data.response,
       };
@@ -191,7 +199,16 @@ export default function CommandsPage() {
         setMeta(data.contextMeta);
       }
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Error inesperado.");
+      const message = sendError instanceof Error ? sendError.message : "Error inesperado.";
+      setError(message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createMessageId(),
+          role: "assistant",
+          content: `No pude consultar la IA en este momento (${message}). La pantalla sigue operativa para que puedas continuar usando el sistema.`,
+        },
+      ]);
     } finally {
       setStatus("idle");
     }
@@ -214,7 +231,7 @@ export default function CommandsPage() {
             value={establishmentId}
             onChange={(event) => setEstablishmentId(event.target.value)}
           >
-            {establishments.length === 0 && <option value="">No hay establecimientos cargados</option>}
+            {establishments.length === 0 && <option value="">Sin conexión a API de establecimientos</option>}
             {establishments.map((establishment) => (
               <option key={establishment.id} value={establishment.id}>
                 {establishment.name}

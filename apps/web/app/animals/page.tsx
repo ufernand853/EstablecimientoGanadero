@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
 
 const API_URL = getApiUrl();
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
 type Establishment = { id: string; name: string };
 type Animal = {
@@ -43,7 +44,8 @@ export default function AnimalsPage() {
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [imageUrl, setImageUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFilePreview, setSelectedFilePreview] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [takenAt, setTakenAt] = useState("");
 
@@ -126,11 +128,57 @@ export default function AnimalsPage() {
     }
   };
 
+  const convertFileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("No se pudo leer el archivo seleccionado."));
+      }
+    };
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo seleccionado."));
+    reader.readAsDataURL(file);
+  });
+
+  const handleFileSelection = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setError(null);
+
+    if (!file) {
+      setSelectedFile(null);
+      setSelectedFilePreview(null);
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setError("Seleccioná un archivo de imagen válido.");
+      setSelectedFile(null);
+      setSelectedFilePreview(null);
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      setError("La imagen supera el límite de 10 MB.");
+      setSelectedFile(null);
+      setSelectedFilePreview(null);
+      return;
+    }
+
+    setSelectedFile(file);
+    setSelectedFilePreview(URL.createObjectURL(file));
+  };
+
   const handleAddPhoto = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
-    if (!selectedAnimalId) return;
+    if (!selectedAnimalId || !selectedFile) {
+      setError("Seleccioná un animal y una imagen antes de subir.");
+      return;
+    }
+
     try {
+      const imageUrl = await convertFileToDataUrl(selectedFile);
       const response = await fetch(`${API_URL}/animals/${selectedAnimalId}/photos`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,8 +188,12 @@ export default function AnimalsPage() {
           takenAt: takenAt ? new Date(`${takenAt}T00:00:00.000Z`).toISOString() : null,
         }),
       });
-      if (!response.ok) throw new Error("No se pudo agregar la foto.");
-      setImageUrl("");
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "No se pudo agregar la foto.");
+      }
+      setSelectedFile(null);
+      setSelectedFilePreview(null);
       setCaption("");
       setTakenAt("");
       await loadPhotos(selectedAnimalId);
@@ -195,10 +247,11 @@ export default function AnimalsPage() {
         <div className="rounded-lg bg-slate-900 p-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Fotos del animal</h3>
           <form className="mt-3 grid gap-2" onSubmit={handleAddPhoto}>
-            <input className="rounded bg-slate-800 p-2 text-sm" placeholder="URL de la imagen" type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} required />
+            <input className="rounded bg-slate-800 p-2 text-sm" type="file" accept="image/*" onChange={handleFileSelection} required />
+            {selectedFilePreview && <img src={selectedFilePreview} alt="Vista previa de la imagen seleccionada" className="h-40 w-full rounded object-cover" />}
             <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Descripción" value={caption} onChange={(e) => setCaption(e.target.value)} />
             <input className="rounded bg-slate-800 p-2 text-sm" type="date" value={takenAt} onChange={(e) => setTakenAt(e.target.value)} />
-            <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" disabled={!selectedAnimalId} type="submit">Asociar foto</button>
+            <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" disabled={!selectedAnimalId || !selectedFile} type="submit">Subir foto</button>
           </form>
           <div className="mt-4 grid grid-cols-2 gap-2">
             {photos.map((photo) => (
