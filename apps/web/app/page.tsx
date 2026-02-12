@@ -4,6 +4,7 @@ export default function HomePage() {
     { href: "/establishments", label: "Establecimientos" },
     { href: "/paddocks", label: "Potreros" },
     { href: "/herds", label: "Lotes y categorías" },
+    { href: "/animals", label: "Animales individuales" },
     { href: "/operations", label: "Operaciones" },
     { href: "/health", label: "Gestión sanitaria" },
     { href: "/insemination", label: "Inseminación (próximamente)" },
