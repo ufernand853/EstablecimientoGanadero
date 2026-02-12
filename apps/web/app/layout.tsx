@@ -19,6 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     { href: "/insemination", label: "Inseminación" },
     { href: "/masters/herd-categories", label: "Categorías" },
     { href: "/commands", label: "Modo IA" },
+    { href: "/admin/ai-settings", label: "Admin API key" },
   ];
 
   return (
