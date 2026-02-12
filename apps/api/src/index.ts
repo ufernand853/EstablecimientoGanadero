@@ -149,6 +149,16 @@ type AnimalPhoto = {
   uploadedAt: string;
 };
 
+type AISettings = {
+  _id: "ai_settings";
+  openAiApiKey: string;
+  openAiModel: string;
+  updatedAt: string;
+};
+
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -162,9 +172,32 @@ const getCollections = async () => {
     healthEvents: db.collection<HealthEvent>("health_events"),
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
+    aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
+};
+
+const loadAISettings = async () => {
+  const { aiSettings } = await getCollections();
+  return aiSettings.findOne({ _id: "ai_settings" });
+};
+
+const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
+  const { aiSettings } = await getCollections();
+  const now = new Date().toISOString();
+  await aiSettings.updateOne(
+    { _id: "ai_settings" },
+    {
+      $set: {
+        openAiApiKey,
+        openAiModel,
+        updatedAt: now,
+      },
+    },
+    { upsert: true },
+  );
+  return now;
 };
 
 const loadContext = async () => {
@@ -335,9 +368,12 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
 };
 
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const persistedSettings = await loadAISettings();
+  const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const prompt = messages[messages.length - 1]?.content ?? "";
+
   if (!apiKey) {
-    return composeLocalAssistantResponse(snapshot, messages[messages.length - 1]?.content ?? "");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const systemPrompt = [
@@ -348,47 +384,37 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      input: [
-        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+      model: persistedSettings?.openAiModel || process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
         ...messages.map((message) => ({
           role: message.role,
-          content: [{ type: "input_text", text: message.content }],
+          content: message.content,
         })),
       ],
-      temperature: 0.4,
     }),
   });
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Fallo la API de IA: ${response.status} ${details}`);
+    app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const payload = await response.json() as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    choices?: Array<{ message?: { content?: string | null } }>;
   };
 
-  if (payload.output_text?.trim()) {
-    return payload.output_text;
-  }
-
-  const outputText = payload.output
-    ?.flatMap((item) => item.content ?? [])
-    .filter((item) => item.type === "output_text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
-
-  return outputText || "No se pudo generar una respuesta en este momento.";
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  return content || composeLocalAssistantResponse(snapshot, prompt);
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -435,6 +461,37 @@ const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const aiSettingsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+  apiKey: z.string().min(12),
+  model: z.string().min(3).max(120).optional(),
+});
+
+app.post("/admin/openai-settings", async (request, reply) => {
+  const parsed = aiSettingsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.status(400);
+    return { message: "Payload inválido.", issues: parsed.error.flatten() };
+  }
+
+  const { username, password, apiKey, model } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    reply.status(401);
+    return { message: "Credenciales de admin inválidas." };
+  }
+
+  const normalizedModel = model?.trim() || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const updatedAt = await upsertAISettings(apiKey.trim(), normalizedModel);
+
+  return {
+    ok: true,
+    message: "API key de OpenAI guardada correctamente.",
+    model: normalizedModel,
+    updatedAt,
+  };
 });
 
 const consignorUpdateSchema = z.object({
