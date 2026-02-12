@@ -149,6 +149,30 @@ type AnimalPhoto = {
   uploadedAt: string;
 };
 
+type OperationalEventKind = "BREEDING_START" | "WEANING" | "BRANDING" | "SLAUGHTER_SHIPMENT";
+
+type OperationalEvent = {
+  id: string;
+  establishmentId: string;
+  kind: OperationalEventKind;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+  source: "COMMAND";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AISettings = {
+  _id: "ai_settings";
+  openAiApiKey: string;
+  openAiModel: string;
+  updatedAt: string;
+};
+
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
 const getCollections = async () => {
   const db = await getDb();
   return {
@@ -162,9 +186,33 @@ const getCollections = async () => {
     healthEvents: db.collection<HealthEvent>("health_events"),
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
+    operationalEvents: db.collection<OperationalEvent>("operational_events"),
+    aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
+};
+
+const loadAISettings = async () => {
+  const { aiSettings } = await getCollections();
+  return aiSettings.findOne({ _id: "ai_settings" });
+};
+
+const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
+  const { aiSettings } = await getCollections();
+  const now = new Date().toISOString();
+  await aiSettings.updateOne(
+    { _id: "ai_settings" },
+    {
+      $set: {
+        openAiApiKey,
+        openAiModel,
+        updatedAt: now,
+      },
+    },
+    { upsert: true },
+  );
+  return now;
 };
 
 const loadContext = async () => {
@@ -313,7 +361,34 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
   };
 };
 
-const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, prompt: string) => {
+const extractOpenAIErrorMessage = (status: number, details: string) => {
+  try {
+    const parsed = JSON.parse(details) as { error?: { message?: string; code?: string } };
+    const message = parsed.error?.message?.trim();
+    const code = parsed.error?.code?.trim();
+    if (message && code) {
+      return `${message} (code: ${code})`;
+    }
+    if (message) {
+      return message;
+    }
+  } catch {
+    // ignore JSON parse issues
+  }
+
+  const compact = details.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return `Error HTTP ${status} al consultar OpenAI.`;
+  }
+  return compact.slice(0, 220);
+};
+
+const composeLocalAssistantResponse = (
+  snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>,
+  prompt: string,
+  reason: "MISSING_KEY" | "UPSTREAM_ERROR" = "MISSING_KEY",
+  upstreamDetail?: string,
+) => {
   const totalAnimals = snapshot.stock.reduce((acc, item) => acc + item.count, 0);
   const topStocks = [...snapshot.stock]
     .sort((a, b) => b.count - a.count)
@@ -321,23 +396,35 @@ const composeLocalAssistantResponse = (snapshot: Awaited<ReturnType<typeof build
     .map((item) => `${item.category}: ${item.count} cabezas`)
     .join(", ");
 
+  const intro = reason === "MISSING_KEY"
+    ? "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:"
+    : "La API externa de IA devolvió un error. Respondo con resumen local de datos:";
+
+  const closing = reason === "MISSING_KEY"
+    ? `Tu consulta fue: "${prompt}". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`
+    : `Tu consulta fue: "${prompt}". Revisá la API key/modelo configurados en Admin API key para volver a habilitar respuestas generativas completas.`;
+
   return [
-    "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:",
+    intro,
     `- Stock total estimado: ${totalAnimals} cabezas.`,
     `- Potreros registrados: ${snapshot.paddocks.length}.`,
     `- Categorías activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorías"}.`,
     `- Resumen top stock: ${topStocks || "sin stock registrado"}.`,
     `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
     `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
+    ...(upstreamDetail ? [`- Detalle OpenAI: ${upstreamDetail}.`] : []),
     "",
-    `Tu consulta fue: \"${prompt}\". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`,
+    closing,
   ].join("\n");
 };
 
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const persistedSettings = await loadAISettings();
+  const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const prompt = messages[messages.length - 1]?.content ?? "";
+
   if (!apiKey) {
-    return composeLocalAssistantResponse(snapshot, messages[messages.length - 1]?.content ?? "");
+    return composeLocalAssistantResponse(snapshot, prompt);
   }
 
   const systemPrompt = [
@@ -348,47 +435,38 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      input: [
-        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+      model: persistedSettings?.openAiModel || DEFAULT_OPENAI_MODEL,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
         ...messages.map((message) => ({
           role: message.role,
-          content: [{ type: "input_text", text: message.content }],
+          content: message.content,
         })),
       ],
-      temperature: 0.4,
     }),
   });
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Fallo la API de IA: ${response.status} ${details}`);
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
+    app.log.error({ status: response.status, details }, "Fallo la API de IA externa");
+    return composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", upstreamMessage);
   }
 
   const payload = await response.json() as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    choices?: Array<{ message?: { content?: string | null } }>;
   };
 
-  if (payload.output_text?.trim()) {
-    return payload.output_text;
-  }
-
-  const outputText = payload.output
-    ?.flatMap((item) => item.content ?? [])
-    .filter((item) => item.type === "output_text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
-    .trim();
-
-  return outputText || "No se pudo generar una respuesta en este momento.";
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", "La respuesta de OpenAI llegó vacía");
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -421,6 +499,58 @@ const saveHerdStock = async (paddockId: string, category: string, delta: number,
   );
 };
 
+const loadEstablishmentPaddockIds = async (establishmentId: string) => {
+  const { paddocks } = await getCollections();
+  const paddockDocs = await paddocks.find({ establishmentId }, { projection: { id: 1 } }).toArray();
+  return paddockDocs.map((paddock) => paddock.id);
+};
+
+const getCategoryAvailability = async (establishmentId: string, category: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return 0;
+  }
+  const { herds } = await getCollections();
+  const rows = await herds.find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } }).toArray();
+  return rows.reduce((total, row) => total + row.count, 0);
+};
+
+const consumeStockAcrossPaddocks = async (establishmentId: string, category: string, quantity: number, updatedAt: string) => {
+  const paddockIds = await loadEstablishmentPaddockIds(establishmentId);
+  if (!paddockIds.length) {
+    return null;
+  }
+
+  const { herds } = await getCollections();
+  const candidates = await herds
+    .find({ paddockId: { $in: paddockIds }, category, count: { $gt: 0 } })
+    .sort({ count: -1 })
+    .toArray();
+
+  const available = candidates.reduce((acc, row) => acc + row.count, 0);
+  if (available < quantity) {
+    return null;
+  }
+
+  let remaining = quantity;
+  const allocations: Array<{ paddockId: string; quantity: number }> = [];
+
+  for (const row of candidates) {
+    if (remaining <= 0) {
+      break;
+    }
+    const consumed = Math.min(row.count, remaining);
+    if (consumed <= 0) {
+      continue;
+    }
+    await updateHerdStock(row.paddockId, category, row.count - consumed, updatedAt);
+    allocations.push({ paddockId: row.paddockId, quantity: consumed });
+    remaining -= consumed;
+  }
+
+  return allocations;
+};
+
 const insertMovement = async (movement: HerdMovement) => {
   const { movements } = await getCollections();
   await movements.insertOne(movement);
@@ -431,10 +561,111 @@ const insertHealthEvent = async (healthEvent: HealthEvent) => {
   await healthEvents.insertOne(healthEvent);
 };
 
+const insertOperationalEvent = async (event: OperationalEvent) => {
+  const { operationalEvents } = await getCollections();
+  await operationalEvents.insertOne(event);
+};
+
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const aiSettingsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+  apiKey: z.string().min(12),
+  model: z.string().min(3).max(120).optional(),
+});
+
+app.post("/admin/openai-settings", async (request, reply) => {
+  const parsed = aiSettingsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.status(400);
+    return { message: "Payload inválido.", issues: parsed.error.flatten() };
+  }
+
+  const { username, password, apiKey, model } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    reply.status(401);
+    return { message: "Credenciales de admin inválidas." };
+  }
+
+  const normalizedModel = model?.trim() || DEFAULT_OPENAI_MODEL;
+  const updatedAt = await upsertAISettings(apiKey.trim(), normalizedModel);
+
+  return {
+    ok: true,
+    message: "API key de OpenAI guardada correctamente.",
+    model: normalizedModel,
+    updatedAt,
+  };
+});
+
+
+app.get("/admin/openai-settings", async () => {
+  const settings = await loadAISettings();
+  return {
+    configured: Boolean(settings?.openAiApiKey),
+    model: settings?.openAiModel || DEFAULT_OPENAI_MODEL,
+    updatedAt: settings?.updatedAt ?? null,
+  };
+});
+
+const adminCredentialsSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+app.post("/admin/openai-settings/test", async (request, reply) => {
+  const parsed = adminCredentialsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ message: "Credenciales inválidas." });
+  }
+
+  const { username, password } = parsed.data;
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return reply.status(401).send({ message: "Credenciales de admin inválidas." });
+  }
+
+  const settings = await loadAISettings();
+  const apiKey = settings?.openAiApiKey || process.env.OPENAI_API_KEY;
+  const model = settings?.openAiModel || DEFAULT_OPENAI_MODEL;
+
+  if (!apiKey) {
+    return reply.status(400).send({ message: "No hay API key configurada para probar." });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(12000),
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      max_tokens: 8,
+      messages: [
+        { role: "system", content: "Respondé únicamente: OK" },
+        { role: "user", content: "ping" },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
+    return reply.status(502).send({ message: `OpenAI rechazó la configuración: ${upstreamMessage}` });
+  }
+
+  return {
+    ok: true,
+    message: "Conexión con OpenAI validada correctamente.",
+    model,
+  };
 });
 
 const consignorUpdateSchema = z.object({
@@ -518,6 +749,154 @@ const healthEventUpdateSchema = z.object({
   status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "OVERDUE"]).optional(),
 });
 
+const toIsoDateString = (value: unknown, fallback: string) => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return fallback;
+};
+
+type ParsedCommandPayload = {
+  intent?: string;
+  proposedOperations?: Array<{ payload?: Record<string, unknown>; occurredAt?: string | Date }>;
+};
+
+const applyParsedCommand = async (establishmentId: string, parsed?: ParsedCommandPayload) => {
+  const createdEventIds: string[] = [];
+  if (!parsed) {
+    return createdEventIds;
+  }
+
+  if (parsed.intent === "MOVE") {
+    const movePayload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const quantity = Number(movePayload.qty);
+    const category = typeof movePayload.category === "string" ? movePayload.category : "";
+    const fromPaddockId = typeof movePayload.fromPaddockId === "string" ? movePayload.fromPaddockId : "";
+    const toPaddockId = typeof movePayload.toPaddockId === "string" ? movePayload.toPaddockId : "";
+    if (!quantity || !category || !fromPaddockId || !toPaddockId) throw new Error("INVALID_MOVE_PAYLOAD");
+
+    const [fromPaddock, toPaddock] = await Promise.all([findPaddockById(fromPaddockId), findPaddockById(toPaddockId)]);
+    if (!fromPaddock || !toPaddock) throw new Error("NOT_FOUND");
+    if (fromPaddock.establishmentId !== establishmentId || toPaddock.establishmentId !== establishmentId) throw new Error("ESTABLISHMENT_MISMATCH");
+
+    const now = new Date().toISOString();
+    const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
+    if (!fromHerd || fromHerd.count < quantity) throw new Error("INSUFFICIENT_STOCK");
+
+    await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
+    await saveHerdStock(toPaddockId, category, quantity, now);
+
+    const movement: HerdMovement = {
+      id: randomUUID(),
+      establishmentId,
+      fromPaddockId,
+      toPaddockId,
+      category,
+      quantity,
+      occurredAt: toIsoDateString(parsed.proposedOperations?.[0]?.occurredAt, now),
+      createdAt: now,
+    };
+    await insertMovement(movement);
+    createdEventIds.push(movement.id);
+  }
+
+  if (["VACCINATION", "DEWORMING", "TREATMENT"].includes(parsed.intent ?? "")) {
+    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const qty = Number(payload.qty);
+    const category = typeof payload.category === "string" ? payload.category : "";
+    const product = typeof payload.product === "string" ? payload.product : "";
+    const dose = typeof payload.dose === "string" ? payload.dose : null;
+    if (!qty || !category || !product) throw new Error("INVALID_HEALTH_EVENT_PAYLOAD");
+
+    const now = new Date().toISOString();
+    const healthEvent: HealthEvent = {
+      id: randomUUID(),
+      establishmentId,
+      type: parsed.intent as HealthEventType,
+      category,
+      qty,
+      product,
+      dose,
+      route: null,
+      notes: null,
+      responsible: null,
+      occurredAt: toIsoDateString(parsed.proposedOperations?.[0]?.occurredAt, now),
+      nextDueAt: null,
+      status: "COMPLETED",
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertHealthEvent(healthEvent);
+    createdEventIds.push(healthEvent.id);
+  }
+
+  if (["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent ?? "")) {
+    const operation = parsed.proposedOperations?.[0];
+    const now = new Date().toISOString();
+    const payload = (operation?.payload ?? {}) as Record<string, unknown>;
+
+    if (parsed.intent === "WEANING") {
+      const qty = Number(payload.qty);
+      const fromCategory = typeof payload.category === "string" ? payload.category : "";
+      const toCategory = typeof payload.toCategory === "string" ? payload.toCategory : "TERNEROS_DESTETADOS";
+      if (!qty || !fromCategory) throw new Error("INVALID_WEANING_PAYLOAD");
+
+      const allocations = await consumeStockAcrossPaddocks(establishmentId, fromCategory, qty, now);
+      if (!allocations) throw new Error("INSUFFICIENT_STOCK");
+
+      for (const allocation of allocations) {
+        await saveHerdStock(allocation.paddockId, toCategory, allocation.quantity, now);
+      }
+      payload.allocations = allocations;
+      payload.toCategory = toCategory;
+    }
+
+    if (parsed.intent === "SLAUGHTER_SHIPMENT") {
+      const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : [];
+      const requiredByCategory = new Map<string, number>();
+      for (const item of items) {
+        const category = typeof item.category === "string" ? item.category : "";
+        const qty = Number(item.qty);
+        if (!category || !qty) throw new Error("INVALID_SHIPMENT_PAYLOAD");
+        requiredByCategory.set(category, (requiredByCategory.get(category) ?? 0) + qty);
+      }
+      for (const [category, needed] of requiredByCategory.entries()) {
+        const available = await getCategoryAvailability(establishmentId, category);
+        if (available < needed) throw new Error("INSUFFICIENT_STOCK");
+      }
+
+      const itemAllocations: Array<{ category: string; qty: number; allocations: Array<{ paddockId: string; quantity: number }> }> = [];
+      for (const item of items) {
+        const category = String(item.category);
+        const qty = Number(item.qty);
+        const allocations = await consumeStockAcrossPaddocks(establishmentId, category, qty, now);
+        if (!allocations) throw new Error("INSUFFICIENT_STOCK");
+        itemAllocations.push({ category, qty, allocations });
+      }
+      payload.allocations = itemAllocations;
+    }
+
+    const operationalEvent: OperationalEvent = {
+      id: randomUUID(),
+      establishmentId,
+      kind: parsed.intent as OperationalEventKind,
+      occurredAt: toIsoDateString(operation?.occurredAt, now),
+      payload,
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertOperationalEvent(operationalEvent);
+    createdEventIds.push(operationalEvent.id);
+  }
+
+  return createdEventIds;
+};
+
 app.get("/health", async () => ({ status: "ok" }));
 
 app.post("/commands/parse", async (request, reply) => {
@@ -543,121 +922,39 @@ app.post("/commands/confirm", async (request, reply) => {
   }
 
   const parsed = body.data.edits && typeof body.data.edits === "object"
-    ? (body.data.edits as { parsed?: { intent?: string; proposedOperations?: Array<{ payload?: Record<string, unknown>; occurredAt?: string }> } }).parsed
+    ? (body.data.edits as { parsed?: ParsedCommandPayload }).parsed
     : undefined;
 
-  const createdEventIds: string[] = [];
-  if (parsed?.intent === "MOVE") {
-    const movePayload = parsed.proposedOperations?.[0]?.payload ?? {};
-    const quantity = Number(movePayload.qty);
-    const category = typeof movePayload.category === "string" ? movePayload.category : "";
-    const fromPaddockId = typeof movePayload.fromPaddockId === "string" ? movePayload.fromPaddockId : "";
-    const toPaddockId = typeof movePayload.toPaddockId === "string" ? movePayload.toPaddockId : "";
-    const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
+  try {
+    const createdEventIds = await applyParsedCommand(body.data.establishmentId, parsed);
 
-    if (!quantity || !category || !fromPaddockId || !toPaddockId) {
-      return reply.status(400).send({
-        code: "INVALID_MOVE_PAYLOAD",
-        message: "No se pudo confirmar el movimiento porque faltan datos en la previsualización.",
-      });
+    await appendConfirmation({
+      ...body.data,
+      parsedIntent: parsed?.intent ?? null,
+      createdEventIds,
+    } as Record<string, unknown>);
+
+    return reply.send({
+      applied: true,
+      createdEventIds,
+      summary: createdEventIds.length
+        ? "Operaciones confirmadas y aplicadas."
+        : "Confirmación guardada sin operaciones automáticas.",
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "COMMAND_APPLY_ERROR";
+    if (code === "INSUFFICIENT_STOCK") {
+      return reply.status(409).send({ code, message: "No hay stock suficiente para aplicar el comando." });
     }
-
-    const [fromPaddock, toPaddock] = await Promise.all([
-      findPaddockById(fromPaddockId),
-      findPaddockById(toPaddockId),
-    ]);
-
-    if (!fromPaddock || !toPaddock) {
-      return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+    if (code === "NOT_FOUND") {
+      return reply.status(404).send({ code, message: "No se encontraron recursos requeridos para aplicar el comando." });
     }
-
-    if (
-      fromPaddock.establishmentId !== body.data.establishmentId ||
-      toPaddock.establishmentId !== body.data.establishmentId
-    ) {
-      return reply.status(400).send({
-        code: "ESTABLISHMENT_MISMATCH",
-        message: "Los potreros no pertenecen al establecimiento indicado.",
-      });
+    if (code.endsWith("_PAYLOAD") || code === "ESTABLISHMENT_MISMATCH") {
+      return reply.status(400).send({ code, message: "No se pudo aplicar el comando por datos incompletos o inválidos." });
     }
-
-    const now = new Date().toISOString();
-    const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
-    if (!fromHerd || fromHerd.count < quantity) {
-      return reply.status(409).send({
-        code: "INSUFFICIENT_STOCK",
-        message: "No hay suficiente stock en el potrero de origen.",
-      });
-    }
-
-    await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
-    await saveHerdStock(toPaddockId, category, quantity, now);
-
-    const movement: HerdMovement = {
-      id: randomUUID(),
-      establishmentId: body.data.establishmentId,
-      fromPaddockId,
-      toPaddockId,
-      category,
-      quantity,
-      occurredAt: occurredAt ?? now,
-      createdAt: now,
-    };
-    await insertMovement(movement);
-    createdEventIds.push(movement.id);
+    request.log.error(error);
+    return reply.status(500).send({ code: "COMMAND_APPLY_ERROR", message: "No se pudo aplicar el comando." });
   }
-
-  if (parsed?.intent === "VACCINATION") {
-    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
-    const qty = Number(payload.qty);
-    const category = typeof payload.category === "string" ? payload.category : "";
-    const product = typeof payload.product === "string" ? payload.product : "";
-    const dose = typeof payload.dose === "string" ? payload.dose : null;
-    const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
-
-    if (!qty || !category || !product) {
-      return reply.status(400).send({
-        code: "INVALID_VACCINATION_PAYLOAD",
-        message: "No se pudo confirmar la vacunación porque faltan datos en la previsualización.",
-      });
-    }
-
-    const now = new Date().toISOString();
-    const healthEvent: HealthEvent = {
-      id: randomUUID(),
-      establishmentId: body.data.establishmentId,
-      type: "VACCINATION",
-      category,
-      qty,
-      product,
-      dose,
-      route: null,
-      notes: null,
-      responsible: null,
-      occurredAt: occurredAt ?? now,
-      nextDueAt: null,
-      status: "COMPLETED",
-      source: "COMMAND",
-      createdAt: now,
-      updatedAt: now,
-    };
-    await insertHealthEvent(healthEvent);
-    createdEventIds.push(healthEvent.id);
-  }
-
-  await appendConfirmation({
-    ...body.data,
-    parsedIntent: parsed?.intent ?? null,
-    createdEventIds,
-  } as Record<string, unknown>);
-
-  return reply.send({
-    applied: true,
-    createdEventIds,
-    summary: createdEventIds.length
-      ? "Operaciones confirmadas y aplicadas."
-      : "Confirmación guardada sin operaciones automáticas.",
-  });
 });
 
 app.post("/ai/chat", async (request, reply) => {
@@ -672,6 +969,45 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const commandContext = await loadContext();
+  const parsedFromPrompt = parseCommand(body.data.prompt, commandContext);
+  const supportedIntents = new Set(["MOVE", "VACCINATION", "DEWORMING", "TREATMENT", "WEANING", "SLAUGHTER_SHIPMENT", "BREEDING_START", "BRANDING"]);
+  if (supportedIntents.has(parsedFromPrompt.intent) && parsedFromPrompt.errors.length === 0 && parsedFromPrompt.warnings.length === 0) {
+    try {
+      const createdEventIds = await applyParsedCommand(body.data.establishmentId, {
+        intent: parsedFromPrompt.intent,
+        proposedOperations: parsedFromPrompt.proposedOperations.map((operation) => ({
+          ...operation,
+          occurredAt: operation.occurredAt?.toISOString(),
+        })),
+      });
+
+      if (createdEventIds.length > 0) {
+        await appendConfirmation({
+          establishmentId: body.data.establishmentId,
+          confirmationToken: parsedFromPrompt.confirmationToken,
+          parsedIntent: parsedFromPrompt.intent,
+          source: "AI_CHAT_AUTO_APPLY",
+          createdEventIds,
+          prompt: body.data.prompt,
+        });
+
+        const postApplySnapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
+        return reply.send({
+          response: `✅ Comando aplicado automáticamente (${parsedFromPrompt.intent}). Eventos creados: ${createdEventIds.length}.`,
+          contextMeta: {
+            paddocks: postApplySnapshot.paddocks.length,
+            stockRows: postApplySnapshot.stock.length,
+            movements: postApplySnapshot.recentMovements.length,
+            healthEvents: postApplySnapshot.recentHealthEvents.length,
+          },
+        });
+      }
+    } catch (applyError) {
+      request.log.warn({ err: applyError, intent: parsedFromPrompt.intent }, "No se pudo auto-aplicar comando desde chat IA");
+    }
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);

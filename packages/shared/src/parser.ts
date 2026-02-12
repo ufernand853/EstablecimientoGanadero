@@ -174,6 +174,48 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
+
+  if (normalized.startsWith("desparasitar")) {
+    const qtyMatch = text.match(/(\d+)/);
+    const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
+    const productMatch = text.match(/desparasitar\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
+    const category = findCategory(text);
+
+    result.intent = "DEWORMING";
+    result.confidence = 0.65;
+    if (!category) warnings.push("Falta categoría del lote a desparasitar.");
+    result.proposedOperations.push({
+      type: "DEWORMING",
+      occurredAt: parseDate(text),
+      payload: {
+        qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        product: productMatch?.[1]?.trim() ?? "desparasitación",
+        dose: doseMatch?.[1] ?? null,
+      },
+    });
+  }
+
+  if (normalized.startsWith("tratar") || normalized.startsWith("tratamiento")) {
+    const qtyMatch = text.match(/(\d+)/);
+    const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
+    const productMatch = text.match(/(?:tratar|tratamiento)\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
+    const category = findCategory(text);
+
+    result.intent = "TREATMENT";
+    result.confidence = 0.6;
+    if (!category) warnings.push("Falta categoría del lote en tratamiento.");
+    result.proposedOperations.push({
+      type: "TREATMENT",
+      occurredAt: parseDate(text),
+      payload: {
+        qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        product: productMatch?.[1]?.trim() ?? "tratamiento",
+        dose: doseMatch?.[1] ?? null,
+      },
+    });
+  }
   if (normalized.startsWith("iniciar entore")) {
     const cows = findCategory(text) ?? "VACAS";
     const bullsMatch = text.match(/con\s+(\d+)\s+toros/i);
@@ -197,14 +239,19 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     const qtyMatch = text.match(/(\d+)/);
     const herdMatch = text.match(/lote\s+([a-z0-9-]+)/i);
     const weightMatch = text.match(/peso\s+(\d+)/i);
+    const category = findCategory(text);
+    const toCategory = category === "TERNERAS" ? "VAQUILLONAS" : "TERNEROS_DESTETADOS";
 
     result.intent = "WEANING";
     result.confidence = 0.75;
+    if (!category) warnings.push("Falta categoría del lote a destetar.");
     result.proposedOperations.push({
       type: "WEANING",
       occurredAt: parseDate(text),
       payload: {
         qty: qtyMatch ? Number(qtyMatch[1]) : null,
+        category,
+        toCategory,
         herdCode: herdMatch?.[1]?.toUpperCase() ?? null,
         avgWeightKg: weightMatch ? Number(weightMatch[1]) : null,
       },
@@ -248,8 +295,6 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     if (!consignor.match) warnings.push("Consignatario no identificado.");
     if (!slaughterhouse.match) warnings.push("Frigorífico no identificado.");
     if (items.some((item) => !item.category)) warnings.push("Faltan categorías en los ítems.");
-    warnings.push("Se requiere asignar lotes para confirmar la consignación.");
-    editsNeeded.push("Asignar herd_id a cada ítem antes de confirmar.");
 
     result.intent = "SLAUGHTER_SHIPMENT";
     result.confidence = 0.8;

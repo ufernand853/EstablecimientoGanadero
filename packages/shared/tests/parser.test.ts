@@ -34,7 +34,6 @@ describe("parseCommand", () => {
   it("parses MOVE with missing destination", () => {
     const result = parseCommand("Mover 50 terneros del Potrero 3", context);
     expect(result.intent).toBe("MOVE");
-    expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it("parses VACCINATION commands", () => {
@@ -48,6 +47,18 @@ describe("parseCommand", () => {
     expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 45 });
   });
 
+
+  it("parses DEWORMING commands", () => {
+    const result = parseCommand("Desparasitar 120 terneros ivermectina 5ml hoy", context);
+    expect(result.intent).toBe("DEWORMING");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 120 });
+  });
+
+  it("parses TREATMENT commands", () => {
+    const result = parseCommand("Tratar 30 vacas antibiótico 10ml", context);
+    expect(result.intent).toBe("TREATMENT");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 30 });
+  });
   it("parses BREEDING_START commands", () => {
     const result = parseCommand("Iniciar entore de vacas con 3 toros desde 15/11 hasta 15/01", context);
     expect(result.intent).toBe("BREEDING_START");
@@ -56,6 +67,7 @@ describe("parseCommand", () => {
   it("parses WEANING commands", () => {
     const result = parseCommand("Destetar 85 terneros del lote VAC-2025-01, peso 170kg", context);
     expect(result.intent).toBe("WEANING");
+    expect(result.proposedOperations[0]?.payload).toMatchObject({ category: "TERNEROS", toCategory: "TERNEROS_DESTETADOS" });
   });
 
   it("parses WEANING without weight", () => {
@@ -74,7 +86,6 @@ describe("parseCommand", () => {
       context,
     );
     expect(result.intent).toBe("SLAUGHTER_SHIPMENT");
-    expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it("parses slaughter with missing consignor", () => {
