@@ -6,12 +6,12 @@ export default function HomePage() {
     { href: "/herds", label: "Lotes y categorías" },
     { href: "/operations", label: "Operaciones" },
     { href: "/health", label: "Gestión sanitaria" },
-    { href: "/commands", label: "Comandos por texto" },
     { href: "/insemination", label: "Inseminación (próximamente)" },
     { href: "/masters/herd-categories", label: "Categorías" },
     { href: "/masters/consignors", label: "Consignatarios" },
     { href: "/masters/slaughterhouses", label: "Frigoríficos" },
     { href: "/slaughter-shipments", label: "Consignaciones" },
+    { href: "/commands", label: "Modo IA" },
   ];
 
   return (
@@ -32,7 +32,7 @@ export default function HomePage() {
             className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200"
             href="/commands"
           >
-            Cargar movimiento por texto
+            Abrir Modo IA
           </a>
         </div>
         <div className="mt-6 grid gap-2 md:grid-cols-2">
