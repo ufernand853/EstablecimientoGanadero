@@ -27,6 +27,30 @@ type HealthEvent = {
 
 type Schedule = HealthEvent & { scheduleStatus: "UPCOMING" | "OVERDUE" };
 
+const PRODUCT_OPTIONS: Record<HealthEvent["type"], string[]> = {
+  VACCINATION: [
+    "Clostridial 7 vías",
+    "Aftosa",
+    "Brucelosis",
+    "Carbunclo bacteridiano",
+    "IBR + BVD",
+  ],
+  DEWORMING: [
+    "Ivermectina 1%",
+    "Doramectina",
+    "Levamisol",
+    "Albendazol",
+    "Moxidectina",
+  ],
+  TREATMENT: [
+    "Garrapaticida pour-on",
+    "Garrapaticida inyectable",
+    "Curabicheras",
+    "Antibiótico de amplio espectro",
+    "Antiinflamatorio",
+  ],
+};
+
 export default function HealthPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
@@ -39,7 +63,7 @@ export default function HealthPage() {
   const [type, setType] = useState<HealthEvent["type"]>("VACCINATION");
   const [category, setCategory] = useState("TERNEROS");
   const [qty, setQty] = useState(1);
-  const [product, setProduct] = useState("");
+  const [product, setProduct] = useState(PRODUCT_OPTIONS.VACCINATION[0]);
   const [dose, setDose] = useState("");
   const [responsible, setResponsible] = useState("");
   const [protocolDays, setProtocolDays] = useState(0);
@@ -48,6 +72,11 @@ export default function HealthPage() {
     () => schedules.filter((event) => event.scheduleStatus === "OVERDUE").length,
     [schedules],
   );
+
+  useEffect(() => {
+    const defaultProduct = PRODUCT_OPTIONS[type][0] ?? "";
+    setProduct((prev) => (prev.trim() ? prev : defaultProduct));
+  }, [type]);
 
   const loadData = async (selectedEstablishmentId?: string) => {
     const estResponse = await fetch(`${API_URL}/establishments`, { cache: "no-store" });
@@ -122,7 +151,7 @@ export default function HealthPage() {
       }
 
       setMessage("Evento sanitario guardado correctamente.");
-      setProduct("");
+      setProduct(PRODUCT_OPTIONS[type][0] ?? "");
       setDose("");
       setProtocolDays(0);
       await loadData(establishmentId);
@@ -174,7 +203,23 @@ export default function HealthPage() {
             ))}
           </select>
           <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={1} value={qty} onChange={(event) => setQty(Number(event.target.value))} placeholder="Cantidad" />
-          <input className="rounded bg-slate-800 p-2 text-sm" value={product} onChange={(event) => setProduct(event.target.value)} placeholder="Producto" />
+          <div className="md:col-span-2 grid gap-2 md:grid-cols-2">
+            <select
+              className="rounded bg-slate-800 p-2 text-sm"
+              value={product}
+              onChange={(event) => setProduct(event.target.value)}
+            >
+              {PRODUCT_OPTIONS[type].map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+            <input
+              className="rounded bg-slate-800 p-2 text-sm"
+              value={product}
+              onChange={(event) => setProduct(event.target.value)}
+              placeholder="Producto aplicado"
+            />
+          </div>
           <input className="rounded bg-slate-800 p-2 text-sm" value={dose} onChange={(event) => setDose(event.target.value)} placeholder="Dosis (ej: 2 ml)" />
           <input className="rounded bg-slate-800 p-2 text-sm" value={responsible} onChange={(event) => setResponsible(event.target.value)} placeholder="Responsable" />
           <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={0} value={protocolDays} onChange={(event) => setProtocolDays(Number(event.target.value))} placeholder="Próxima dosis en días" />
