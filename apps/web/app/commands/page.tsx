@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
 
 const API_URL = getApiUrl();
@@ -11,24 +11,49 @@ type Establishment = {
   timezone: string;
 };
 
-type ParseResult = {
-  intent: string;
-  confidence: number;
-  proposedOperations: { type: string; occurredAt: string; payload: Record<string, unknown> }[];
-  warnings: string[];
-  errors: string[];
-  editsNeeded?: string[];
-  confirmationToken: string;
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
 };
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  }
+}
 
 export default function CommandsPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
-  const [text, setText] = useState("");
-  const [parsed, setParsed] = useState<ParseResult | null>(null);
-  const [status, setStatus] = useState<"idle" | "parsing" | "confirming">("idle");
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "Hola, soy tu asistente IA para gestión ganadera. Preguntame sobre stock, movimientos, sanidad o planificación.",
+    },
+  ]);
+  const [status, setStatus] = useState<"idle" | "sending">("idle");
+  const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
     const loadEstablishments = async () => {
@@ -50,66 +75,123 @@ export default function CommandsPage() {
     loadEstablishments();
   }, []);
 
-  const handlePreview = async () => {
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const speechAvailable = useMemo(
+    () => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+    [],
+  );
+
+  const startVoiceInput = () => {
+    if (!speechAvailable) {
+      setError("Tu navegador no soporta reconocimiento de voz.");
+      return;
+    }
     setError(null);
-    setSuccess(null);
-    if (!establishmentId) {
-      setError("Seleccioná un establecimiento antes de previsualizar.");
+
+    const RecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!RecognitionCtor) {
+      setError("No se pudo inicializar el reconocimiento de voz.");
       return;
     }
-    if (!text.trim()) {
-      setError("Ingresá un comando para continuar.");
-      return;
-    }
-    setStatus("parsing");
-    try {
-      const response = await fetch(`${API_URL}/commands/parse`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          establishmentId,
-          text,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error("No se pudo previsualizar el comando.");
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = "es-AR";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+
+      if (transcript) {
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
       }
-      const data = (await response.json()) as ParseResult;
-      setParsed(data);
-    } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "Error inesperado.");
-    } finally {
-      setStatus("idle");
-    }
+    };
+    recognition.onerror = (event) => {
+      setError(`Error de voz: ${event.error}`);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
   };
 
-  const handleConfirm = async () => {
+  const stopVoiceInput = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const sendPrompt = async (event: FormEvent) => {
+    event.preventDefault();
     setError(null);
-    setSuccess(null);
-    if (!parsed) {
-      setError("Primero previsualizá el comando.");
+
+    if (!establishmentId) {
+      setError("Seleccioná un establecimiento antes de consultar la IA.");
       return;
     }
-    setStatus("confirming");
+
+    const prompt = input.trim();
+    if (!prompt) {
+      setError("Escribí o dictá una consulta para continuar.");
+      return;
+    }
+
+    const nextUserMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: prompt,
+    };
+
+    const history = messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-8)
+      .map((message) => ({ role: message.role, content: message.content }));
+
+    setMessages((prev) => [...prev, nextUserMessage]);
+    setInput("");
+    setStatus("sending");
+
     try {
-      const response = await fetch(`${API_URL}/commands/confirm`, {
+      const response = await fetch(`${API_URL}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           establishmentId,
-          confirmationToken: parsed.confirmationToken,
-          edits: {
-            text,
-            parsed,
-          },
+          prompt,
+          history,
         }),
       });
+
       if (!response.ok) {
-        throw new Error("No se pudo confirmar el comando.");
+        const body = await response.json().catch(() => ({}));
+        const message = typeof body.message === "string" ? body.message : "No se pudo obtener respuesta de la IA.";
+        throw new Error(message);
       }
-      setSuccess("Comando confirmado y guardado.");
-    } catch (confirmError) {
-      setError(confirmError instanceof Error ? confirmError.message : "Error inesperado.");
+
+      const data = (await response.json()) as {
+        response: string;
+        contextMeta?: { paddocks: number; stockRows: number; movements: number; healthEvents: number };
+      };
+
+      const aiMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: data.response,
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
+      if (data.contextMeta) {
+        setMeta(data.contextMeta);
+      }
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Error inesperado.");
     } finally {
       setStatus("idle");
     }
@@ -118,22 +200,21 @@ export default function CommandsPage() {
   return (
     <main className="space-y-6">
       <header>
-        <h2 className="text-xl font-semibold">Comandos en español</h2>
+        <h2 className="text-xl font-semibold">Modo IA</h2>
         <p className="text-sm text-slate-300">
-          Ingresá una instrucción y revisá la previsualización antes de confirmar.
+          Chat con contexto real del establecimiento. Podés consultar por texto o por voz.
         </p>
       </header>
-      <div className="rounded-lg bg-slate-900 p-6">
+
+      <section className="rounded-lg bg-slate-900 p-4">
         <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Establecimiento
+          Establecimiento activo
           <select
             className="mt-2 w-full rounded bg-slate-800 p-2 text-sm text-slate-200"
             value={establishmentId}
             onChange={(event) => setEstablishmentId(event.target.value)}
           >
-            {establishments.length === 0 && (
-              <option value="">No hay establecimientos cargados</option>
-            )}
+            {establishments.length === 0 && <option value="">No hay establecimientos cargados</option>}
             {establishments.map((establishment) => (
               <option key={establishment.id} value={establishment.id}>
                 {establishment.name}
@@ -141,85 +222,75 @@ export default function CommandsPage() {
             ))}
           </select>
         </label>
-        <textarea
-          className="mt-4 h-32 w-full rounded bg-slate-800 p-3 text-sm"
-          placeholder="Ej: Mover 120 terneros del Potrero Norte al Potrero Sur hoy 16:00"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <div className="mt-4 flex gap-3">
-          <button
-            className="rounded bg-slate-700 px-4 py-2 text-sm"
-            onClick={handlePreview}
-            disabled={status === "parsing"}
-          >
-            {status === "parsing" ? "Previsualizando..." : "Previsualizar"}
-          </button>
-          <button
-            className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
-            onClick={handleConfirm}
-            disabled={status === "confirming"}
-          >
-            {status === "confirming" ? "Confirmando..." : "Confirmar"}
-          </button>
-        </div>
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-        {success && <p className="mt-3 text-sm text-emerald-300">{success}</p>}
-      </div>
-      <div className="rounded-lg bg-slate-900 p-6">
-        <h3 className="text-lg font-semibold">Previsualización</h3>
-        {!parsed && (
-          <p className="mt-3 text-sm text-slate-400">
-            Todavía no se generó una previsualización.
+        {meta && (
+          <p className="mt-3 text-xs text-slate-400">
+            Contexto usado: {meta.paddocks} potreros · {meta.stockRows} filas de stock · {meta.movements} movimientos · {meta.healthEvents} eventos sanitarios.
           </p>
         )}
-        {parsed && (
-          <div className="mt-3 space-y-4 text-sm text-slate-300">
-            <div className="rounded bg-slate-800/60 p-3">
-              <p className="font-semibold">Intención detectada</p>
-              <p>
-                {parsed.intent} · Confianza {(parsed.confidence * 100).toFixed(0)}%
+      </section>
+
+      <section className="rounded-lg bg-slate-900 p-4">
+        <div className="h-[420px] space-y-3 overflow-y-auto rounded bg-slate-950/70 p-3">
+          {messages.map((message) => (
+            <article
+              key={message.id}
+              className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                message.role === "user"
+                  ? "ml-auto bg-emerald-500 text-slate-950"
+                  : "bg-slate-800 text-slate-100"
+              }`}
+            >
+              <p className="mb-1 text-[10px] uppercase tracking-wide opacity-70">
+                {message.role === "user" ? "Vos" : "Asistente"}
               </p>
-            </div>
-            {parsed.warnings.length > 0 && (
-              <div className="rounded bg-amber-500/10 p-3 text-amber-200">
-                <p className="font-semibold">Advertencias</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  {parsed.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
+              <p className="whitespace-pre-wrap">{message.content}</p>
+            </article>
+          ))}
+          {status === "sending" && (
+            <article className="max-w-[80%] rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300">
+              Escribiendo respuesta...
+            </article>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form className="mt-3 space-y-3" onSubmit={sendPrompt}>
+          <textarea
+            className="h-24 w-full rounded bg-slate-800 p-3 text-sm"
+            placeholder="Ej: ¿Qué categoría tiene mayor stock y qué acciones recomendás para el próximo manejo sanitario?"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
+              disabled={status === "sending"}
+            >
+              {status === "sending" ? "Enviando..." : "Enviar"}
+            </button>
+            {!isListening ? (
+              <button
+                type="button"
+                className="rounded bg-slate-700 px-4 py-2 text-sm"
+                onClick={startVoiceInput}
+              >
+                🎤 Dictar
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                onClick={stopVoiceInput}
+              >
+                ⏹ Detener voz
+              </button>
             )}
-            {parsed.errors.length > 0 && (
-              <div className="rounded bg-red-500/10 p-3 text-red-200">
-                <p className="font-semibold">Errores</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5">
-                  {parsed.errors.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className="rounded bg-slate-800/60 p-3">
-              <p className="font-semibold">Operaciones propuestas</p>
-              <ul className="mt-2 space-y-3">
-                {parsed.proposedOperations.map((operation, index) => (
-                  <li key={`${operation.type}-${index}`} className="space-y-1">
-                    <p className="font-semibold">{operation.type}</p>
-                    <p className="text-xs text-slate-400">
-                      {new Date(operation.occurredAt).toLocaleString()}
-                    </p>
-                    <pre className="rounded bg-slate-900/80 p-2 text-xs text-slate-200">
-                      {JSON.stringify(operation.payload, null, 2)}
-                    </pre>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
-        )}
-      </div>
+        </form>
+
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      </section>
     </main>
   );
 }
