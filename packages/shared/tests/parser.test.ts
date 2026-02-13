@@ -171,6 +171,12 @@ describe("parseCommand", () => {
     });
   });
 
+
+  it("always returns a confirmation token", () => {
+    const result = parseCommand("Lluvia fuerte en el campo", context);
+    expect(result.confirmationToken).toMatch(/^local-/);
+  });
+
   it("returns unknown for unrelated text", () => {
     const result = parseCommand("Lluvia fuerte en el campo", context);
     expect(result.intent).toBe("UNKNOWN");
