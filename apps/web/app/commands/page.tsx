@@ -28,6 +28,41 @@ type SpeechRecognitionLike = {
   stop: () => void;
 };
 
+const getVoiceErrorMessage = (errorCode: string) => {
+  switch (errorCode) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "No hay permiso para usar el micrófono. Habilitalo en el navegador y recargá la página (HTTPS o localhost).";
+    case "audio-capture":
+      return "No se detectó ningún micrófono disponible en este dispositivo.";
+    case "no-speech":
+      return "No se detectó voz. Intentá de nuevo hablando más cerca del micrófono.";
+    case "network":
+      return "Hubo un problema de red durante el dictado. Verificá tu conexión.";
+    default:
+      return `Error de voz: ${errorCode}`;
+  }
+};
+
+const requestMicrophoneAccess = async () => {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  if (!window.isSecureContext) {
+    throw new Error("El dictado por voz requiere HTTPS o localhost para acceder al micrófono.");
+  }
+
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices?.getUserMedia) {
+    throw new Error("Tu navegador no permite solicitar acceso al micrófono desde esta página.");
+  }
+
+  const stream = await mediaDevices.getUserMedia({ audio: true });
+  stream.getTracks().forEach((track) => track.stop());
+  return true;
+};
+
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
 declare global {
@@ -92,12 +127,20 @@ export default function CommandsPage() {
     [],
   );
 
-  const startVoiceInput = () => {
+  const startVoiceInput = async () => {
     if (!speechAvailable) {
       setError("Tu navegador no soporta reconocimiento de voz.");
       return;
     }
     setError(null);
+
+    try {
+      await requestMicrophoneAccess();
+    } catch (permissionError) {
+      const message = permissionError instanceof Error ? permissionError.message : "No hay permiso para usar el micrófono.";
+      setError(message);
+      return;
+    }
 
     const RecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!RecognitionCtor) {
@@ -120,7 +163,8 @@ export default function CommandsPage() {
       }
     };
     recognition.onerror = (event) => {
-      setError(`Error de voz: ${event.error}`);
+      setError(getVoiceErrorMessage(event.error));
+      setIsListening(false);
     };
     recognition.onend = () => {
       setIsListening(false);
@@ -128,7 +172,12 @@ export default function CommandsPage() {
 
     recognitionRef.current = recognition;
     setIsListening(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      setError("No se pudo iniciar el dictado. Revisá permisos de micrófono e intentá nuevamente.");
+      setIsListening(false);
+    }
   };
 
   const stopVoiceInput = () => {
