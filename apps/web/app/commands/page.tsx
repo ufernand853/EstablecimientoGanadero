@@ -17,6 +17,14 @@ type ChatMessage = {
   content: string;
 };
 
+type ParsedCommand = {
+  intent: string;
+  confirmationToken: string;
+  warnings?: string[];
+  errors?: string[];
+  proposedOperations?: Array<{ payload?: Record<string, unknown> }>;
+};
+
 type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
@@ -185,6 +193,56 @@ export default function CommandsPage() {
     setIsListening(false);
   };
 
+  const tryExecuteOperationalCommand = async (prompt: string) => {
+    const parseResponse = await fetch(`${API_URL}/commands/parse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ establishmentId, text: prompt }),
+    });
+
+    if (!parseResponse.ok) {
+      return null;
+    }
+
+    const parsed = (await parseResponse.json()) as ParsedCommand;
+    if (!parsed || parsed.intent === "UNKNOWN") {
+      return null;
+    }
+
+    const hasBlockingIssues = (parsed.errors?.length ?? 0) > 0 || (parsed.warnings?.length ?? 0) > 0;
+    if (hasBlockingIssues) {
+      return {
+        applied: false,
+        summary: `Entendí una operación (${parsed.intent}) pero faltan datos: ${[
+          ...(parsed.errors ?? []),
+          ...(parsed.warnings ?? []),
+        ].join(" ")}`,
+      };
+    }
+
+    const confirmResponse = await fetch(`${API_URL}/commands/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        establishmentId,
+        confirmationToken: parsed.confirmationToken,
+        edits: { parsed },
+      }),
+    });
+
+    if (!confirmResponse.ok) {
+      const body = await confirmResponse.json().catch(() => ({}));
+      const message = typeof body.message === "string" ? body.message : "No se pudo aplicar la operación.";
+      return { applied: false, summary: message };
+    }
+
+    const confirmed = (await confirmResponse.json()) as { applied?: boolean; summary?: string };
+    return {
+      applied: Boolean(confirmed.applied),
+      summary: confirmed.summary ?? "Operación aplicada correctamente.",
+    };
+  };
+
   const sendPrompt = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -216,6 +274,22 @@ export default function CommandsPage() {
     setStatus("sending");
 
     try {
+      const commandExecution = await tryExecuteOperationalCommand(prompt);
+      if (commandExecution) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: commandExecution.applied
+              ? `✅ ${commandExecution.summary}`
+              : `⚠️ ${commandExecution.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
       const response = await fetch(`${API_URL}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
