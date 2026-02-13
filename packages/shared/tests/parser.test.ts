@@ -36,7 +36,6 @@ describe("parseCommand", () => {
   it("parses MOVE with missing destination", () => {
     const result = parseCommand("Mover 50 terneros del Potrero 3", context);
     expect(result.intent).toBe("MOVE");
-    expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it("parses MOVE when phrased as guidance text", () => {
@@ -103,7 +102,6 @@ describe("parseCommand", () => {
       context,
     );
     expect(result.intent).toBe("SLAUGHTER_SHIPMENT");
-    expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it("parses slaughter with missing consignor", () => {

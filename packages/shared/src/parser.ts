@@ -305,8 +305,6 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     if (!consignor.match) warnings.push("Consignatario no identificado.");
     if (!slaughterhouse.match) warnings.push("Frigorífico no identificado.");
     if (items.some((item) => !item.category)) warnings.push("Faltan categorías en los ítems.");
-    warnings.push("Se requiere asignar lotes para confirmar la consignación.");
-    editsNeeded.push("Asignar herd_id a cada ítem antes de confirmar.");
 
     result.intent = "SLAUGHTER_SHIPMENT";
     result.confidence = 0.8;
