@@ -35,6 +35,11 @@ const aiChatSchema = z.object({
   })).max(20).optional(),
 });
 
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
@@ -169,6 +174,17 @@ type AISettings = {
   updatedAt: string;
 };
 
+type CommandLog = {
+  id: string;
+  establishmentId: string;
+  source: "AI_CHAT" | "COMMAND_CONFIRM";
+  stage: "PARSED" | "PARSE_ERROR" | "CONFIRM_SUCCESS" | "CONFIRM_ERROR";
+  intent: string | null;
+  message: string;
+  payload?: Record<string, unknown>;
+  createdAt: string;
+};
+
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -189,6 +205,7 @@ const getCollections = async () => {
     operationalEvents: db.collection<OperationalEvent>("operational_events"),
     aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
+    commandLogs: db.collection<CommandLog>("command_logs"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
 };
@@ -327,6 +344,15 @@ const appendConfirmation = async (payload: Record<string, unknown>) => {
   await confirmations.insertOne({
     ...payload,
     confirmedAt: new Date().toISOString(),
+  });
+};
+
+const appendCommandLog = async (entry: Omit<CommandLog, "id" | "createdAt">) => {
+  const { commandLogs } = await getCollections();
+  await commandLogs.insertOne({
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    ...entry,
   });
 };
 
@@ -759,9 +785,17 @@ app.post("/commands/parse", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const commandContext = await loadContext();
-  const parsed = parseCommand(body.data.text, commandContext);
-  return reply.send(parsed);
+  try {
+    const commandContext = await loadContext();
+    const parsed = parseCommand(body.data.text, commandContext);
+    return reply.send(parsed);
+  } catch (parseError) {
+    request.log.error(parseError, "Fallo parseando /commands/parse");
+    return reply.status(500).send({
+      code: "COMMAND_PARSE_ERROR",
+      message: "No se pudo interpretar el comando en este momento.",
+    });
+  }
 });
 
 app.post("/commands/confirm", async (request, reply) => {
@@ -778,6 +812,22 @@ app.post("/commands/confirm", async (request, reply) => {
     : undefined;
 
   const createdEventIds: string[] = [];
+  const failConfirm = async (statusCode: number, code: string, message: string, payload?: Record<string, unknown>) => {
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "COMMAND_CONFIRM",
+      stage: "CONFIRM_ERROR",
+      intent: parsed?.intent ?? null,
+      message,
+      payload: {
+        code,
+        confirmationToken: body.data.confirmationToken,
+        ...(payload ?? {}),
+      },
+    });
+    return reply.status(statusCode).send({ code, message });
+  };
+
   if (parsed?.intent === "MOVE") {
     const movePayload = parsed.proposedOperations?.[0]?.payload ?? {};
     const quantity = Number(movePayload.qty);
@@ -787,10 +837,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
     if (!quantity || !category || !fromPaddockId || !toPaddockId) {
-      return reply.status(400).send({
-        code: "INVALID_MOVE_PAYLOAD",
-        message: "No se pudo confirmar el movimiento porque faltan datos en la previsualización.",
-      });
+      return failConfirm(400, "INVALID_MOVE_PAYLOAD", "No se pudo confirmar el movimiento porque faltan datos en la previsualización.");
     }
 
     const [fromPaddock, toPaddock] = await Promise.all([
@@ -799,26 +846,20 @@ app.post("/commands/confirm", async (request, reply) => {
     ]);
 
     if (!fromPaddock || !toPaddock) {
-      return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
+      return failConfirm(404, "NOT_FOUND", "Potrero no encontrado.");
     }
 
     if (
       fromPaddock.establishmentId !== body.data.establishmentId ||
       toPaddock.establishmentId !== body.data.establishmentId
     ) {
-      return reply.status(400).send({
-        code: "ESTABLISHMENT_MISMATCH",
-        message: "Los potreros no pertenecen al establecimiento indicado.",
-      });
+      return failConfirm(400, "ESTABLISHMENT_MISMATCH", "Los potreros no pertenecen al establecimiento indicado.");
     }
 
     const now = new Date().toISOString();
     const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
     if (!fromHerd || fromHerd.count < quantity) {
-      return reply.status(409).send({
-        code: "INSUFFICIENT_STOCK",
-        message: "No hay suficiente stock en el potrero de origen.",
-      });
+      return failConfirm(409, "INSUFFICIENT_STOCK", "No hay suficiente stock en el potrero de origen.");
     }
 
     await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
@@ -847,10 +888,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
     if (!qty || !category || !product) {
-      return reply.status(400).send({
-        code: "INVALID_HEALTH_EVENT_PAYLOAD",
-        message: "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.",
-      });
+      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.");
     }
 
     const now = new Date().toISOString();
@@ -886,18 +924,12 @@ app.post("/commands/confirm", async (request, reply) => {
       const fromCategory = typeof payload.category === "string" ? payload.category : "";
       const toCategory = typeof payload.toCategory === "string" ? payload.toCategory : "TERNEROS_DESTETADOS";
       if (!qty || !fromCategory) {
-        return reply.status(400).send({
-          code: "INVALID_WEANING_PAYLOAD",
-          message: "No se pudo confirmar el destete porque faltan categoría o cantidad.",
-        });
+        return failConfirm(400, "INVALID_WEANING_PAYLOAD", "No se pudo confirmar el destete porque faltan categoría o cantidad.");
       }
 
       const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, fromCategory, qty, now);
       if (!allocations) {
-        return reply.status(409).send({
-          code: "INSUFFICIENT_STOCK",
-          message: `No hay stock suficiente de ${fromCategory} para destetar ${qty} cabezas.`,
-        });
+        return failConfirm(409, "INSUFFICIENT_STOCK", `No hay stock suficiente de ${fromCategory} para destetar ${qty} cabezas.`);
       }
 
       for (const allocation of allocations) {
@@ -918,10 +950,7 @@ app.post("/commands/confirm", async (request, reply) => {
         const category = typeof item.category === "string" ? item.category : "";
         const qty = Number(item.qty);
         if (!category || !qty) {
-          return reply.status(400).send({
-            code: "INVALID_SHIPMENT_PAYLOAD",
-            message: "No se pudo confirmar la consignación porque faltan categorías o cantidades.",
-          });
+          return failConfirm(400, "INVALID_SHIPMENT_PAYLOAD", "No se pudo confirmar la consignación porque faltan categorías o cantidades.");
         }
         requiredByCategory.set(category, (requiredByCategory.get(category) ?? 0) + qty);
       }
@@ -929,10 +958,7 @@ app.post("/commands/confirm", async (request, reply) => {
       for (const [category, needed] of requiredByCategory.entries()) {
         const available = await getCategoryAvailability(body.data.establishmentId, category);
         if (available < needed) {
-          return reply.status(409).send({
-            code: "INSUFFICIENT_STOCK",
-            message: `Stock insuficiente para consignación en categoría ${category}. Disponible: ${available}, requerido: ${needed}.`,
-          });
+          return failConfirm(409, "INSUFFICIENT_STOCK", `Stock insuficiente para consignación en categoría ${category}. Disponible: ${available}, requerido: ${needed}.`);
         }
       }
 
@@ -942,10 +968,7 @@ app.post("/commands/confirm", async (request, reply) => {
         const qty = Number(item.qty);
         const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, category, qty, now);
         if (!allocations) {
-          return reply.status(409).send({
-            code: "INSUFFICIENT_STOCK",
-            message: `No se pudo descontar stock para categoría ${category}.`,
-          });
+          return failConfirm(409, "INSUFFICIENT_STOCK", `No se pudo descontar stock para categoría ${category}.`);
         }
         itemAllocations.push({ category, qty, allocations });
       }
@@ -973,6 +996,20 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds,
   } as Record<string, unknown>);
 
+  await appendCommandLog({
+    establishmentId: body.data.establishmentId,
+    source: "COMMAND_CONFIRM",
+    stage: "CONFIRM_SUCCESS",
+    intent: parsed?.intent ?? null,
+    message: createdEventIds.length
+      ? "Operaciones confirmadas y aplicadas."
+      : "Confirmación guardada sin operaciones automáticas.",
+    payload: {
+      createdEventIds,
+      confirmationToken: body.data.confirmationToken,
+    },
+  });
+
   return reply.send({
     applied: true,
     createdEventIds,
@@ -994,6 +1031,83 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  let parsedCommand: ReturnType<typeof parseCommand> | null = null;
+  try {
+    const commandContext = await loadContext();
+    parsedCommand = parseCommand(body.data.prompt, commandContext);
+  } catch (parseError) {
+    request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "AI_CHAT",
+      stage: "PARSE_ERROR",
+      intent: null,
+      message: parseError instanceof Error ? parseError.message : "Error de parseo desconocido",
+      payload: { prompt: body.data.prompt },
+    });
+  }
+
+  const hasStructuredIntent = parsedCommand?.intent && parsedCommand.intent !== "UNKNOWN";
+  const hasBlockingIssues = (parsedCommand?.errors?.length ?? 0) > 0 || (parsedCommand?.warnings?.length ?? 0) > 0;
+  if (hasStructuredIntent && parsedCommand) {
+    const actionName = parsedCommand.intent === "MOVE"
+      ? "mover_stock"
+      : parsedCommand.intent === "WEANING"
+        ? "destetar_lote"
+        : parsedCommand.intent === "SLAUGHTER_SHIPMENT"
+          ? "consignar_frigorifico"
+          : parsedCommand.intent === "VACCINATION"
+            ? "registrar_vacunacion"
+            : parsedCommand.intent === "DEWORMING"
+              ? "registrar_desparasitacion"
+              : parsedCommand.intent === "TREATMENT"
+                ? "registrar_tratamiento"
+                : "registrar_evento_operativo";
+
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "AI_CHAT",
+      stage: "PARSED",
+      intent: parsedCommand.intent,
+      message: hasBlockingIssues
+        ? "Comando detectado con datos faltantes."
+        : "Comando detectado y listo para confirmar.",
+      payload: {
+        prompt: body.data.prompt,
+        warnings: parsedCommand.warnings ?? [],
+        errors: parsedCommand.errors ?? [],
+      },
+    });
+
+    return reply.send({
+      response: hasBlockingIssues
+        ? `Entendí un comando operativo (${parsedCommand.intent}) pero faltan datos: ${[
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ].join(" ")}`
+        : `Entendí el comando operativo (${parsedCommand.intent}). Puedo convertirlo en llamada API y dejarlo listo para confirmar.`,
+      suggestedApiCall: {
+        action: actionName,
+        endpoint: "/commands/confirm",
+        method: "POST",
+        requiresConfirmation: true,
+        isReady: !hasBlockingIssues,
+        missingOrInvalidFields: [
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ],
+        requestPreview: {
+          establishmentId: body.data.establishmentId,
+          confirmationToken: parsedCommand.confirmationToken,
+          edits: {
+            parsed: parsedCommand,
+          },
+        },
+      },
+      parsedCommand,
+    });
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
@@ -1129,6 +1243,21 @@ app.get("/confirmations", async (request) => {
     .sort({ confirmedAt: -1 })
     .toArray();
   return { confirmations: filtered };
+});
+
+app.get("/command-logs", async (request) => {
+  const { establishmentId, limit } = request.query as { establishmentId?: string; limit?: string };
+  const parsedLimit = Number(limit);
+  const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 200)
+    : 50;
+  const { commandLogs } = await getCollections();
+  const logs = await commandLogs
+    .find(establishmentId ? { establishmentId } : {})
+    .sort({ createdAt: -1 })
+    .limit(safeLimit)
+    .toArray();
+  return { logs };
 });
 
 const establishmentSchema = z.object({
