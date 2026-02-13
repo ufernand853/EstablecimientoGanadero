@@ -117,6 +117,16 @@ const findCategory = (text: string): HerdCategory | null => {
   return null;
 };
 
+const generateConfirmationToken = () => {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID === "function") {
+    return randomUUID.call(globalThis.crypto);
+  }
+
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `local-${Date.now().toString(36)}-${randomPart}`;
+};
+
 export const parseCommand = (text: string, context: ParseContext): ParseResult => {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -129,7 +139,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     proposedOperations: [],
     warnings,
     errors,
-    confirmationToken: crypto.randomUUID(),
+    confirmationToken: generateConfirmationToken(),
   };
 
   if (/\bmover\b/.test(normalized)) {

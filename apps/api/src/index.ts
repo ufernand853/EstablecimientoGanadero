@@ -35,6 +35,11 @@ const aiChatSchema = z.object({
   })).max(20).optional(),
 });
 
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
@@ -994,6 +999,54 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const commandContext = await loadContext();
+  const parsedCommand = parseCommand(body.data.prompt, commandContext);
+  const hasStructuredIntent = parsedCommand.intent !== "UNKNOWN";
+  const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
+  if (hasStructuredIntent) {
+    const actionName = parsedCommand.intent === "MOVE"
+      ? "mover_stock"
+      : parsedCommand.intent === "WEANING"
+        ? "destetar_lote"
+        : parsedCommand.intent === "SLAUGHTER_SHIPMENT"
+          ? "consignar_frigorifico"
+          : parsedCommand.intent === "VACCINATION"
+            ? "registrar_vacunacion"
+            : parsedCommand.intent === "DEWORMING"
+              ? "registrar_desparasitacion"
+              : parsedCommand.intent === "TREATMENT"
+                ? "registrar_tratamiento"
+                : "registrar_evento_operativo";
+
+    return reply.send({
+      response: hasBlockingIssues
+        ? `Entendí un comando operativo (${parsedCommand.intent}) pero faltan datos: ${[
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ].join(" ")}`
+        : `Entendí el comando operativo (${parsedCommand.intent}). Puedo convertirlo en llamada API y dejarlo listo para confirmar.`,
+      suggestedApiCall: {
+        action: actionName,
+        endpoint: "/commands/confirm",
+        method: "POST",
+        requiresConfirmation: true,
+        isReady: !hasBlockingIssues,
+        missingOrInvalidFields: [
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ],
+        requestPreview: {
+          establishmentId: body.data.establishmentId,
+          confirmationToken: parsedCommand.confirmationToken,
+          edits: {
+            parsed: parsedCommand,
+          },
+        },
+      },
+      parsedCommand,
+    });
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
