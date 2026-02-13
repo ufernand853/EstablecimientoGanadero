@@ -29,25 +29,7 @@ type PendingCommand = {
   parsed: ParsedCommand;
 };
 
-type SuggestedApiCall = {
-  action: string;
-  endpoint: string;
-  method: "POST";
-  requiresConfirmation: boolean;
-  isReady: boolean;
-  missingOrInvalidFields: string[];
-};
-
-type CommandLog = {
-  id: string;
-  source: "AI_CHAT" | "COMMAND_CONFIRM";
-  stage: "PARSED" | "PARSE_ERROR" | "CONFIRM_SUCCESS" | "CONFIRM_ERROR";
-  intent: string | null;
-  message: string;
-  createdAt: string;
-};
-
-const CONFIRMATION_KEYWORDS = new Set(["hazlo", "confirmado", "hacelo", "ejecutalo"]);
+const CONFIRMATION_KEYWORDS = ["hazlo", "confirmado", "hacelo", "ejecutalo"];
 
 const normalizeText = (value: string) => value
   .toLowerCase()
@@ -55,7 +37,27 @@ const normalizeText = (value: string) => value
   .replace(/[\u0300-\u036f]/g, "")
   .trim();
 
-const isConfirmationKeyword = (value: string) => CONFIRMATION_KEYWORDS.has(normalizeText(value));
+const isConfirmationKeyword = (value: string) => {
+  const normalized = normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const tokens = normalized.split(" ");
+  return CONFIRMATION_KEYWORDS.some((keyword) => tokens.includes(keyword) || normalized === keyword);
+};
+
+const findLatestOperationalPrompt = (messages: ChatMessage[]) => {
+  const latestUserInstruction = [...messages]
+    .reverse()
+    .find((message) => message.role === "user" && !isConfirmationKeyword(message.content));
+
+  return latestUserInstruction?.content.trim() ?? "";
+};
 
 const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
   const operationCount = parsed.proposedOperations?.length ?? 0;
@@ -349,6 +351,108 @@ export default function CommandsPage() {
             content: confirmedExecution.applied
               ? `✅ ${confirmedExecution.summary}`
               : `⚠️ ${confirmedExecution.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
+      if (isConfirmationKeyword(prompt)) {
+        const latestOperationalPrompt = findLatestOperationalPrompt(messages);
+        if (!latestOperationalPrompt) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ No hay ninguna acción pendiente para confirmar. Primero indicame la operación (por ejemplo: 'Mover 5 toros del Potrero 1 al Potrero 2').",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        const parsedLatestCommand = await parseOperationalCommand(latestOperationalPrompt);
+        if (!parsedLatestCommand) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ Recibí la confirmación, pero no pude inferir una operación ejecutable del mensaje anterior. Reescribí la acción con formato operativo.",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        const hasBlockingIssues = (parsedLatestCommand.errors?.length ?? 0) > 0 || (parsedLatestCommand.warnings?.length ?? 0) > 0;
+        if (hasBlockingIssues) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `⚠️ Quise ejecutar la última instrucción, pero faltan datos: ${[
+                ...(parsedLatestCommand.errors ?? []),
+                ...(parsedLatestCommand.warnings ?? []),
+              ].join(" ")}`,
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: `🛠️ Confirmación recibida. Voy a ejecutar: ${summarizePendingCommand(parsedLatestCommand, latestOperationalPrompt)}`,
+          },
+        ]);
+
+        const confirmedExecution = await executeParsedCommand(parsedLatestCommand);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: confirmedExecution.applied
+              ? `✅ Resultado de la ejecución: ${confirmedExecution.summary}`
+              : `⚠️ Resultado de la ejecución: ${confirmedExecution.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
+      const parsedCommand = await parseOperationalCommand(prompt);
+      if (parsedCommand) {
+        const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
+        if (hasBlockingIssues) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `⚠️ Entendí una operación (${parsedCommand.intent}) pero faltan datos: ${[
+                ...(parsedCommand.errors ?? []),
+                ...(parsedCommand.warnings ?? []),
+              ].join(" ")}`,
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        setPendingCommand({ parsed: parsedCommand });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: `${summarizePendingCommand(parsedCommand, prompt)}\n\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
           },
         ]);
         setStatus("idle");
