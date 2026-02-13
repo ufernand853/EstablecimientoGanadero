@@ -25,6 +25,28 @@ type ParsedCommand = {
   proposedOperations?: Array<{ payload?: Record<string, unknown> }>;
 };
 
+type PendingCommand = {
+  parsed: ParsedCommand;
+};
+
+const CONFIRMATION_KEYWORDS = new Set(["hazlo", "confirmado", "hacelo", "ejecutalo"]);
+
+const normalizeText = (value: string) => value
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .trim();
+
+const isConfirmationKeyword = (value: string) => CONFIRMATION_KEYWORDS.has(normalizeText(value));
+
+const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
+  const operationCount = parsed.proposedOperations?.length ?? 0;
+  if (operationCount > 0) {
+    return `Detecté ${operationCount} operación(es) de tipo ${parsed.intent} para: \"${prompt}\".`;
+  }
+  return `Detecté una operación de tipo ${parsed.intent} para: \"${prompt}\".`;
+};
+
 type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
@@ -100,6 +122,7 @@ export default function CommandsPage() {
   const [status, setStatus] = useState<"idle" | "sending">("idle");
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -193,22 +216,22 @@ export default function CommandsPage() {
     setIsListening(false);
   };
 
-  const tryExecuteOperationalCommand = async (prompt: string) => {
+  const parseOperationalCommand = async (prompt: string) => {
     const parseResponse = await fetch(`${API_URL}/commands/parse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ establishmentId, text: prompt }),
     });
 
-    if (!parseResponse.ok) {
-      return null;
-    }
+    if (!parseResponse.ok) return null;
 
     const parsed = (await parseResponse.json()) as ParsedCommand;
-    if (!parsed || parsed.intent === "UNKNOWN") {
-      return null;
-    }
+    if (!parsed || parsed.intent === "UNKNOWN") return null;
 
+    return parsed;
+  };
+
+  const executeParsedCommand = async (parsed: ParsedCommand) => {
     const hasBlockingIssues = (parsed.errors?.length ?? 0) > 0 || (parsed.warnings?.length ?? 0) > 0;
     if (hasBlockingIssues) {
       return {
@@ -274,16 +297,62 @@ export default function CommandsPage() {
     setStatus("sending");
 
     try {
-      const commandExecution = await tryExecuteOperationalCommand(prompt);
-      if (commandExecution) {
+      if (pendingCommand) {
+        if (!isConfirmationKeyword(prompt)) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ Hay una acción pendiente de confirmación. Para ejecutarla escribí exactamente: Hazlo, confirmado, hacelo o ejecutalo.",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        const confirmedExecution = await executeParsedCommand(pendingCommand.parsed);
+        setPendingCommand(null);
         setMessages((prev) => [
           ...prev,
           {
             id: createMessageId(),
             role: "assistant",
-            content: commandExecution.applied
-              ? `✅ ${commandExecution.summary}`
-              : `⚠️ ${commandExecution.summary}`,
+            content: confirmedExecution.applied
+              ? `✅ ${confirmedExecution.summary}`
+              : `⚠️ ${confirmedExecution.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
+      const parsedCommand = await parseOperationalCommand(prompt);
+      if (parsedCommand) {
+        const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
+        if (hasBlockingIssues) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `⚠️ Entendí una operación (${parsedCommand.intent}) pero faltan datos: ${[
+                ...(parsedCommand.errors ?? []),
+                ...(parsedCommand.warnings ?? []),
+              ].join(" ")}`,
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        setPendingCommand({ parsed: parsedCommand });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: `${summarizePendingCommand(parsedCommand, prompt)}\n\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
           },
         ]);
         setStatus("idle");
