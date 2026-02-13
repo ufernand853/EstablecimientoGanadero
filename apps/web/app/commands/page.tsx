@@ -144,8 +144,26 @@ export default function CommandsPage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
+  const [logs, setLogs] = useState<CommandLog[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  const loadCommandLogs = async (estId: string) => {
+    if (!estId) {
+      setLogs([]);
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/command-logs?establishmentId=${estId}&limit=20`);
+      if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as { logs: CommandLog[] };
+      setLogs(data.logs ?? []);
+    } catch {
+      // silent fallback for logs panel
+    }
+  };
 
   useEffect(() => {
     const loadEstablishments = async () => {
@@ -157,7 +175,9 @@ export default function CommandsPage() {
         const data = (await response.json()) as { establishments: Establishment[] };
         setEstablishments(data.establishments);
         if (data.establishments.length) {
-          setEstablishmentId(data.establishments[0]?.id ?? "");
+          const nextId = data.establishments[0]?.id ?? "";
+          setEstablishmentId(nextId);
+          await loadCommandLogs(nextId);
         }
       } catch (fetchError) {
         setError(fetchError instanceof Error ? fetchError.message : "Error inesperado.");
@@ -172,6 +192,10 @@ export default function CommandsPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    void loadCommandLogs(establishmentId);
+  }, [establishmentId]);
 
   const speechAvailable = useMemo(
     () => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
@@ -234,21 +258,6 @@ export default function CommandsPage() {
   const stopVoiceInput = () => {
     recognitionRef.current?.stop();
     setIsListening(false);
-  };
-
-  const parseOperationalCommand = async (prompt: string) => {
-    const parseResponse = await fetch(`${API_URL}/commands/parse`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ establishmentId, text: prompt }),
-    });
-
-    if (!parseResponse.ok) return null;
-
-    const parsed = (await parseResponse.json()) as ParsedCommand;
-    if (!parsed || parsed.intent === "UNKNOWN") return null;
-
-    return parsed;
   };
 
   const executeParsedCommand = async (parsed: ParsedCommand) => {
@@ -333,6 +342,7 @@ export default function CommandsPage() {
 
         const confirmedExecution = await executeParsedCommand(pendingCommand.parsed);
         setPendingCommand(null);
+        await loadCommandLogs(establishmentId);
         setMessages((prev) => [
           ...prev,
           {
@@ -467,6 +477,8 @@ export default function CommandsPage() {
 
       const data = (await response.json()) as {
         response: string;
+        parsedCommand?: ParsedCommand;
+        suggestedApiCall?: SuggestedApiCall;
         contextMeta?: { paddocks: number; stockRows: number; movements: number; healthEvents: number };
       };
 
@@ -477,6 +489,29 @@ export default function CommandsPage() {
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+      if (data.parsedCommand && data.suggestedApiCall) {
+        await loadCommandLogs(establishmentId);
+        if (data.suggestedApiCall.isReady) {
+          setPendingCommand({ parsed: data.parsedCommand });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `${summarizePendingCommand(data.parsedCommand as ParsedCommand, prompt)}\n\nAcción API sugerida: ${data.suggestedApiCall.method} ${data.suggestedApiCall.endpoint} (${data.suggestedApiCall.action}).\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `⚠️ La operación se detectó pero la llamada API aún no está lista: ${data.suggestedApiCall.missingOrInvalidFields.join(" ")}`,
+            },
+          ]);
+        }
+      }
       if (data.contextMeta) {
         setMeta(data.contextMeta);
       }
@@ -511,7 +546,10 @@ export default function CommandsPage() {
           <select
             className="mt-2 w-full rounded bg-slate-800 p-2 text-sm text-slate-200"
             value={establishmentId}
-            onChange={(event) => setEstablishmentId(event.target.value)}
+            onChange={(event) => {
+              setEstablishmentId(event.target.value);
+              void loadCommandLogs(event.target.value);
+            }}
           >
             {establishments.length === 0 && <option value="">Sin conexión a API de establecimientos</option>}
             {establishments.map((establishment) => (
@@ -590,6 +628,20 @@ export default function CommandsPage() {
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
       </section>
+      <section className="rounded-lg bg-slate-900 p-4">
+        <h3 className="text-sm font-semibold text-slate-200">Log de llamadas (últimas 20)</h3>
+        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded bg-slate-950/70 p-3 text-xs">
+          {logs.length === 0 && <p className="text-slate-400">Sin eventos todavía.</p>}
+          {logs.map((log) => (
+            <article key={log.id} className="rounded border border-slate-800 bg-slate-900 p-2">
+              <p className="font-semibold text-slate-200">{log.stage} · {log.intent ?? "SIN_INTENT"}</p>
+              <p className="text-slate-300">{log.message}</p>
+              <p className="text-slate-500">{new Date(log.createdAt).toLocaleString("es-AR")}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
     </main>
   );
 }
