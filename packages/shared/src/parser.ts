@@ -29,7 +29,9 @@ const normalize = (value: string) =>
   value
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 
 const levenshtein = (a: string, b: string) => {
   const matrix = Array.from({ length: a.length + 1 }, () =>
@@ -61,6 +63,14 @@ const fuzzyFind = (value: string, items: NameEntity[], threshold = 0.72) => {
   const exactMatch = items.find((item) => normalize(item.name) === normalized);
   if (exactMatch) {
     return { match: exactMatch, alternatives: [] };
+  }
+
+  const boundedMatches = items.filter((item) => {
+    const candidate = normalize(item.name);
+    return candidate.startsWith(`${normalized} `) || candidate.includes(` ${normalized} `);
+  });
+  if (boundedMatches.length === 1) {
+    return { match: boundedMatches[0], alternatives: [] };
   }
 
   const scored = items.map((item) => ({
@@ -122,13 +132,13 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     confirmationToken: crypto.randomUUID(),
   };
 
-  if (normalized.startsWith("mover")) {
+  if (/\bmover\b/.test(normalized)) {
     const qtyMatch = text.match(/(\d+)/);
     const qty = qtyMatch ? Number(qtyMatch[1]) : null;
     const category = findCategory(text);
     const [originSegment = "", destinationSegment = ""] = text.split(/\sal\s+/i, 2);
     const fromMatch = originSegment.match(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*(.+)$/i);
-    const toMatch = destinationSegment.match(/^([^,]+?)(?:\s+hoy|$)/i);
+    const toMatch = destinationSegment.match(/^([^,]+?)(?:,|\s+hoy|$)/i);
     const fromName = fromMatch?.[1]?.trim() ?? "";
     const toName = toMatch?.[1]?.trim() ?? "";
     const from = fromName ? fuzzyFind(fromName, context.paddocks) : { match: null, alternatives: [] };
