@@ -4,6 +4,8 @@ import { parseCommand } from "../src/parser.js";
 const context = {
   paddocks: [
     { id: "11111111-1111-1111-1111-111111111111", name: "Potrero 3" },
+    { id: "88888888-8888-8888-8888-888888888888", name: "Potrero 1 - Norte" },
+    { id: "99999999-9999-9999-9999-999999999999", name: "Potrero 2 - Sur" },
     { id: "22222222-2222-2222-2222-222222222222", name: "Potrero 7" },
     { id: "33333333-3333-3333-3333-333333333333", name: "Loma Azul" },
   ],
@@ -35,6 +37,20 @@ describe("parseCommand", () => {
     const result = parseCommand("Mover 50 terneros del Potrero 3", context);
     expect(result.intent).toBe("MOVE");
     expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("parses MOVE when phrased as guidance text", () => {
+    const result = parseCommand("Para mover 30 terneros del Potrero 3 al Potrero 7, registralo", context);
+    expect(result.intent).toBe("MOVE");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
+  });
+
+  it("parses MOVE for numbered paddocks with suffixes", () => {
+    const result = parseCommand("Mover 30 terneros desde el Potrero 1 al Potrero 2", context);
+    expect(result.intent).toBe("MOVE");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
   });
 
   it("parses VACCINATION commands", () => {
