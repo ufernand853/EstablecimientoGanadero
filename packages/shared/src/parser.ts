@@ -118,8 +118,9 @@ const findCategory = (text: string): HerdCategory | null => {
 };
 
 const generateConfirmationToken = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+  const webCrypto = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
   }
 
   const randomPart = Math.random().toString(36).slice(2, 10);
