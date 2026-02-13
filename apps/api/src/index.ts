@@ -35,6 +35,11 @@ const aiChatSchema = z.object({
   })).max(20).optional(),
 });
 
+type AIMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
@@ -759,9 +764,17 @@ app.post("/commands/parse", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const commandContext = await loadContext();
-  const parsed = parseCommand(body.data.text, commandContext);
-  return reply.send(parsed);
+  try {
+    const commandContext = await loadContext();
+    const parsed = parseCommand(body.data.text, commandContext);
+    return reply.send(parsed);
+  } catch (parseError) {
+    request.log.error(parseError, "Fallo parseando /commands/parse");
+    return reply.status(500).send({
+      code: "COMMAND_PARSE_ERROR",
+      message: "No se pudo interpretar el comando en este momento.",
+    });
+  }
 });
 
 app.post("/commands/confirm", async (request, reply) => {
@@ -994,6 +1007,60 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  let parsedCommand: ReturnType<typeof parseCommand> | null = null;
+  try {
+    const commandContext = await loadContext();
+    parsedCommand = parseCommand(body.data.prompt, commandContext);
+  } catch (parseError) {
+    request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
+  }
+
+  const hasStructuredIntent = parsedCommand?.intent && parsedCommand.intent !== "UNKNOWN";
+  const hasBlockingIssues = (parsedCommand?.errors?.length ?? 0) > 0 || (parsedCommand?.warnings?.length ?? 0) > 0;
+  if (hasStructuredIntent && parsedCommand) {
+    const actionName = parsedCommand.intent === "MOVE"
+      ? "mover_stock"
+      : parsedCommand.intent === "WEANING"
+        ? "destetar_lote"
+        : parsedCommand.intent === "SLAUGHTER_SHIPMENT"
+          ? "consignar_frigorifico"
+          : parsedCommand.intent === "VACCINATION"
+            ? "registrar_vacunacion"
+            : parsedCommand.intent === "DEWORMING"
+              ? "registrar_desparasitacion"
+              : parsedCommand.intent === "TREATMENT"
+                ? "registrar_tratamiento"
+                : "registrar_evento_operativo";
+
+    return reply.send({
+      response: hasBlockingIssues
+        ? `Entendí un comando operativo (${parsedCommand.intent}) pero faltan datos: ${[
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ].join(" ")}`
+        : `Entendí el comando operativo (${parsedCommand.intent}). Puedo convertirlo en llamada API y dejarlo listo para confirmar.`,
+      suggestedApiCall: {
+        action: actionName,
+        endpoint: "/commands/confirm",
+        method: "POST",
+        requiresConfirmation: true,
+        isReady: !hasBlockingIssues,
+        missingOrInvalidFields: [
+          ...(parsedCommand.errors ?? []),
+          ...(parsedCommand.warnings ?? []),
+        ],
+        requestPreview: {
+          establishmentId: body.data.establishmentId,
+          confirmationToken: parsedCommand.confirmationToken,
+          edits: {
+            parsed: parsedCommand,
+          },
+        },
+      },
+      parsedCommand,
+    });
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);

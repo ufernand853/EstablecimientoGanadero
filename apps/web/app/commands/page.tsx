@@ -29,6 +29,15 @@ type PendingCommand = {
   parsed: ParsedCommand;
 };
 
+type SuggestedApiCall = {
+  action: string;
+  endpoint: string;
+  method: "POST";
+  requiresConfirmation: boolean;
+  isReady: boolean;
+  missingOrInvalidFields: string[];
+};
+
 const CONFIRMATION_KEYWORDS = new Set(["hazlo", "confirmado", "hacelo", "ejecutalo"]);
 
 const normalizeText = (value: string) => value
@@ -216,21 +225,6 @@ export default function CommandsPage() {
     setIsListening(false);
   };
 
-  const parseOperationalCommand = async (prompt: string) => {
-    const parseResponse = await fetch(`${API_URL}/commands/parse`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ establishmentId, text: prompt }),
-    });
-
-    if (!parseResponse.ok) return null;
-
-    const parsed = (await parseResponse.json()) as ParsedCommand;
-    if (!parsed || parsed.intent === "UNKNOWN") return null;
-
-    return parsed;
-  };
-
   const executeParsedCommand = async (parsed: ParsedCommand) => {
     const hasBlockingIssues = (parsed.errors?.length ?? 0) > 0 || (parsed.warnings?.length ?? 0) > 0;
     if (hasBlockingIssues) {
@@ -327,38 +321,6 @@ export default function CommandsPage() {
         return;
       }
 
-      const parsedCommand = await parseOperationalCommand(prompt);
-      if (parsedCommand) {
-        const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
-        if (hasBlockingIssues) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: createMessageId(),
-              role: "assistant",
-              content: `⚠️ Entendí una operación (${parsedCommand.intent}) pero faltan datos: ${[
-                ...(parsedCommand.errors ?? []),
-                ...(parsedCommand.warnings ?? []),
-              ].join(" ")}`,
-            },
-          ]);
-          setStatus("idle");
-          return;
-        }
-
-        setPendingCommand({ parsed: parsedCommand });
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: createMessageId(),
-            role: "assistant",
-            content: `${summarizePendingCommand(parsedCommand, prompt)}\n\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
-          },
-        ]);
-        setStatus("idle");
-        return;
-      }
-
       const response = await fetch(`${API_URL}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -377,6 +339,8 @@ export default function CommandsPage() {
 
       const data = (await response.json()) as {
         response: string;
+        parsedCommand?: ParsedCommand;
+        suggestedApiCall?: SuggestedApiCall;
         contextMeta?: { paddocks: number; stockRows: number; movements: number; healthEvents: number };
       };
 
@@ -387,6 +351,28 @@ export default function CommandsPage() {
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+      if (data.parsedCommand && data.suggestedApiCall) {
+        if (data.suggestedApiCall.isReady) {
+          setPendingCommand({ parsed: data.parsedCommand });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `${summarizePendingCommand(data.parsedCommand as ParsedCommand, prompt)}\n\nAcción API sugerida: ${data.suggestedApiCall.method} ${data.suggestedApiCall.endpoint} (${data.suggestedApiCall.action}).\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: `⚠️ La operación se detectó pero la llamada API aún no está lista: ${data.suggestedApiCall.missingOrInvalidFields.join(" ")}`,
+            },
+          ]);
+        }
+      }
       if (data.contextMeta) {
         setMeta(data.contextMeta);
       }
