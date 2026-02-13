@@ -29,6 +29,23 @@ type PendingCommand = {
   parsed: ParsedCommand;
 };
 
+type CommandLog = {
+  id: string;
+  stage: "PARSED" | "PARSE_ERROR" | "CONFIRM_SUCCESS" | "CONFIRM_ERROR";
+  intent: string | null;
+  message: string;
+  createdAt: string;
+};
+
+type SuggestedApiCall = {
+  action: string;
+  endpoint: string;
+  method: string;
+  requiresConfirmation: boolean;
+  isReady: boolean;
+  missingOrInvalidFields: string[];
+};
+
 const CONFIRMATION_KEYWORDS = ["hazlo", "confirmado", "hacelo", "ejecutalo"];
 
 const normalizeText = (value: string) => value
@@ -65,6 +82,21 @@ const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
     return `Detecté ${operationCount} operación(es) de tipo ${parsed.intent} para: \"${prompt}\".`;
   }
   return `Detecté una operación de tipo ${parsed.intent} para: \"${prompt}\".`;
+};
+
+const parseOperationalCommand = async (text: string) => {
+  const response = await fetch(`${API_URL}/commands/parse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const parsed = (await response.json()) as ParsedCommand;
+  return parsed?.intent ? parsed : null;
 };
 
 type SpeechRecognitionLike = {
