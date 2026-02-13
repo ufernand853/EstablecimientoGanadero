@@ -764,9 +764,17 @@ app.post("/commands/parse", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const commandContext = await loadContext();
-  const parsed = parseCommand(body.data.text, commandContext);
-  return reply.send(parsed);
+  try {
+    const commandContext = await loadContext();
+    const parsed = parseCommand(body.data.text, commandContext);
+    return reply.send(parsed);
+  } catch (parseError) {
+    request.log.error(parseError, "Fallo parseando /commands/parse");
+    return reply.status(500).send({
+      code: "COMMAND_PARSE_ERROR",
+      message: "No se pudo interpretar el comando en este momento.",
+    });
+  }
 });
 
 app.post("/commands/confirm", async (request, reply) => {
@@ -1001,11 +1009,17 @@ app.post("/ai/chat", async (request, reply) => {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
   }
 
-  const commandContext = await loadContext();
-  const parsedCommand = parseCommand(body.data.prompt, commandContext);
-  const hasStructuredIntent = parsedCommand.intent !== "UNKNOWN";
-  const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
-  if (hasStructuredIntent) {
+  let parsedCommand: ReturnType<typeof parseCommand> | null = null;
+  try {
+    const commandContext = await loadContext();
+    parsedCommand = parseCommand(body.data.prompt, commandContext);
+  } catch (parseError) {
+    request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
+  }
+
+  const hasStructuredIntent = parsedCommand?.intent && parsedCommand.intent !== "UNKNOWN";
+  const hasBlockingIssues = (parsedCommand?.errors?.length ?? 0) > 0 || (parsedCommand?.warnings?.length ?? 0) > 0;
+  if (hasStructuredIntent && parsedCommand) {
     const actionName = parsedCommand.intent === "MOVE"
       ? "mover_stock"
       : parsedCommand.intent === "WEANING"
