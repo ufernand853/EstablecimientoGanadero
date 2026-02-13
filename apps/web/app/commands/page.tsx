@@ -76,6 +76,23 @@ const findLatestOperationalPrompt = (messages: ChatMessage[]) => {
   return latestUserInstruction?.content.trim() ?? "";
 };
 
+const findLatestAssistantOperationalHint = (messages: ChatMessage[]) => {
+  const latestAssistantInstruction = [...messages]
+    .reverse()
+    .find((message) => {
+      if (message.role !== "assistant") {
+        return false;
+      }
+      const trimmed = message.content.trim();
+      if (!trimmed) {
+        return false;
+      }
+      return !trimmed.startsWith("⚠️") && !trimmed.startsWith("✅") && !trimmed.startsWith("🛠️");
+    });
+
+  return latestAssistantInstruction?.content.trim() ?? "";
+};
+
 const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
   const operationCount = parsed.proposedOperations?.length ?? 0;
   if (operationCount > 0) {
@@ -96,7 +113,7 @@ const parseOperationalCommand = async (text: string) => {
   }
 
   const parsed = (await response.json()) as ParsedCommand;
-  return parsed?.intent ? parsed : null;
+  return parsed?.intent && parsed.intent !== "UNKNOWN" ? parsed : null;
 };
 
 type SpeechRecognitionLike = {
@@ -391,7 +408,9 @@ export default function CommandsPage() {
 
       if (isConfirmationKeyword(prompt)) {
         const latestOperationalPrompt = findLatestOperationalPrompt(messages);
-        if (!latestOperationalPrompt) {
+        const latestAssistantHint = findLatestAssistantOperationalHint(messages);
+
+        if (!latestOperationalPrompt && !latestAssistantHint) {
           setMessages((prev) => [
             ...prev,
             {
@@ -404,21 +423,29 @@ export default function CommandsPage() {
           return;
         }
 
-        const parsedLatestCommand = await parseOperationalCommand(latestOperationalPrompt);
-        if (!parsedLatestCommand) {
+        const parsedLatestCommand = latestOperationalPrompt
+          ? await parseOperationalCommand(latestOperationalPrompt)
+          : null;
+        const parsedAssistantHint = parsedLatestCommand || !latestAssistantHint
+          ? null
+          : await parseOperationalCommand(latestAssistantHint);
+        const commandToExecute = parsedLatestCommand ?? parsedAssistantHint;
+        const sourcePrompt = parsedLatestCommand ? latestOperationalPrompt : latestAssistantHint;
+
+        if (!commandToExecute || !sourcePrompt) {
           setMessages((prev) => [
             ...prev,
             {
               id: createMessageId(),
               role: "assistant",
-              content: "⚠️ Recibí la confirmación, pero no pude inferir una operación ejecutable del mensaje anterior. Reescribí la acción con formato operativo.",
+              content: "⚠️ Recibí la confirmación, pero no encontré una instrucción operativa concreta para ejecutar. Escribí la acción en una sola línea (ej: 'Mover 10 toros del Potrero 1 al Potrero 2') y luego confirmá con 'hazlo'.",
             },
           ]);
           setStatus("idle");
           return;
         }
 
-        const hasBlockingIssues = (parsedLatestCommand.errors?.length ?? 0) > 0 || (parsedLatestCommand.warnings?.length ?? 0) > 0;
+        const hasBlockingIssues = (commandToExecute.errors?.length ?? 0) > 0 || (commandToExecute.warnings?.length ?? 0) > 0;
         if (hasBlockingIssues) {
           setMessages((prev) => [
             ...prev,
@@ -426,8 +453,8 @@ export default function CommandsPage() {
               id: createMessageId(),
               role: "assistant",
               content: `⚠️ Quise ejecutar la última instrucción, pero faltan datos: ${[
-                ...(parsedLatestCommand.errors ?? []),
-                ...(parsedLatestCommand.warnings ?? []),
+                ...(commandToExecute.errors ?? []),
+                ...(commandToExecute.warnings ?? []),
               ].join(" ")}`,
             },
           ]);
@@ -440,11 +467,11 @@ export default function CommandsPage() {
           {
             id: createMessageId(),
             role: "assistant",
-            content: `🛠️ Confirmación recibida. Voy a ejecutar: ${summarizePendingCommand(parsedLatestCommand, latestOperationalPrompt)}`,
+            content: `🛠️ Confirmación recibida. Voy a ejecutar: ${summarizePendingCommand(commandToExecute, sourcePrompt)}`,
           },
         ]);
 
-        const confirmedExecution = await executeParsedCommand(parsedLatestCommand);
+        const confirmedExecution = await executeParsedCommand(commandToExecute);
         setMessages((prev) => [
           ...prev,
           {
