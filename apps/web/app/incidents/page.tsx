@@ -1,0 +1,255 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getApiUrl } from "../lib/api-url";
+
+const API_URL = getApiUrl();
+
+type Establishment = { id: string; name: string };
+type Paddock = { id: string; name: string; establishmentId: string };
+
+type Incident = {
+  id: string;
+  establishmentId: string;
+  paddockId: string | null;
+  title: string;
+  description: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
+  observedAt: string;
+  resolvedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  source: "MANUAL" | "INSPECTION";
+};
+
+const severityLabel: Record<Incident["severity"], string> = {
+  LOW: "Baja",
+  MEDIUM: "Media",
+  HIGH: "Alta",
+  CRITICAL: "Crítica",
+};
+
+const statusLabel: Record<Incident["status"], string> = {
+  OPEN: "Abierto",
+  IN_PROGRESS: "En seguimiento",
+  RESOLVED: "Resuelto",
+  CANCELLED: "Cancelado",
+};
+
+const buildMapEmbedUrl = (latitude: number, longitude: number) => {
+  const delta = 0.003;
+  const left = longitude - delta;
+  const right = longitude + delta;
+  const top = latitude + delta;
+  const bottom = latitude - delta;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${latitude}%2C${longitude}`;
+};
+
+export default function IncidentsPage() {
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [establishmentId, setEstablishmentId] = useState("");
+  const [paddocks, setPaddocks] = useState<Paddock[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [severity, setSeverity] = useState<Incident["severity"]>("MEDIUM");
+  const [paddockId, setPaddockId] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
+
+  const selectedIncident = useMemo(
+    () => incidents.find((incident) => incident.id === selectedIncidentId) ?? incidents[0],
+    [incidents, selectedIncidentId],
+  );
+
+  const loadData = async (selectedEstablishmentId?: string) => {
+    setError(null);
+    const estResponse = await fetch(`${API_URL}/establishments`, { cache: "no-store" });
+    if (!estResponse.ok) throw new Error("No se pudieron cargar establecimientos.");
+
+    const estData = (await estResponse.json()) as { establishments: Establishment[] };
+    setEstablishments(estData.establishments);
+
+    const currentEstablishmentId = selectedEstablishmentId || establishmentId || estData.establishments[0]?.id || "";
+    setEstablishmentId(currentEstablishmentId);
+    if (!currentEstablishmentId) {
+      setPaddocks([]);
+      setIncidents([]);
+      return;
+    }
+
+    const [paddocksResponse, incidentsResponse] = await Promise.all([
+      fetch(`${API_URL}/paddocks?establishmentId=${encodeURIComponent(currentEstablishmentId)}`, { cache: "no-store" }),
+      fetch(`${API_URL}/incidents?establishmentId=${encodeURIComponent(currentEstablishmentId)}`, { cache: "no-store" }),
+    ]);
+
+    if (!paddocksResponse.ok || !incidentsResponse.ok) {
+      throw new Error("No se pudieron cargar los incidentes.");
+    }
+
+    const paddockData = (await paddocksResponse.json()) as { paddocks: Paddock[] };
+    const incidentData = (await incidentsResponse.json()) as { incidents: Incident[] };
+
+    setPaddocks(paddockData.paddocks);
+    setIncidents(incidentData.incidents);
+    setSelectedIncidentId((prev) => prev || incidentData.incidents[0]?.id || "");
+  };
+
+  useEffect(() => {
+    loadData().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "Error inesperado al cargar incidentes.");
+    });
+  }, []);
+
+  const handleCreateIncident = async (formEvent: FormEvent) => {
+    formEvent.preventDefault();
+    setError(null);
+    setMessage(null);
+
+    if (!establishmentId) {
+      setError("Seleccioná un establecimiento.");
+      return;
+    }
+
+    if (!title.trim() || !description.trim()) {
+      setError("Completá título y descripción del incidente.");
+      return;
+    }
+
+    const lat = latitude.trim() ? Number(latitude) : null;
+    const lon = longitude.trim() ? Number(longitude) : null;
+
+    if ((lat !== null && Number.isNaN(lat)) || (lon !== null && Number.isNaN(lon))) {
+      setError("La latitud y longitud deben ser números válidos.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/incidents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishmentId,
+          paddockId: paddockId || null,
+          title: title.trim(),
+          description: description.trim(),
+          severity,
+          latitude: lat,
+          longitude: lon,
+          source: "INSPECTION",
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data?.message ?? "No se pudo registrar el incidente.");
+      }
+
+      setTitle("");
+      setDescription("");
+      setSeverity("MEDIUM");
+      setLatitude("");
+      setLongitude("");
+      setMessage("Incidente registrado correctamente.");
+      await loadData(establishmentId);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Error inesperado.");
+    }
+  };
+
+  return (
+    <main className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Incidentes de inspección</h2>
+          <p className="text-sm text-slate-300">Registrá situaciones detectadas en recorridas de potreros y marcá su ubicación.</p>
+        </div>
+        <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(event) => loadData(event.target.value)}>
+          {establishments.map((establishment) => (
+            <option key={establishment.id} value={establishment.id}>{establishment.name}</option>
+          ))}
+        </select>
+      </header>
+
+      <section className="rounded-lg bg-slate-900 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Nuevo incidente</h3>
+        <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={handleCreateIncident}>
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Título (ej: Ternero abichado)" value={title} onChange={(event) => setTitle(event.target.value)} />
+          <select className="rounded bg-slate-800 p-2 text-sm" value={paddockId} onChange={(event) => setPaddockId(event.target.value)}>
+            <option value="">Sin potrero asociado</option>
+            {paddocks.map((paddock) => (
+              <option key={paddock.id} value={paddock.id}>{paddock.name}</option>
+            ))}
+          </select>
+          <textarea
+            className="min-h-24 rounded bg-slate-800 p-2 text-sm md:col-span-2"
+            placeholder="Descripción del evento observado"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+          <select className="rounded bg-slate-800 p-2 text-sm" value={severity} onChange={(event) => setSeverity(event.target.value as Incident["severity"])}>
+            <option value="LOW">Baja</option>
+            <option value="MEDIUM">Media</option>
+            <option value="HIGH">Alta</option>
+            <option value="CRITICAL">Crítica</option>
+          </select>
+          <div className="grid gap-2 md:grid-cols-2">
+            <input className="rounded bg-slate-800 p-2 text-sm" value={latitude} onChange={(event) => setLatitude(event.target.value)} placeholder="Latitud (opcional)" />
+            <input className="rounded bg-slate-800 p-2 text-sm" value={longitude} onChange={(event) => setLongitude(event.target.value)} placeholder="Longitud (opcional)" />
+          </div>
+          <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 md:col-span-2" type="submit">Registrar incidente</button>
+        </form>
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+        {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+        <article className="rounded-lg bg-slate-900 p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Incidentes registrados</h3>
+          <div className="mt-3 grid gap-2">
+            {incidents.map((incident) => {
+              const paddockName = paddocks.find((item) => item.id === incident.paddockId)?.name;
+              return (
+                <button
+                  key={incident.id}
+                  type="button"
+                  className={`rounded border p-3 text-left text-sm transition ${selectedIncident?.id === incident.id ? "border-emerald-500 bg-slate-800" : "border-slate-800 bg-slate-800/60"}`}
+                  onClick={() => setSelectedIncidentId(incident.id)}
+                >
+                  <p className="font-semibold">{incident.title}</p>
+                  <p className="text-xs text-slate-400">{statusLabel[incident.status]} · Severidad {severityLabel[incident.severity]} · {new Date(incident.observedAt).toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-slate-300">{paddockName ? `Potrero: ${paddockName}` : "Sin potrero asignado"}</p>
+                </button>
+              );
+            })}
+            {incidents.length === 0 && <p className="text-sm text-slate-400">No hay incidentes registrados para este establecimiento.</p>}
+          </div>
+        </article>
+
+        <article className="rounded-lg bg-slate-900 p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Ubicación en mapa</h3>
+          {selectedIncident && selectedIncident.latitude !== null && selectedIncident.longitude !== null ? (
+            <div className="mt-3 space-y-3">
+              <iframe
+                title="Mapa de incidente"
+                src={buildMapEmbedUrl(selectedIncident.latitude, selectedIncident.longitude)}
+                className="h-72 w-full rounded border border-slate-800"
+                loading="lazy"
+              />
+              <p className="text-xs text-slate-300">
+                Coordenadas: {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-400">Seleccioná un incidente con coordenadas para visualizarlo en el mapa.</p>
+          )}
+        </article>
+      </section>
+    </main>
+  );
+}
