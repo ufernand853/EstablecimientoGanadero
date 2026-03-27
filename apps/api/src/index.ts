@@ -167,6 +167,26 @@ type OperationalEvent = {
   updatedAt: string;
 };
 
+type IncidentSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+type IncidentStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
+
+type FieldIncident = {
+  id: string;
+  establishmentId: string;
+  paddockId: string | null;
+  title: string;
+  description: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  observedAt: string;
+  resolvedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  source: "MANUAL" | "INSPECTION";
+  createdAt: string;
+  updatedAt: string;
+};
+
 type AISettings = {
   _id: "ai_settings";
   openAiApiKey: string;
@@ -203,6 +223,7 @@ const getCollections = async () => {
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
     operationalEvents: db.collection<OperationalEvent>("operational_events"),
+    incidents: db.collection<FieldIncident>("field_incidents"),
     aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandLogs: db.collection<CommandLog>("command_logs"),
@@ -775,6 +796,33 @@ const healthEventUpdateSchema = z.object({
   status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "OVERDUE"]).optional(),
 });
 
+const incidentSchema = z.object({
+  establishmentId: z.string().uuid(),
+  paddockId: z.string().uuid().nullable().optional(),
+  title: z.string().min(3),
+  description: z.string().min(3),
+  severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
+  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CANCELLED"]).default("OPEN"),
+  observedAt: z.string().datetime().optional(),
+  resolvedAt: z.string().datetime().nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  source: z.enum(["MANUAL", "INSPECTION"]).default("MANUAL"),
+});
+
+const incidentUpdateSchema = z.object({
+  paddockId: z.string().uuid().nullable().optional(),
+  title: z.string().min(3).optional(),
+  description: z.string().min(3).optional(),
+  severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+  status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CANCELLED"]).optional(),
+  observedAt: z.string().datetime().optional(),
+  resolvedAt: z.string().datetime().nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  source: z.enum(["MANUAL", "INSPECTION"]).optional(),
+});
+
 app.get("/health", async () => ({ status: "ok" }));
 
 app.post("/commands/parse", async (request, reply) => {
@@ -1233,6 +1281,107 @@ app.get("/health-schedules", async (request) => {
     scheduleStatus: event.nextDueAt && event.nextDueAt < nowIso ? "OVERDUE" : "UPCOMING",
   }));
   return { schedules };
+});
+
+app.get("/incidents", async (request) => {
+  const { establishmentId, paddockId, status, severity } = request.query as {
+    establishmentId?: string;
+    paddockId?: string;
+    status?: IncidentStatus;
+    severity?: IncidentSeverity;
+  };
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (paddockId) filter.paddockId = paddockId;
+  if (status) filter.status = status;
+  if (severity) filter.severity = severity;
+  const { incidents } = await getCollections();
+  const items = await incidents.find(filter).sort({ observedAt: -1, createdAt: -1 }).toArray();
+  return { incidents: items };
+});
+
+app.post("/incidents", async (request, reply) => {
+  const body = incidentSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  if (body.data.paddockId) {
+    const paddock = await findPaddockById(body.data.paddockId);
+    if (!paddock || paddock.establishmentId !== body.data.establishmentId) {
+      return reply.status(400).send({
+        code: "PADDOCK_MISMATCH",
+        message: "El potrero no pertenece al establecimiento indicado.",
+      });
+    }
+  }
+
+  const now = new Date().toISOString();
+  const incident: FieldIncident = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    paddockId: body.data.paddockId ?? null,
+    title: body.data.title.trim(),
+    description: body.data.description.trim(),
+    severity: body.data.severity,
+    status: body.data.status,
+    observedAt: body.data.observedAt ?? now,
+    resolvedAt: body.data.resolvedAt ?? null,
+    latitude: body.data.latitude ?? null,
+    longitude: body.data.longitude ?? null,
+    source: body.data.source,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const { incidents } = await getCollections();
+  await incidents.insertOne(incident);
+  return reply.status(201).send(incident);
+});
+
+app.patch("/incidents/:id", async (request, reply) => {
+  const body = incidentUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { incidents } = await getCollections();
+  const existing = await incidents.findOne({ id: request.params.id });
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Incidente no encontrado." });
+  }
+  if (body.data.paddockId) {
+    const paddock = await findPaddockById(body.data.paddockId);
+    if (!paddock || paddock.establishmentId !== existing.establishmentId) {
+      return reply.status(400).send({
+        code: "PADDOCK_MISMATCH",
+        message: "El potrero no pertenece al establecimiento del incidente.",
+      });
+    }
+  }
+  const now = new Date().toISOString();
+  const updated: FieldIncident = {
+    ...existing,
+    ...body.data,
+    title: body.data.title ? body.data.title.trim() : existing.title,
+    description: body.data.description ? body.data.description.trim() : existing.description,
+    updatedAt: now,
+  };
+  await incidents.updateOne(
+    { id: request.params.id },
+    {
+      $set: {
+        ...body.data,
+        title: updated.title,
+        description: updated.description,
+        updatedAt: now,
+      },
+    },
+  );
+  return reply.send(updated);
 });
 
 app.get("/confirmations", async (request) => {
