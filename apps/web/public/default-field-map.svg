@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Mapa de campo por defecto">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#7cc6ff"/>
+      <stop offset="100%" stop-color="#d9f0ff"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#8bcf6b"/>
+      <stop offset="100%" stop-color="#6cae4f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="350" fill="url(#sky)"/>
+  <rect y="350" width="1200" height="350" fill="url(#ground)"/>
+
+  <path d="M0 390 C220 360, 460 430, 700 390 C920 350, 1080 410, 1200 380 L1200 700 L0 700 Z" fill="#7fbf5f" opacity="0.65"/>
+
+  <g stroke="#8a6a4d" stroke-width="7" fill="none" opacity="0.9">
+    <path d="M70 540 H1130"/>
+    <path d="M130 500 H1080"/>
+    <path d="M210 455 H1020"/>
+    <path d="M160 420 L190 560"/>
+    <path d="M330 410 L350 560"/>
+    <path d="M500 400 L510 560"/>
+    <path d="M680 395 L670 560"/>
+    <path d="M840 400 L820 560"/>
+    <path d="M1020 415 L980 560"/>
+  </g>
+
+  <g fill="#4f9b45" opacity="0.6">
+    <ellipse cx="220" cy="390" rx="150" ry="50"/>
+    <ellipse cx="960" cy="385" rx="180" ry="55"/>
+    <ellipse cx="620" cy="365" rx="210" ry="58"/>
+  </g>
+
+  <g fill="#f8fbff" opacity="0.95" font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="600" y="70" font-size="42" font-weight="700">Mapa del campo (referencial)</text>
+    <text x="600" y="115" font-size="24">Hacé click para marcar el punto del incidente</text>
+  </g>
+</svg>
