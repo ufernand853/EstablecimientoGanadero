@@ -180,8 +180,8 @@ type FieldIncident = {
   status: IncidentStatus;
   observedAt: string;
   resolvedAt: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  mapX: number | null;
+  mapY: number | null;
   source: "MANUAL" | "INSPECTION";
   createdAt: string;
   updatedAt: string;
@@ -805,8 +805,8 @@ const incidentSchema = z.object({
   status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CANCELLED"]).default("OPEN"),
   observedAt: z.string().datetime().optional(),
   resolvedAt: z.string().datetime().nullable().optional(),
-  latitude: z.number().min(-90).max(90).nullable().optional(),
-  longitude: z.number().min(-180).max(180).nullable().optional(),
+  mapX: z.number().min(0).max(100).nullable().optional(),
+  mapY: z.number().min(0).max(100).nullable().optional(),
   source: z.enum(["MANUAL", "INSPECTION"]).default("MANUAL"),
 });
 
@@ -818,8 +818,8 @@ const incidentUpdateSchema = z.object({
   status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CANCELLED"]).optional(),
   observedAt: z.string().datetime().optional(),
   resolvedAt: z.string().datetime().nullable().optional(),
-  latitude: z.number().min(-90).max(90).nullable().optional(),
-  longitude: z.number().min(-180).max(180).nullable().optional(),
+  mapX: z.number().min(0).max(100).nullable().optional(),
+  mapY: z.number().min(0).max(100).nullable().optional(),
   source: z.enum(["MANUAL", "INSPECTION"]).optional(),
 });
 
@@ -1331,8 +1331,8 @@ app.post("/incidents", async (request, reply) => {
     status: body.data.status,
     observedAt: body.data.observedAt ?? now,
     resolvedAt: body.data.resolvedAt ?? null,
-    latitude: body.data.latitude ?? null,
-    longitude: body.data.longitude ?? null,
+    mapX: body.data.mapX ?? null,
+    mapY: body.data.mapY ?? null,
     source: body.data.source,
     createdAt: now,
     updatedAt: now,

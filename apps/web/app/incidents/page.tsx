@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
 
 const API_URL = getApiUrl();
+const DEFAULT_FIELD_MAP_SRC = "/default-field-map.svg";
 
 type Establishment = { id: string; name: string };
 type Paddock = { id: string; name: string; establishmentId: string };
@@ -18,8 +19,8 @@ type Incident = {
   status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
   observedAt: string;
   resolvedAt: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  mapX: number | null;
+  mapY: number | null;
   source: "MANUAL" | "INSPECTION";
 };
 
@@ -37,16 +38,9 @@ const statusLabel: Record<Incident["status"], string> = {
   CANCELLED: "Cancelado",
 };
 
-const buildMapEmbedUrl = (latitude: number, longitude: number) => {
-  const delta = 0.003;
-  const left = longitude - delta;
-  const right = longitude + delta;
-  const top = latitude + delta;
-  const bottom = latitude - delta;
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${latitude}%2C${longitude}`;
-};
-
 export default function IncidentsPage() {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
@@ -59,8 +53,7 @@ export default function IncidentsPage() {
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<Incident["severity"]>("MEDIUM");
   const [paddockId, setPaddockId] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [mapPoint, setMapPoint] = useState<{ x: number; y: number } | null>(null);
 
   const selectedIncident = useMemo(
     () => incidents.find((incident) => incident.id === selectedIncidentId) ?? incidents[0],
@@ -106,6 +99,16 @@ export default function IncidentsPage() {
     });
   }, []);
 
+  const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!mapRef.current) return;
+    const rect = mapRef.current.getBoundingClientRect();
+    const rawX = ((event.clientX - rect.left) / rect.width) * 100;
+    const rawY = ((event.clientY - rect.top) / rect.height) * 100;
+    const x = Math.max(0, Math.min(100, rawX));
+    const y = Math.max(0, Math.min(100, rawY));
+    setMapPoint({ x, y });
+  };
+
   const handleCreateIncident = async (formEvent: FormEvent) => {
     formEvent.preventDefault();
     setError(null);
@@ -121,14 +124,6 @@ export default function IncidentsPage() {
       return;
     }
 
-    const lat = latitude.trim() ? Number(latitude) : null;
-    const lon = longitude.trim() ? Number(longitude) : null;
-
-    if ((lat !== null && Number.isNaN(lat)) || (lon !== null && Number.isNaN(lon))) {
-      setError("La latitud y longitud deben ser números válidos.");
-      return;
-    }
-
     try {
       const response = await fetch(`${API_URL}/incidents`, {
         method: "POST",
@@ -139,8 +134,8 @@ export default function IncidentsPage() {
           title: title.trim(),
           description: description.trim(),
           severity,
-          latitude: lat,
-          longitude: lon,
+          mapX: mapPoint?.x ?? null,
+          mapY: mapPoint?.y ?? null,
           source: "INSPECTION",
         }),
       });
@@ -153,8 +148,7 @@ export default function IncidentsPage() {
       setTitle("");
       setDescription("");
       setSeverity("MEDIUM");
-      setLatitude("");
-      setLongitude("");
+      setMapPoint(null);
       setMessage("Incidente registrado correctamente.");
       await loadData(establishmentId);
     } catch (createError) {
@@ -167,7 +161,7 @@ export default function IncidentsPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Incidentes de inspección</h2>
-          <p className="text-sm text-slate-300">Registrá situaciones detectadas en recorridas de potreros y marcá su ubicación.</p>
+          <p className="text-sm text-slate-300">Registrá situaciones detectadas en recorridas de potreros y marcá su ubicación en el mapa del campo.</p>
         </div>
         <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(event) => loadData(event.target.value)}>
           {establishments.map((establishment) => (
@@ -198,9 +192,34 @@ export default function IncidentsPage() {
             <option value="HIGH">Alta</option>
             <option value="CRITICAL">Crítica</option>
           </select>
-          <div className="grid gap-2 md:grid-cols-2">
-            <input className="rounded bg-slate-800 p-2 text-sm" value={latitude} onChange={(event) => setLatitude(event.target.value)} placeholder="Latitud (opcional)" />
-            <input className="rounded bg-slate-800 p-2 text-sm" value={longitude} onChange={(event) => setLongitude(event.target.value)} placeholder="Longitud (opcional)" />
+          <div className="rounded border border-slate-700 bg-slate-950/40 p-2 text-xs text-slate-300">
+            Hacé click en el mapa para ubicar el incidente. Punto actual: {mapPoint ? `${mapPoint.x.toFixed(1)}%, ${mapPoint.y.toFixed(1)}%` : "sin ubicación"}
+          </div>
+          <div className="md:col-span-2">
+            <div
+              ref={mapRef}
+              className="relative w-full overflow-hidden rounded border border-slate-700"
+              onClick={handleMapClick}
+            >
+              <img src={DEFAULT_FIELD_MAP_SRC} alt="Mapa de campo" className="h-auto w-full" />
+              {incidents.map((incident) => (
+                incident.mapX !== null && incident.mapY !== null ? (
+                  <span
+                    key={incident.id}
+                    className={`absolute block size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${selectedIncident?.id === incident.id ? "border-white bg-red-500" : "border-red-200 bg-red-600"}`}
+                    style={{ left: `${incident.mapX}%`, top: `${incident.mapY}%` }}
+                    title={incident.title}
+                  />
+                ) : null
+              ))}
+              {mapPoint ? (
+                <span
+                  className="absolute block size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-emerald-500"
+                  style={{ left: `${mapPoint.x}%`, top: `${mapPoint.y}%` }}
+                  title="Ubicación del nuevo incidente"
+                />
+              ) : null}
+            </div>
           </div>
           <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 md:col-span-2" type="submit">Registrar incidente</button>
         </form>
@@ -208,47 +227,26 @@ export default function IncidentsPage() {
         {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <article className="rounded-lg bg-slate-900 p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Incidentes registrados</h3>
-          <div className="mt-3 grid gap-2">
-            {incidents.map((incident) => {
-              const paddockName = paddocks.find((item) => item.id === incident.paddockId)?.name;
-              return (
-                <button
-                  key={incident.id}
-                  type="button"
-                  className={`rounded border p-3 text-left text-sm transition ${selectedIncident?.id === incident.id ? "border-emerald-500 bg-slate-800" : "border-slate-800 bg-slate-800/60"}`}
-                  onClick={() => setSelectedIncidentId(incident.id)}
-                >
-                  <p className="font-semibold">{incident.title}</p>
-                  <p className="text-xs text-slate-400">{statusLabel[incident.status]} · Severidad {severityLabel[incident.severity]} · {new Date(incident.observedAt).toLocaleString()}</p>
-                  <p className="mt-1 text-xs text-slate-300">{paddockName ? `Potrero: ${paddockName}` : "Sin potrero asignado"}</p>
-                </button>
-              );
-            })}
-            {incidents.length === 0 && <p className="text-sm text-slate-400">No hay incidentes registrados para este establecimiento.</p>}
-          </div>
-        </article>
-
-        <article className="rounded-lg bg-slate-900 p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Ubicación en mapa</h3>
-          {selectedIncident && selectedIncident.latitude !== null && selectedIncident.longitude !== null ? (
-            <div className="mt-3 space-y-3">
-              <iframe
-                title="Mapa de incidente"
-                src={buildMapEmbedUrl(selectedIncident.latitude, selectedIncident.longitude)}
-                className="h-72 w-full rounded border border-slate-800"
-                loading="lazy"
-              />
-              <p className="text-xs text-slate-300">
-                Coordenadas: {selectedIncident.latitude.toFixed(6)}, {selectedIncident.longitude.toFixed(6)}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-400">Seleccioná un incidente con coordenadas para visualizarlo en el mapa.</p>
-          )}
-        </article>
+      <section className="rounded-lg bg-slate-900 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Incidentes registrados</h3>
+        <div className="mt-3 grid gap-2">
+          {incidents.map((incident) => {
+            const paddockName = paddocks.find((item) => item.id === incident.paddockId)?.name;
+            return (
+              <button
+                key={incident.id}
+                type="button"
+                className={`rounded border p-3 text-left text-sm transition ${selectedIncident?.id === incident.id ? "border-emerald-500 bg-slate-800" : "border-slate-800 bg-slate-800/60"}`}
+                onClick={() => setSelectedIncidentId(incident.id)}
+              >
+                <p className="font-semibold">{incident.title}</p>
+                <p className="text-xs text-slate-400">{statusLabel[incident.status]} · Severidad {severityLabel[incident.severity]} · {new Date(incident.observedAt).toLocaleString()}</p>
+                <p className="mt-1 text-xs text-slate-300">{paddockName ? `Potrero: ${paddockName}` : "Sin potrero asignado"}</p>
+              </button>
+            );
+          })}
+          {incidents.length === 0 && <p className="text-sm text-slate-400">No hay incidentes registrados para este establecimiento.</p>}
+        </div>
       </section>
     </main>
   );
