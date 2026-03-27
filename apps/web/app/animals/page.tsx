@@ -48,6 +48,7 @@ export default function AnimalsPage() {
   const [selectedFilePreview, setSelectedFilePreview] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [takenAt, setTakenAt] = useState("");
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
 
   const loadEstablishments = async () => {
     const response = await fetch(`${API_URL}/establishments`);
@@ -203,6 +204,27 @@ export default function AnimalsPage() {
     }
   };
 
+  const handleDeletePhoto = async (photoId: string) => {
+    if (!selectedAnimalId) return;
+    setError(null);
+    setDeletingPhotoId(photoId);
+    try {
+      const response = await fetch(`${API_URL}/animals/${selectedAnimalId}/photos/${photoId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "No se pudo eliminar la foto.");
+      }
+      await loadPhotos(selectedAnimalId);
+      await loadAnimals(establishmentId);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Error inesperado.");
+    } finally {
+      setDeletingPhotoId(null);
+    }
+  };
+
   return (
     <main className="space-y-6">
       <header className="flex items-center justify-between gap-4">
@@ -259,6 +281,14 @@ export default function AnimalsPage() {
                 <img src={photo.imageUrl} alt={photo.caption ?? "Foto del animal"} className="h-28 w-full object-cover" />
                 <div className="p-2 text-xs text-slate-300">
                   <p>{photo.caption ?? "Sin descripción"}</p>
+                  <button
+                    type="button"
+                    className="mt-2 rounded bg-red-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                    disabled={deletingPhotoId === photo.id}
+                    onClick={() => handleDeletePhoto(photo.id)}
+                  >
+                    {deletingPhotoId === photo.id ? "Eliminando..." : "Eliminar foto"}
+                  </button>
                 </div>
               </article>
             ))}
