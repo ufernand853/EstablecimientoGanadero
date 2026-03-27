@@ -57,6 +57,7 @@ type Establishment = {
   id: string;
   name: string;
   timezone: string;
+  mapImageUrl: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1412,11 +1413,23 @@ app.get("/command-logs", async (request) => {
 const establishmentSchema = z.object({
   name: z.string().min(2),
   timezone: z.string().min(2).optional(),
+  mapImageUrl: z.string().refine((value) => {
+    if (value.startsWith("data:image/")) {
+      return true;
+    }
+    return z.string().url().safeParse(value).success;
+  }, "Debe ser una URL válida o una imagen en base64.").optional().nullable(),
 });
 
 const establishmentUpdateSchema = z.object({
   name: z.string().min(2).optional(),
   timezone: z.string().min(2).optional(),
+  mapImageUrl: z.string().refine((value) => {
+    if (value.startsWith("data:image/")) {
+      return true;
+    }
+    return z.string().url().safeParse(value).success;
+  }, "Debe ser una URL válida o una imagen en base64.").optional().nullable(),
 });
 
 app.get("/establishments", async () => {
@@ -1446,6 +1459,7 @@ app.post("/establishments", async (request, reply) => {
     id: randomUUID(),
     name: body.data.name,
     timezone: body.data.timezone ?? "UTC-3",
+    mapImageUrl: body.data.mapImageUrl ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -1474,6 +1488,7 @@ app.patch("/establishments/:id", async (request, reply) => {
   await updateEstablishment(request.params.id, {
     name: updated.name,
     timezone: updated.timezone,
+    mapImageUrl: updated.mapImageUrl ?? null,
     updatedAt: updated.updatedAt,
   });
   return reply.send(updated);

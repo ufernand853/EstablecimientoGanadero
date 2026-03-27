@@ -6,7 +6,7 @@ import { getApiUrl } from "../lib/api-url";
 const API_URL = getApiUrl();
 const DEFAULT_FIELD_MAP_SRC = "/default-field-map.svg";
 
-type Establishment = { id: string; name: string };
+type Establishment = { id: string; name: string; mapImageUrl: string | null };
 type Paddock = { id: string; name: string; establishmentId: string };
 
 type Incident = {
@@ -59,6 +59,18 @@ export default function IncidentsPage() {
     () => incidents.find((incident) => incident.id === selectedIncidentId) ?? incidents[0],
     [incidents, selectedIncidentId],
   );
+  const pendingIncidents = useMemo(
+    () => incidents.filter((incident) => incident.status === "OPEN" || incident.status === "IN_PROGRESS"),
+    [incidents],
+  );
+  const completedIncidents = useMemo(
+    () => incidents.filter((incident) => incident.status === "RESOLVED" || incident.status === "CANCELLED"),
+    [incidents],
+  );
+  const selectedEstablishment = useMemo(
+    () => establishments.find((establishment) => establishment.id === establishmentId) ?? null,
+    [establishments, establishmentId],
+  );
 
   const loadData = async (selectedEstablishmentId?: string) => {
     setError(null);
@@ -90,7 +102,8 @@ export default function IncidentsPage() {
 
     setPaddocks(paddockData.paddocks);
     setIncidents(incidentData.incidents);
-    setSelectedIncidentId((prev) => prev || incidentData.incidents[0]?.id || "");
+    const firstPendingIncidentId = incidentData.incidents.find((incident) => incident.status === "OPEN" || incident.status === "IN_PROGRESS")?.id;
+    setSelectedIncidentId((prev) => prev || firstPendingIncidentId || incidentData.incidents[0]?.id || "");
   };
 
   useEffect(() => {
@@ -156,6 +169,32 @@ export default function IncidentsPage() {
     }
   };
 
+  const handleResolveIncident = async () => {
+    if (!selectedIncident || (selectedIncident.status !== "OPEN" && selectedIncident.status !== "IN_PROGRESS")) {
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/incidents/${selectedIncident.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "RESOLVED",
+          resolvedAt: new Date().toISOString(),
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data?.message ?? "No se pudo cumplir el incidente.");
+      }
+      setMessage("Incidente cumplido y removido de pendientes.");
+      await loadData(establishmentId);
+    } catch (resolveError) {
+      setError(resolveError instanceof Error ? resolveError.message : "Error inesperado.");
+    }
+  };
+
   return (
     <main className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -201,15 +240,22 @@ export default function IncidentsPage() {
               className="relative w-full overflow-hidden rounded border border-slate-700"
               onClick={handleMapClick}
             >
-              <img src={DEFAULT_FIELD_MAP_SRC} alt="Mapa de campo" className="h-auto w-full" />
-              {incidents.map((incident) => (
+              <img src={selectedEstablishment?.mapImageUrl || DEFAULT_FIELD_MAP_SRC} alt="Mapa de campo" className="h-auto w-full" />
+              {pendingIncidents.map((incident) => (
                 incident.mapX !== null && incident.mapY !== null ? (
-                  <span
+                  <div
                     key={incident.id}
-                    className={`absolute block size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${selectedIncident?.id === incident.id ? "border-white bg-red-500" : "border-red-200 bg-red-600"}`}
+                    className="absolute -translate-x-1/2 -translate-y-1/2"
                     style={{ left: `${incident.mapX}%`, top: `${incident.mapY}%` }}
                     title={incident.title}
-                  />
+                  >
+                    <span
+                      className={`block size-3 rounded-full border-2 ${selectedIncident?.id === incident.id ? "border-white bg-red-500" : "border-red-200 bg-red-600"}`}
+                    />
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-slate-950/80 px-1.5 py-0.5 text-[10px] font-semibold text-red-200">
+                      {incident.title}
+                    </span>
+                  </div>
                 ) : null
               ))}
               {mapPoint ? (
@@ -228,9 +274,19 @@ export default function IncidentsPage() {
       </section>
 
       <section className="rounded-lg bg-slate-900 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Incidentes registrados</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Incidentes pendientes</h3>
+          <button
+            className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+            type="button"
+            onClick={handleResolveIncident}
+            disabled={!selectedIncident || (selectedIncident.status !== "OPEN" && selectedIncident.status !== "IN_PROGRESS")}
+          >
+            Cumplir incidente seleccionado
+          </button>
+        </div>
         <div className="mt-3 grid gap-2">
-          {incidents.map((incident) => {
+          {pendingIncidents.map((incident) => {
             const paddockName = paddocks.find((item) => item.id === incident.paddockId)?.name;
             return (
               <button
@@ -245,8 +301,21 @@ export default function IncidentsPage() {
               </button>
             );
           })}
-          {incidents.length === 0 && <p className="text-sm text-slate-400">No hay incidentes registrados para este establecimiento.</p>}
+          {pendingIncidents.length === 0 && <p className="text-sm text-slate-400">No hay incidentes pendientes para este establecimiento.</p>}
         </div>
+        {completedIncidents.length > 0 && (
+          <div className="mt-4 border-t border-slate-800 pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cumplidos / cerrados</h4>
+            <div className="mt-2 grid gap-2">
+              {completedIncidents.map((incident) => (
+                <div key={incident.id} className="rounded border border-slate-800 bg-slate-800/40 p-3 text-left text-sm">
+                  <p className="font-semibold">{incident.title}</p>
+                  <p className="text-xs text-slate-400">{statusLabel[incident.status]} · Severidad {severityLabel[incident.severity]}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     </main>
   );
