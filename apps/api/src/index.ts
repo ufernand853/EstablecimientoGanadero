@@ -163,7 +163,30 @@ type OperationalEvent = {
   kind: OperationalEventKind;
   occurredAt: string;
   payload: Record<string, unknown>;
-  source: "COMMAND";
+  source: "COMMAND" | "MANUAL";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ReproductionEventType = "ENTORE" | "PREGNANCY_CHECK";
+
+type ReproductionEvent = {
+  id: string;
+  establishmentId: string;
+  type: ReproductionEventType;
+  occurredAt: string;
+  category: string;
+  lot: string | null;
+  servicedQty: number | null;
+  bullsQty: number | null;
+  strawsQty: number | null;
+  protocol: string | null;
+  diagnosedQty: number | null;
+  pregnantQty: number | null;
+  emptyQty: number | null;
+  responsible: string | null;
+  notes: string | null;
+  source: "MANUAL" | "COMMAND";
   createdAt: string;
   updatedAt: string;
 };
@@ -224,6 +247,7 @@ const getCollections = async () => {
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
     operationalEvents: db.collection<OperationalEvent>("operational_events"),
+    reproductionEvents: db.collection<ReproductionEvent>("reproduction_events"),
     incidents: db.collection<FieldIncident>("field_incidents"),
     aiSettings: db.collection<AISettings>("settings"),
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
@@ -614,6 +638,11 @@ const insertOperationalEvent = async (event: OperationalEvent) => {
   await operationalEvents.insertOne(event);
 };
 
+const insertReproductionEvent = async (event: ReproductionEvent) => {
+  const { reproductionEvents } = await getCollections();
+  await reproductionEvents.insertOne(event);
+};
+
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
@@ -795,6 +824,49 @@ const healthEventUpdateSchema = z.object({
   occurredAt: z.string().datetime().optional(),
   nextDueAt: z.string().datetime().nullable().optional(),
   status: z.enum(["PENDING", "COMPLETED", "CANCELLED", "OVERDUE"]).optional(),
+});
+
+const entoreEventSchema = z.object({
+  establishmentId: z.string().uuid(),
+  type: z.literal("ENTORE"),
+  category: z.string().min(2),
+  lot: z.string().min(2).optional().nullable(),
+  servicedQty: z.number().int().positive(),
+  bullsQty: z.number().int().min(0).optional().nullable(),
+  strawsQty: z.number().int().min(0).optional().nullable(),
+  protocol: z.string().min(2).optional().nullable(),
+  responsible: z.string().min(2).optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
+  occurredAt: z.string().datetime().optional(),
+  source: z.enum(["MANUAL", "COMMAND"]).optional(),
+});
+
+const pregnancyCheckEventSchema = z.object({
+  establishmentId: z.string().uuid(),
+  type: z.literal("PREGNANCY_CHECK"),
+  category: z.string().min(2),
+  lot: z.string().min(2).optional().nullable(),
+  diagnosedQty: z.number().int().positive(),
+  pregnantQty: z.number().int().min(0),
+  emptyQty: z.number().int().min(0).optional().nullable(),
+  responsible: z.string().min(2).optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
+  occurredAt: z.string().datetime().optional(),
+  source: z.enum(["MANUAL", "COMMAND"]).optional(),
+});
+
+const reproductionEventSchema = z.discriminatedUnion("type", [
+  entoreEventSchema,
+  pregnancyCheckEventSchema,
+]);
+
+const manualWeaningSchema = z.object({
+  establishmentId: z.string().uuid(),
+  fromCategory: z.string().min(2),
+  toCategory: z.string().min(2).default("TERNEROS_DESTETADOS"),
+  qty: z.number().int().positive(),
+  occurredAt: z.string().datetime().optional(),
+  notes: z.string().min(1).optional().nullable(),
 });
 
 const incidentSchema = z.object({
@@ -1284,6 +1356,87 @@ app.get("/health-schedules", async (request) => {
   return { schedules };
 });
 
+app.get("/reproduction-events", async (request) => {
+  const { establishmentId, type } = request.query as {
+    establishmentId?: string;
+    type?: ReproductionEventType;
+  };
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (type) filter.type = type;
+  const { reproductionEvents } = await getCollections();
+  const events = await reproductionEvents.find(filter).sort({ occurredAt: -1 }).toArray();
+  return { reproductionEvents: events };
+});
+
+app.post("/reproduction-events", async (request, reply) => {
+  const body = reproductionEventSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  if (body.data.type === "PREGNANCY_CHECK") {
+    const effectiveEmptyQty = body.data.emptyQty ?? (body.data.diagnosedQty - body.data.pregnantQty);
+    if (effectiveEmptyQty < 0 || body.data.pregnantQty + effectiveEmptyQty > body.data.diagnosedQty) {
+      return reply.status(400).send({
+        code: "INVALID_PREGNANCY_COUNTS",
+        message: "Los valores de diagnóstico no son consistentes.",
+      });
+    }
+  }
+
+  const now = new Date().toISOString();
+  const occurredAt = body.data.occurredAt ?? now;
+  const event: ReproductionEvent = body.data.type === "ENTORE"
+    ? {
+        id: randomUUID(),
+        establishmentId: body.data.establishmentId,
+        type: "ENTORE",
+        occurredAt,
+        category: body.data.category,
+        lot: body.data.lot ?? null,
+        servicedQty: body.data.servicedQty,
+        bullsQty: body.data.bullsQty ?? null,
+        strawsQty: body.data.strawsQty ?? null,
+        protocol: body.data.protocol ?? null,
+        diagnosedQty: null,
+        pregnantQty: null,
+        emptyQty: null,
+        responsible: body.data.responsible ?? null,
+        notes: body.data.notes ?? null,
+        source: body.data.source ?? "MANUAL",
+        createdAt: now,
+        updatedAt: now,
+      }
+    : {
+        id: randomUUID(),
+        establishmentId: body.data.establishmentId,
+        type: "PREGNANCY_CHECK",
+        occurredAt,
+        category: body.data.category,
+        lot: body.data.lot ?? null,
+        servicedQty: null,
+        bullsQty: null,
+        strawsQty: null,
+        protocol: null,
+        diagnosedQty: body.data.diagnosedQty,
+        pregnantQty: body.data.pregnantQty,
+        emptyQty: body.data.emptyQty ?? (body.data.diagnosedQty - body.data.pregnantQty),
+        responsible: body.data.responsible ?? null,
+        notes: body.data.notes ?? null,
+        source: body.data.source ?? "MANUAL",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+  await insertReproductionEvent(event);
+  return reply.status(201).send(event);
+});
+
 app.get("/incidents", async (request) => {
   const { establishmentId, paddockId, status, severity } = request.query as {
     establishmentId?: string;
@@ -1628,6 +1781,78 @@ app.post("/stock/adjust", async (request, reply) => {
   await saveHerdStock(body.data.paddockId, body.data.category, body.data.delta, now);
   const herds = await loadHerds();
   return reply.send({ ok: true, herds });
+});
+
+app.get("/operational-events", async (request) => {
+  const { establishmentId, kind, limit } = request.query as {
+    establishmentId?: string;
+    kind?: OperationalEventKind;
+    limit?: string;
+  };
+  const parsedLimit = Number(limit);
+  const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 200)
+    : 100;
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (kind) filter.kind = kind;
+  const { operationalEvents } = await getCollections();
+  const events = await operationalEvents.find(filter).sort({ occurredAt: -1 }).limit(safeLimit).toArray();
+  return { operationalEvents: events };
+});
+
+app.post("/operational-events/weaning", async (request, reply) => {
+  const body = manualWeaningSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({
+      code: "VALIDATION_ERROR",
+      issues: body.error.issues,
+    });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const now = new Date().toISOString();
+  const allocations = await consumeStockAcrossPaddocks(
+    body.data.establishmentId,
+    body.data.fromCategory,
+    body.data.qty,
+    now,
+  );
+  if (!allocations) {
+    return reply.status(409).send({
+      code: "INSUFFICIENT_STOCK",
+      message: `No hay stock suficiente de ${body.data.fromCategory} para destetar ${body.data.qty} cabezas.`,
+    });
+  }
+
+  for (const allocation of allocations) {
+    await saveHerdStock(allocation.paddockId, body.data.toCategory, allocation.quantity, now);
+  }
+
+  const event: OperationalEvent = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    kind: "WEANING",
+    occurredAt: body.data.occurredAt ?? now,
+    payload: {
+      category: body.data.fromCategory,
+      toCategory: body.data.toCategory,
+      qty: body.data.qty,
+      notes: body.data.notes ?? null,
+      allocations,
+    },
+    source: "MANUAL",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await insertOperationalEvent(event);
+
+  const herds = await loadHerds();
+  return reply.status(201).send({ ok: true, event, herds });
 });
 
 const movementSchema = z.object({
