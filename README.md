@@ -44,6 +44,26 @@ npm run dev:web
 - El módulo de comandos ahora puede confirmar eventos de sanidad (`vacunar`, `desparasitar`, `tratar`) y gestionar stock en comandos operativos clave: `mover`, `destete` y `consignación` (además registra `entore` y `yerra` como eventos operativos).
 
 
+### Publicar la web bajo una subruta (ej: `/EstablecimientoGanadero`)
+Si el dominio publica la app en una subruta y no en `/`, configurá el prefijo en el frontend:
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/EstablecimientoGanadero
+```
+
+Con Nginx, en general conviene **preservar** la subruta y enviarla tal cual al servicio web (sin reescribirla), por ejemplo:
+
+```nginx
+location /EstablecimientoGanadero/ {
+  proxy_pass http://127.0.0.1:3000;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Luego reiniciá el servicio web para que tome la variable de entorno.
+
 ## Ejecutar como servicio (Linux/systemd)
 Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
 
