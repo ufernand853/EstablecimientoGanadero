@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -159,10 +160,10 @@ export default function DashboardPage() {
       <section className="rounded-lg bg-emerald-900/30 p-4 text-sm text-emerald-100">
         <p className="font-semibold">Nuevos módulos disponibles</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <a className="rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" href="/health">
+          <a className="rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" href={withBasePath("/health")}>
             Ir a Gestión sanitaria
           </a>
-          <a className="rounded bg-slate-800 px-3 py-2 text-xs text-slate-200" href="/insemination">
+          <a className="rounded bg-slate-800 px-3 py-2 text-xs text-slate-200" href={withBasePath("/insemination")}>
             Ir a Inseminación
           </a>
         </div>

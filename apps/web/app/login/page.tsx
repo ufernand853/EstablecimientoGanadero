@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BASE_PATH, withBasePath } from "../lib/base-path";
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_PASSWORD = "UliferLuli853$$";
@@ -16,9 +17,10 @@ export default function LoginPage() {
     event.preventDefault();
 
     if (username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
-      document.cookie = "eg_auth=1; path=/; max-age=28800; samesite=lax";
+      const cookiePath = BASE_PATH || "/";
+      document.cookie = `eg_auth=1; path=${cookiePath}; max-age=28800; samesite=lax`;
       const params = new URLSearchParams(window.location.search);
-      const nextPath = params.get("next") || "/dashboard";
+      const nextPath = params.get("next") || withBasePath("/dashboard");
       router.push(nextPath);
       router.refresh();
       return;

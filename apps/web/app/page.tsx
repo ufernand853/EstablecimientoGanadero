@@ -1,19 +1,20 @@
+import { withBasePath } from "./lib/base-path";
 export default function HomePage() {
   const modules = [
-    { href: "/dashboard", label: "Panel de control" },
-    { href: "/establishments", label: "Establecimientos" },
-    { href: "/paddocks", label: "Potreros" },
-    { href: "/herds", label: "Lotes y categorías" },
-    { href: "/animals", label: "Animales individuales" },
-    { href: "/operations", label: "Operaciones" },
-    { href: "/health", label: "Gestión sanitaria" },
-    { href: "/insemination", label: "Inseminación (próximamente)" },
-    { href: "/masters/herd-categories", label: "Categorías" },
-    { href: "/masters/consignors", label: "Consignatarios" },
-    { href: "/masters/slaughterhouses", label: "Frigoríficos" },
-    { href: "/slaughter-shipments", label: "Consignaciones" },
-    { href: "/commands", label: "Modo IA" },
-    { href: "/admin/ai-settings", label: "Admin API key IA" },
+    { href: withBasePath("/dashboard"), label: "Panel de control" },
+    { href: withBasePath("/establishments"), label: "Establecimientos" },
+    { href: withBasePath("/paddocks"), label: "Potreros" },
+    { href: withBasePath("/herds"), label: "Lotes y categorías" },
+    { href: withBasePath("/animals"), label: "Animales individuales" },
+    { href: withBasePath("/operations"), label: "Operaciones" },
+    { href: withBasePath("/health"), label: "Gestión sanitaria" },
+    { href: withBasePath("/insemination"), label: "Inseminación (próximamente)" },
+    { href: withBasePath("/masters/herd-categories"), label: "Categorías" },
+    { href: withBasePath("/masters/consignors"), label: "Consignatarios" },
+    { href: withBasePath("/masters/slaughterhouses"), label: "Frigoríficos" },
+    { href: withBasePath("/slaughter-shipments"), label: "Consignaciones" },
+    { href: withBasePath("/commands"), label: "Modo IA" },
+    { href: withBasePath("/admin/ai-settings"), label: "Admin API key IA" },
   ];
 
   return (
@@ -26,13 +27,13 @@ export default function HomePage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <a
             className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
-            href="/dashboard"
+            href={withBasePath("/dashboard")}
           >
             Ver panel de control
           </a>
           <a
             className="rounded bg-slate-800 px-4 py-2 text-sm text-slate-200"
-            href="/commands"
+            href={withBasePath("/commands")}
           >
             Abrir Modo IA
           </a>
