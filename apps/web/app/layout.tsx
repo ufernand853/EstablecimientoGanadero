@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
+import { withBasePath } from "./lib/base-path";
 
 export const metadata = {
   title: "Establecimiento Ganadero",
@@ -8,19 +9,19 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const navLinks = [
-    { href: "/", label: "Inicio" },
-    { href: "/dashboard", label: "Panel de control" },
-    { href: "/establishments", label: "Establecimientos" },
-    { href: "/paddocks", label: "Potreros" },
-    { href: "/herds", label: "Stock" },
-    { href: "/animals", label: "Animales" },
-    { href: "/operations", label: "Operaciones" },
-    { href: "/health", label: "Gestión sanitaria" },
-    { href: "/incidents", label: "Incidentes" },
-    { href: "/insemination", label: "Inseminación" },
-    { href: "/masters/herd-categories", label: "Categorías" },
-    { href: "/commands", label: "Modo IA" },
-    { href: "/admin/ai-settings", label: "Admin API key" },
+    { href: withBasePath("/"), label: "Inicio" },
+    { href: withBasePath("/dashboard"), label: "Panel de control" },
+    { href: withBasePath("/establishments"), label: "Establecimientos" },
+    { href: withBasePath("/paddocks"), label: "Potreros" },
+    { href: withBasePath("/herds"), label: "Stock" },
+    { href: withBasePath("/animals"), label: "Animales" },
+    { href: withBasePath("/operations"), label: "Operaciones" },
+    { href: withBasePath("/health"), label: "Gestión sanitaria" },
+    { href: withBasePath("/incidents"), label: "Incidentes" },
+    { href: withBasePath("/insemination"), label: "Inseminación" },
+    { href: withBasePath("/masters/herd-categories"), label: "Categorías" },
+    { href: withBasePath("/commands"), label: "Modo IA" },
+    { href: withBasePath("/admin/ai-settings"), label: "Admin API key" },
   ];
 
   return (
@@ -37,7 +38,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </div>
               <a
                 className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
-                href="/dashboard"
+                href={withBasePath("/dashboard")}
               >
                 Ir al panel
               </a>
