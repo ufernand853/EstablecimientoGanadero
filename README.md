@@ -111,3 +111,6 @@ Edita esos archivos para ajustar los datos de testing sin depender de una base d
 
 ## Propuesta: ficha individual con fotos
 - Ver `docs/propuesta-ficha-animal-y-fotos.md` para una propuesta concreta de implementación (caravana, nombre, fecha de nacimiento, y fotos por animal).
+
+## Consultas SQL de referencia
+- `docs/sql/lista-lotes-aprobaciones.sql`: consulta para listar lotes/destinos pendientes de aprobación en producto terminado.
