@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 
 const DEFAULT_USERNAME = "admin";
-const DEFAULT_PASSWORD = "UliferLuli853$$";
+const DEFAULT_PASSWORD = "admin";
 
 export default function LoginPage() {
   const router = useRouter();
