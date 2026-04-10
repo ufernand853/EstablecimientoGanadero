@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 
 const DEFAULT_USERNAME = "admin";
-const DEFAULT_PASSWORD = "UliferLuli853$$";
+const DEFAULT_PASSWORD = "admin";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,7 +18,8 @@ export default function LoginPage() {
 
     if (username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
       const cookiePath = BASE_PATH || "/";
-      document.cookie = `eg_auth=1; path=${cookiePath}; max-age=28800; samesite=lax`;
+      const secureFlag = window.location.protocol === "https:" ? "; secure" : "";
+      document.cookie = `eg_auth=1; path=${cookiePath}; max-age=28800; samesite=lax${secureFlag}`;
       const params = new URLSearchParams(window.location.search);
       const nextPath = params.get("next") || withBasePath("/dashboard");
       router.push(nextPath);

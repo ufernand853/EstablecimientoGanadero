@@ -230,7 +230,7 @@ type CommandLog = {
 };
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "UliferLuli853$$";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 const getCollections = async () => {
