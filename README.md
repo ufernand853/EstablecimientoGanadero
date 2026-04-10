@@ -64,6 +64,43 @@ location /EstablecimientoGanadero/ {
 
 Luego reiniciá el servicio web para que tome la variable de entorno.
 
+### Publicar Ganadería como `https://<dominio>:3000`
+Si querés entrar a Ganadería desde otro proyecto con una URL como:
+
+```text
+https://rubenrossiseguros.linsse.com:3000/login
+```
+
+la opción recomendada es terminar TLS en Nginx en el puerto `3000` y dejar Next.js en un puerto interno (`3100`).
+
+1. Configurá el botón del proyecto llamador para apuntar a:
+   - `https://rubenrossiseguros.linsse.com:3000/login`
+2. Dejá este proyecto con `PORT=3100` (ver `deploy/systemd/eg-web.service`).
+3. Configurá Nginx para escuchar `3000 ssl` y hacer proxy a `http://127.0.0.1:3100`.
+4. Mantené la API en `3001` y el proxy interno del frontend (`/api/proxy`).
+
+Ejemplo de bloque Nginx:
+
+```nginx
+server {
+  listen 3000 ssl http2;
+  server_name rubenrossiseguros.linsse.com;
+
+  ssl_certificate     /etc/letsencrypt/live/rubenrossiseguros.linsse.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/rubenrossiseguros.linsse.com/privkey.pem;
+
+  location / {
+    proxy_pass http://127.0.0.1:3100;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+```
+
 ## Ejecutar como servicio (Linux/systemd)
 Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
 
