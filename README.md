@@ -79,6 +79,8 @@ la opción recomendada es terminar TLS en Nginx en el puerto `3000` y dejar Next
 3. Configurá Nginx para escuchar `3000 ssl` y hacer proxy a `http://127.0.0.1:3100`.
 4. Mantené la API en `3001` y el proxy interno del frontend (`/api/proxy`).
 
+> Nota: si tu archivo `.env` tiene `PORT=3000`, el servicio puede intentar usar ese puerto y fallar con `EADDRINUSE` al convivir con Nginx en `:3000`. La unidad `eg-web.service` fuerza `PORT=3100` **después** de cargar `.env` para evitar ese conflicto.
+
 Ejemplo de bloque Nginx:
 
 ```nginx

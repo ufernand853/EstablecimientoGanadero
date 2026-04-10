@@ -8,8 +8,8 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/workspace/EstablecimientoGanadero
 Environment=NODE_ENV=production
-Environment=PORT=3100
 EnvironmentFile=-/workspace/EstablecimientoGanadero/.env
+Environment=PORT=3100
 ExecStart=/usr/bin/env npm --workspace apps/web run start
 Restart=always
 RestartSec=5
