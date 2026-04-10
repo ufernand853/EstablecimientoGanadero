@@ -65,7 +65,7 @@ Type=simple
 User=${USER_NAME}
 WorkingDirectory=${PROJECT_DIR}
 Environment=NODE_ENV=production
-Environment=PORT=3000
+Environment=PORT=3100
 EnvironmentFile=-${PROJECT_DIR}/.env
 ExecStart=/usr/bin/env npm --workspace apps/web run start
 Restart=always
