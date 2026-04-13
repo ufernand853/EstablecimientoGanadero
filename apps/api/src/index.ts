@@ -507,6 +507,44 @@ const composeLocalAssistantResponse = (
   ].join("\n");
 };
 
+const detectOperationalNudge = (prompt: string) => {
+  const normalized = prompt
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+
+  const isMoveRequest = /\b(mover|movimiento|trasladar|pasar)\b/.test(normalized);
+  if (isMoveRequest) {
+    return [
+      "Puedo ejecutarlo, pero me faltan datos para impactar la base.",
+      "Decime todo en una línea, por ejemplo:",
+      "\"Mover 10 terneros del Potrero 1 al Potrero 2\".",
+      "Después confirmá con: hazlo.",
+    ].join(" ");
+  }
+
+  const isHealthRequest = /\b(vacunar|vacunacion|desparasitar|tratamiento|tratar)\b/.test(normalized);
+  if (isHealthRequest) {
+    return [
+      "Puedo registrarlo, pero necesito datos mínimos.",
+      "Ejemplo: \"Vacunar 120 terneros con Clostridial 7 vías hoy\" y luego \"hazlo\".",
+    ].join(" ");
+  }
+
+  const isIncidentReviewRequest = /\b(revisar|ver|listar|mostrar|consultar)\b.*\b(incidentes|incidencias|alertas)\b/.test(normalized)
+    || /\b(incidentes|incidencias|alertas)\b/.test(normalized);
+  if (isIncidentReviewRequest) {
+    return [
+      "Para revisar incidentes, pedímelo así:",
+      "\"Mostrame incidentes abiertos\" o \"Listar incidentes críticos del Potrero 3\".",
+      "Si querés registrar uno nuevo: \"Registrar incidente en Potrero 2: alambre caído, severidad alta\".",
+    ].join(" ");
+  }
+
+  return null;
+};
+
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
   const persistedSettings = await loadAISettings();
   const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
@@ -1251,6 +1289,19 @@ app.post("/ai/chat", async (request, reply) => {
       },
       parsedCommand,
     });
+  }
+
+  const operationalNudge = detectOperationalNudge(body.data.prompt);
+  if (operationalNudge) {
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "AI_CHAT",
+      stage: "PARSED",
+      intent: null,
+      message: "Solicitud operativa detectada sin datos suficientes para parseo estructurado.",
+      payload: { prompt: body.data.prompt },
+    });
+    return reply.send({ response: operationalNudge });
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
