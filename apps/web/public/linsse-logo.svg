@@ -1,0 +1,6 @@
+<svg width="1200" height="1200" viewBox="0 0 1200 1200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1200" rx="36" fill="#4D86A8"/>
+  <path d="M180 150L570 375C585 384 585 406 570 415L180 640V150Z" fill="#E9EEF2"/>
+  <path d="M210 690L960 240L970 580C970 605 968 618 954 628L600 840L210 690Z" fill="#E9EEF2"/>
+  <text x="600" y="1110" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="230" letter-spacing="18" fill="#E9EEF2">LINSSE</text>
+</svg>
