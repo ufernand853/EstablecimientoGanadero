@@ -26,6 +26,11 @@ const confirmSchema = z.object({
   edits: z.record(z.unknown()).optional(),
 });
 
+const undoConfirmationSchema = z.object({
+  establishmentId: z.string().uuid(),
+  confirmationId: z.string().min(1),
+});
+
 const aiChatSchema = z.object({
   establishmentId: z.string().uuid(),
   prompt: z.string().min(2),
@@ -229,6 +234,18 @@ type CommandLog = {
   createdAt: string;
 };
 
+type ConfirmationRecord = {
+  id: string;
+  establishmentId: string;
+  confirmationToken: string;
+  edits?: Record<string, unknown>;
+  parsedIntent: string | null;
+  createdEventIds: string[];
+  confirmedAt: string;
+  undoneAt?: string;
+  undoReason?: string;
+};
+
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -250,7 +267,7 @@ const getCollections = async () => {
     reproductionEvents: db.collection<ReproductionEvent>("reproduction_events"),
     incidents: db.collection<FieldIncident>("field_incidents"),
     aiSettings: db.collection<AISettings>("settings"),
-    confirmations: db.collection<Record<string, unknown>>("confirmations"),
+    confirmations: db.collection<ConfirmationRecord>("confirmations"),
     commandLogs: db.collection<CommandLog>("command_logs"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
   };
@@ -402,12 +419,17 @@ const findPaddockById = async (id: string) => {
   return paddocks.findOne({ id });
 };
 
-const appendConfirmation = async (payload: Record<string, unknown>) => {
+const appendConfirmation = async (payload: Omit<ConfirmationRecord, "id" | "confirmedAt">) => {
   const { confirmations } = await getCollections();
-  await confirmations.insertOne({
-    ...payload,
+  const confirmation: ConfirmationRecord = {
+    id: randomUUID(),
     confirmedAt: new Date().toISOString(),
+    ...payload,
+  };
+  await confirmations.insertOne({
+    ...confirmation,
   });
+  return confirmation;
 };
 
 const appendCommandLog = async (entry: Omit<CommandLog, "id" | "createdAt">) => {
@@ -773,6 +795,11 @@ const insertHealthEvent = async (healthEvent: HealthEvent) => {
 const insertOperationalEvent = async (event: OperationalEvent) => {
   const { operationalEvents } = await getCollections();
   await operationalEvents.insertOne(event);
+};
+
+const ensureStockAvailable = async (paddockId: string, category: string, qty: number) => {
+  const row = await findHerdByPaddockCategory(paddockId, category);
+  return (row?.count ?? 0) >= qty;
 };
 
 const insertReproductionEvent = async (event: ReproductionEvent) => {
@@ -1253,11 +1280,13 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(operationalEvent.id);
   }
 
-  await appendConfirmation({
-    ...body.data,
+  const confirmation = await appendConfirmation({
+    establishmentId: body.data.establishmentId,
+    confirmationToken: body.data.confirmationToken,
+    edits: body.data.edits,
     parsedIntent: parsed?.intent ?? null,
     createdEventIds,
-  } as Record<string, unknown>);
+  });
 
   await appendCommandLog({
     establishmentId: body.data.establishmentId,
@@ -1269,12 +1298,14 @@ app.post("/commands/confirm", async (request, reply) => {
       : "Confirmación guardada sin operaciones automáticas.",
     payload: {
       createdEventIds,
+      confirmationId: confirmation.id,
       confirmationToken: body.data.confirmationToken,
     },
   });
 
   return reply.send({
     applied: true,
+    confirmationId: confirmation.id,
     createdEventIds,
     summary: createdEventIds.length
       ? "Operaciones confirmadas y aplicadas."
@@ -1708,6 +1739,174 @@ app.get("/confirmations", async (request) => {
     .sort({ confirmedAt: -1 })
     .toArray();
   return { confirmations: filtered };
+});
+
+app.get("/commands/confirmed-changes", async (request) => {
+  const { establishmentId, limit } = request.query as { establishmentId?: string; limit?: string };
+  const parsedLimit = Number(limit);
+  const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 200)
+    : 50;
+  const { confirmations } = await getCollections();
+  const filter: Record<string, unknown> = {
+    createdEventIds: { $exists: true, $ne: [] },
+  };
+  if (establishmentId) {
+    filter.establishmentId = establishmentId;
+  }
+  const changes = await confirmations
+    .find(filter)
+    .sort({ confirmedAt: -1 })
+    .limit(safeLimit)
+    .toArray();
+  return {
+    changes: changes.map((change) => ({
+      ...change,
+      id: change.id || String((change as { _id?: { toString: () => string } })._id ?? ""),
+    })),
+  };
+});
+
+app.post("/commands/undo", async (request, reply) => {
+  const body = undoConfirmationSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({
+      code: "VALIDATION_ERROR",
+      issues: body.error.issues,
+    });
+  }
+
+  const { confirmations, movements, healthEvents, operationalEvents } = await getCollections();
+  const confirmation = await confirmations.findOne({ id: body.data.confirmationId });
+
+  if (!confirmation || confirmation.establishmentId !== body.data.establishmentId) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Cambio confirmado no encontrado." });
+  }
+
+  if (confirmation.undoneAt) {
+    return reply.status(409).send({ code: "ALREADY_UNDONE", message: "Este cambio ya fue deshecho." });
+  }
+
+  if (!confirmation.createdEventIds.length) {
+    return reply.status(400).send({ code: "NOTHING_TO_UNDO", message: "La confirmación no tiene impactos de base de datos para deshacer." });
+  }
+
+  const now = new Date().toISOString();
+  const revertedEventIds: string[] = [];
+
+  if (confirmation.parsedIntent === "MOVE") {
+    const movementId = confirmation.createdEventIds[0];
+    const movement = await movements.findOne({ id: movementId });
+    if (!movement) {
+      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontró el movimiento original para deshacer." });
+    }
+
+    const canRevert = await ensureStockAvailable(movement.toPaddockId, movement.category, movement.quantity);
+    if (!canRevert) {
+      return reply.status(409).send({
+        code: "INSUFFICIENT_STOCK_TO_REVERT",
+        message: "No hay stock suficiente en el potrero destino para deshacer este movimiento.",
+      });
+    }
+
+    await saveHerdStock(movement.toPaddockId, movement.category, -movement.quantity, now);
+    await saveHerdStock(movement.fromPaddockId, movement.category, movement.quantity, now);
+    await movements.deleteOne({ id: movement.id });
+    revertedEventIds.push(movement.id);
+  } else if (confirmation.parsedIntent && ["VACCINATION", "DEWORMING", "TREATMENT"].includes(confirmation.parsedIntent)) {
+    for (const eventId of confirmation.createdEventIds) {
+      const healthEvent = await healthEvents.findOne({ id: eventId, establishmentId: confirmation.establishmentId, source: "COMMAND" });
+      if (!healthEvent) {
+        continue;
+      }
+      await healthEvents.deleteOne({ id: eventId });
+      revertedEventIds.push(eventId);
+    }
+  } else if (confirmation.parsedIntent && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(confirmation.parsedIntent)) {
+    const eventId = confirmation.createdEventIds[0];
+    const event = await operationalEvents.findOne({ id: eventId, establishmentId: confirmation.establishmentId, source: "COMMAND" });
+    if (!event) {
+      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontró el evento operativo original para deshacer." });
+    }
+
+    if (confirmation.parsedIntent === "WEANING") {
+      const allocations = Array.isArray(event.payload.allocations)
+        ? event.payload.allocations as Array<{ paddockId: string; quantity: number }>
+        : [];
+      const fromCategory = typeof event.payload.category === "string" ? event.payload.category : "";
+      const toCategory = typeof event.payload.toCategory === "string" ? event.payload.toCategory : "";
+      if (!allocations.length || !fromCategory || !toCategory) {
+        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer el destete porque faltan datos de asignación." });
+      }
+
+      for (const allocation of allocations) {
+        const canRevert = await ensureStockAvailable(allocation.paddockId, toCategory, allocation.quantity);
+        if (!canRevert) {
+          return reply.status(409).send({
+            code: "INSUFFICIENT_STOCK_TO_REVERT",
+            message: `No hay stock suficiente de ${toCategory} para deshacer el destete en el potrero ${allocation.paddockId}.`,
+          });
+        }
+      }
+
+      for (const allocation of allocations) {
+        await saveHerdStock(allocation.paddockId, toCategory, -allocation.quantity, now);
+        await saveHerdStock(allocation.paddockId, fromCategory, allocation.quantity, now);
+      }
+    }
+
+    if (confirmation.parsedIntent === "SLAUGHTER_SHIPMENT") {
+      const items = Array.isArray(event.payload.allocations)
+        ? event.payload.allocations as Array<{ category: string; allocations: Array<{ paddockId: string; quantity: number }> }>
+        : [];
+      if (!items.length) {
+        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer la consignación porque faltan asignaciones." });
+      }
+
+      for (const item of items) {
+        for (const allocation of item.allocations ?? []) {
+          await saveHerdStock(allocation.paddockId, item.category, allocation.quantity, now);
+        }
+      }
+    }
+
+    await operationalEvents.deleteOne({ id: event.id });
+    revertedEventIds.push(event.id);
+  } else {
+    return reply.status(400).send({
+      code: "UNSUPPORTED_UNDO",
+      message: "Este tipo de operación todavía no soporta deshacer.",
+    });
+  }
+
+  await confirmations.updateOne(
+    { id: confirmation.id },
+    {
+      $set: {
+        undoneAt: now,
+        undoReason: "MANUAL_UNDO",
+      },
+    },
+  );
+
+  await appendCommandLog({
+    establishmentId: confirmation.establishmentId,
+    source: "COMMAND_CONFIRM",
+    stage: "CONFIRM_SUCCESS",
+    intent: confirmation.parsedIntent,
+    message: "Se deshicieron cambios confirmados con impacto en base de datos.",
+    payload: {
+      confirmationId: confirmation.id,
+      revertedEventIds,
+    },
+  });
+
+  return reply.send({
+    ok: true,
+    confirmationId: confirmation.id,
+    revertedEventIds,
+    summary: "Operación deshecha correctamente.",
+  });
 });
 
 app.get("/command-logs", async (request) => {
