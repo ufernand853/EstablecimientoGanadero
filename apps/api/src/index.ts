@@ -1244,6 +1244,58 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(healthEvent.id);
   }
 
+  if (parsed?.intent === "INCIDENT_REPORT") {
+    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const paddockId = typeof payload.paddockId === "string" ? payload.paddockId : "";
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
+    const description = typeof payload.description === "string" ? payload.description.trim() : "";
+    const responsible = typeof payload.responsible === "string" ? payload.responsible.trim() : "";
+    const actionTaken = typeof payload.actionTaken === "string" ? payload.actionTaken.trim() : "";
+    const severityRaw = typeof payload.severity === "string" ? payload.severity : "HIGH";
+    const severity: IncidentSeverity = ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(severityRaw)
+      ? severityRaw as IncidentSeverity
+      : "HIGH";
+    const observedAt = parsed.proposedOperations?.[0]?.occurredAt;
+
+    if (!paddockId || !title || !description || !responsible) {
+      return failConfirm(400, "INVALID_INCIDENT_PAYLOAD", "No se pudo confirmar el incidente porque faltan potrero, título, descripción o responsable.");
+    }
+
+    const paddock = await findPaddockById(paddockId);
+    if (!paddock) {
+      return failConfirm(404, "NOT_FOUND", "Potrero no encontrado.");
+    }
+    if (paddock.establishmentId !== body.data.establishmentId) {
+      return failConfirm(400, "ESTABLISHMENT_MISMATCH", "El potrero del incidente no pertenece al establecimiento indicado.");
+    }
+
+    const now = new Date().toISOString();
+    const incident: FieldIncident = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      paddockId,
+      title,
+      description: [
+        description,
+        actionTaken ? `Acción tomada: ${actionTaken}` : null,
+        responsible ? `Responsable: ${responsible}` : null,
+      ].filter(Boolean).join("\n"),
+      severity,
+      status: "OPEN",
+      observedAt: observedAt ? observedAt.toISOString() : now,
+      resolvedAt: null,
+      mapX: null,
+      mapY: null,
+      source: "MANUAL",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { incidents } = await getCollections();
+    await incidents.insertOne(incident);
+    createdEventIds.push(incident.id);
+  }
+
   if (parsed && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent)) {
     const operation = parsed.proposedOperations?.[0];
     const now = new Date().toISOString();

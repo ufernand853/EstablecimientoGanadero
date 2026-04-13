@@ -117,6 +117,14 @@ const findCategory = (text: string): HerdCategory | null => {
   return null;
 };
 
+const findPaddock = (text: string, paddocks: NameEntity[]) => {
+  const match = text.match(/potrero\s+\d+(?:\s*-\s*[a-z0-9\s]+)?|potrero\s+[a-z0-9-]+|loma\s+[a-z0-9-]+/i);
+  if (!match) {
+    return null;
+  }
+  return fuzzyFind(match[0], paddocks).match;
+};
+
 const generateConfirmationToken = () => {
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `local-${Date.now().toString(36)}-${randomPart}`;
@@ -288,6 +296,39 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
       payload: {
         qty: qtyMatch ? Number(qtyMatch[1]) : null,
         castrateQty: castrateMatch ? Number(castrateMatch[1]) : null,
+      },
+    });
+  }
+
+  const isIncidentIntent = /\b(incidente|incidencia|alerta|lastimad|herid|lesionad)\b/.test(normalized)
+    && !result.proposedOperations.length;
+  if (isIncidentIntent) {
+    const paddock = findPaddock(text, context.paddocks);
+    const responsibleMatch = text.match(/responsable\s*(?:es|:)?\s*([a-záéíóúñ][a-záéíóúñ\s.'-]+)/i);
+    const actionMatch = text.match(/(?:acciones?\s*tomadas?|hay que|accion)\s*(?:es|:)?\s*([a-záéíóúñ0-9,\s.'-]+)/i);
+    const hasVetReference = /\b(veterinari[oa]|vet)\b/.test(normalized);
+    const title = /\bterner[oa]s?\b/.test(normalized)
+      ? "Ternero lastimado"
+      : "Incidente en campo";
+
+    if (!paddock) warnings.push("No se pudo identificar el potrero del incidente.");
+    if (!responsibleMatch) warnings.push("Falta responsable del incidente.");
+    if (!actionMatch && !hasVetReference) warnings.push("Faltan acciones tomadas para el incidente.");
+
+    result.intent = "INCIDENT_REPORT";
+    result.confidence = 0.65;
+    result.proposedOperations.push({
+      type: "INCIDENT_REPORT",
+      occurredAt: parseDate(text),
+      payload: {
+        paddockId: paddock?.id ?? null,
+        title,
+        description: text.trim(),
+        responsible: responsibleMatch?.[1]?.trim() ?? null,
+        actionTaken: hasVetReference
+          ? "Llamar al veterinario."
+          : (actionMatch?.[1]?.trim() ?? null),
+        severity: /\b(critico|grave)\b/.test(normalized) ? "CRITICAL" : "HIGH",
       },
     });
   }

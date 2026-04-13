@@ -47,6 +47,7 @@ export const operationTypes = [
   "VACCINATION",
   "DEWORMING",
   "TREATMENT",
+  "INCIDENT_REPORT",
   "BREEDING_START",
   "BREEDING_END",
   "WEANING",

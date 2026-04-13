@@ -185,6 +185,25 @@ describe("parseCommand", () => {
     });
   });
 
+  it("parses incident report with paddock and responsible", () => {
+    const result = parseCommand(
+      "Registrar incidente en Potrero 2 - Sur: ternero lastimado en una pata, hay que llamar al veterinario y el responsable es Juan",
+      context,
+    );
+    expect(result.intent).toBe("INCIDENT_REPORT");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      paddockId: "99999999-9999-9999-9999-999999999999",
+      responsible: "Juan",
+    });
+  });
+
+  it("warns when incident report misses key data", () => {
+    const result = parseCommand("Incidente: ternero lastimado", context);
+    expect(result.intent).toBe("INCIDENT_REPORT");
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
 
   it("always returns a confirmation token", () => {
     const result = parseCommand("Lluvia fuerte en el campo", context);
