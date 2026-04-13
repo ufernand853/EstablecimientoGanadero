@@ -225,6 +225,7 @@ export default function CommandsPage() {
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
   const [logs, setLogs] = useState<CommandLog[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
   const [behaviors, setBehaviors] = useState<AIBehavior[]>([]);
   const [trainingForm, setTrainingForm] = useState({ trigger: "", expectedBehavior: "", notes: "" });
   const [trainingStatus, setTrainingStatus] = useState<"idle" | "saving">("idle");
@@ -837,17 +838,28 @@ export default function CommandsPage() {
         </div>
       </section>
       <section className="rounded-lg bg-slate-900 p-4">
-        <h3 className="text-sm font-semibold text-slate-200">Log de llamadas (últimas 20)</h3>
-        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded bg-slate-950/70 p-3 text-xs">
-          {logs.length === 0 && <p className="text-slate-400">Sin eventos todavía.</p>}
-          {logs.map((log) => (
-            <article key={log.id} className="rounded border border-slate-800 bg-slate-900 p-2">
-              <p className="font-semibold text-slate-200">{log.stage} · {log.intent ?? "SIN_INTENT"}</p>
-              <p className="text-slate-300">{log.message}</p>
-              <p className="text-slate-500">{new Date(log.createdAt).toLocaleString("es-AR")}</p>
-            </article>
-          ))}
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-200">Log de llamadas (últimas 20)</h3>
+          <button
+            type="button"
+            className="rounded bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-600"
+            onClick={() => setShowLogs((current) => !current)}
+          >
+            {showLogs ? "Ocultar" : "Mostrar"}
+          </button>
         </div>
+        {showLogs && (
+          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded bg-slate-950/70 p-3 text-xs">
+            {logs.length === 0 && <p className="text-slate-400">Sin eventos todavía.</p>}
+            {logs.map((log) => (
+              <article key={log.id} className="rounded border border-slate-800 bg-slate-900 p-2">
+                <p className="font-semibold text-slate-200">{log.stage} · {log.intent ?? "SIN_INTENT"}</p>
+                <p className="text-slate-300">{log.message}</p>
+                <p className="text-slate-500">{new Date(log.createdAt).toLocaleString("es-AR")}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
     </main>
