@@ -68,12 +68,30 @@ const isConfirmationKeyword = (value: string) => {
   return CONFIRMATION_KEYWORDS.some((keyword) => tokens.includes(keyword) || normalized === keyword);
 };
 
-const findLatestOperationalPrompt = (messages: ChatMessage[]) => {
-  const latestUserInstruction = [...messages]
-    .reverse()
-    .find((message) => message.role === "user" && !isConfirmationKeyword(message.content));
+const findLatestOperationalPrompts = (messages: ChatMessage[], limit = 5) => {
+  const prompts: string[] = [];
+  const seen = new Set<string>();
 
-  return latestUserInstruction?.content.trim() ?? "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") {
+      continue;
+    }
+    const trimmed = message.content.trim();
+    if (!trimmed || isConfirmationKeyword(trimmed)) {
+      continue;
+    }
+    if (seen.has(trimmed)) {
+      continue;
+    }
+    prompts.push(trimmed);
+    seen.add(trimmed);
+    if (prompts.length >= limit) {
+      break;
+    }
+  }
+
+  return prompts;
 };
 
 const findLatestAssistantOperationalHint = (messages: ChatMessage[]) => {
@@ -411,10 +429,10 @@ export default function CommandsPage() {
       }
 
       if (isConfirmationKeyword(prompt)) {
-        const latestOperationalPrompt = findLatestOperationalPrompt(messages);
+        const latestOperationalPrompts = findLatestOperationalPrompts(messages);
         const latestAssistantHint = findLatestAssistantOperationalHint(messages);
 
-        if (!latestOperationalPrompt && !latestAssistantHint) {
+        if (!latestOperationalPrompts.length && !latestAssistantHint) {
           setMessages((prev) => [
             ...prev,
             {
@@ -427,14 +445,21 @@ export default function CommandsPage() {
           return;
         }
 
-        const parsedLatestCommand = latestOperationalPrompt
-          ? await parseOperationalCommand(latestOperationalPrompt, establishmentId)
-          : null;
+        let parsedLatestCommand: ParsedCommand | null = null;
+        let parsedLatestPrompt = "";
+        for (const candidatePrompt of latestOperationalPrompts) {
+          const parsedCandidate = await parseOperationalCommand(candidatePrompt, establishmentId);
+          if (parsedCandidate) {
+            parsedLatestCommand = parsedCandidate;
+            parsedLatestPrompt = candidatePrompt;
+            break;
+          }
+        }
         const parsedAssistantHint = parsedLatestCommand || !latestAssistantHint
           ? null
           : await parseOperationalCommand(latestAssistantHint, establishmentId);
         const commandToExecute = parsedLatestCommand ?? parsedAssistantHint;
-        const sourcePrompt = parsedLatestCommand ? latestOperationalPrompt : latestAssistantHint;
+        const sourcePrompt = parsedLatestCommand ? parsedLatestPrompt : latestAssistantHint;
 
         if (!commandToExecute || !sourcePrompt) {
           setMessages((prev) => [
