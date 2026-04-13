@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { parseCommand } from "@eg/shared";
+import { categorySynonyms, parseCommand } from "@eg/shared";
 import { getDb, getMongoClient } from "./db.js";
 
 const app = Fastify({ logger: true });
@@ -507,7 +507,7 @@ const composeLocalAssistantResponse = (
   ].join("\n");
 };
 
-const detectOperationalNudge = (prompt: string) => {
+const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => {
   const normalized = prompt
     .toLowerCase()
     .normalize("NFD")
@@ -516,6 +516,23 @@ const detectOperationalNudge = (prompt: string) => {
 
   const isMoveRequest = /\b(mover|movimiento|trasladar|pasar)\b/.test(normalized);
   if (isMoveRequest) {
+    const hasQty = /\b\d+\b/.test(normalized);
+    const hasFrom = /\b(desde|del|de la|de los|de las|de)\b/.test(normalized);
+    const hasTo = /\b(al|a|hacia)\b/.test(normalized);
+    const categoryTerms = Object.values(categorySynonyms).flat().map((term) => term.toLowerCase());
+    const hasCategory = categoryTerms.some((term) => normalized.includes(term));
+
+    if (hasQty && hasFrom && hasTo && hasCategory) {
+      const paddockHint = paddockNames.length
+        ? ` Potreros disponibles: ${paddockNames.slice(0, 8).join(", ")}.`
+        : "";
+      return [
+        "Entendí una orden de movimiento, pero no pude mapear algún potrero/categoría con datos válidos del establecimiento activo.",
+        "Probá repetirla usando nombres exactos de potreros y categoría.",
+        paddockHint,
+      ].join(" ").trim();
+    }
+
     return [
       "Puedo ejecutarlo, pero me faltan datos para impactar la base.",
       "Decime todo en una línea, por ejemplo:",
@@ -1215,8 +1232,9 @@ app.post("/ai/chat", async (request, reply) => {
   }
 
   let parsedCommand: ReturnType<typeof parseCommand> | null = null;
+  let commandContext: CommandContext | null = null;
   try {
-    const commandContext = await loadContext(body.data.establishmentId);
+    commandContext = await loadContext(body.data.establishmentId);
     parsedCommand = parseCommand(body.data.prompt, commandContext);
   } catch (parseError) {
     request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
@@ -1291,7 +1309,10 @@ app.post("/ai/chat", async (request, reply) => {
     });
   }
 
-  const operationalNudge = detectOperationalNudge(body.data.prompt);
+  const operationalNudge = detectOperationalNudge(
+    body.data.prompt,
+    commandContext?.paddocks.map((paddock) => paddock.name) ?? [],
+  );
   if (operationalNudge) {
     await appendCommandLog({
       establishmentId: body.data.establishmentId,
