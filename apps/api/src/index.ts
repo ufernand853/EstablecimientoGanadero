@@ -278,11 +278,12 @@ const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
   return now;
 };
 
-const loadContext = async () => {
+const loadContext = async (establishmentId?: string) => {
   const { commandContext, consignors, slaughterhouses } = await getCollections();
   const baseContext = await commandContext.findOne({ _id: "default" });
-  const consignorDocs = await consignors.find({ status: "ACTIVE" }).toArray();
-  const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE" }).toArray();
+  const establishmentFilter = establishmentId ? { establishmentId } : {};
+  const consignorDocs = await consignors.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
+  const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
   const safeBaseContext: CommandContext = baseContext
     ? {
         paddocks: baseContext.paddocks,
@@ -294,18 +295,29 @@ const loadContext = async () => {
         consignors: [],
         slaughterhouses: [],
       };
-  const paddocks = await loadPaddocks();
+  const paddocks = establishmentId
+    ? await loadPaddocksByEstablishment(establishmentId)
+    : await loadPaddocks();
+  const scopedPaddocks = establishmentId
+    ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
+    : (paddocks.length
+      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
+      : safeBaseContext.paddocks);
+  const scopedConsignors = establishmentId
+    ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
+    : (consignorDocs.length
+      ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
+      : safeBaseContext.consignors);
+  const scopedSlaughterhouses = establishmentId
+    ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
+    : (slaughterhouseDocs.length
+      ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
+      : safeBaseContext.slaughterhouses);
   return {
     ...safeBaseContext,
-    paddocks: paddocks.length
-      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
-      : safeBaseContext.paddocks,
-    consignors: consignorDocs.length
-      ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
-      : safeBaseContext.consignors,
-    slaughterhouses: slaughterhouseDocs.length
-      ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
-      : safeBaseContext.slaughterhouses,
+    paddocks: scopedPaddocks,
+    consignors: scopedConsignors,
+    slaughterhouses: scopedSlaughterhouses,
   };
 };
 
@@ -356,6 +368,11 @@ const findEstablishmentById = async (id: string) => {
 const loadPaddocks = async () => {
   const { paddocks } = await getCollections();
   return paddocks.find().toArray();
+};
+
+const loadPaddocksByEstablishment = async (establishmentId: string) => {
+  const { paddocks } = await getCollections();
+  return paddocks.find({ establishmentId }).toArray();
 };
 
 const insertPaddock = async (paddock: Paddock) => {
@@ -907,7 +924,12 @@ app.post("/commands/parse", async (request, reply) => {
     });
   }
   try {
-    const commandContext = await loadContext();
+    const establishment = await findEstablishmentById(body.data.establishmentId);
+    if (!establishment) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+    }
+
+    const commandContext = await loadContext(body.data.establishmentId);
     const parsed = parseCommand(body.data.text, commandContext);
     return reply.send(parsed);
   } catch (parseError) {
@@ -1156,7 +1178,7 @@ app.post("/ai/chat", async (request, reply) => {
 
   let parsedCommand: ReturnType<typeof parseCommand> | null = null;
   try {
-    const commandContext = await loadContext();
+    const commandContext = await loadContext(body.data.establishmentId);
     parsedCommand = parseCommand(body.data.prompt, commandContext);
   } catch (parseError) {
     request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
