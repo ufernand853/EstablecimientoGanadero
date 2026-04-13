@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -601,6 +602,12 @@ export default function CommandsPage() {
         <p className="text-sm text-slate-300">
           Chat con contexto real del establecimiento. Podés consultar por texto o por voz.
         </p>
+        <a
+          href={withBasePath("/commands/changes")}
+          className="mt-3 inline-flex rounded bg-sky-500 px-3 py-2 text-xs font-semibold text-slate-950"
+        >
+          Ver log de cambios IA
+        </a>
       </header>
 
       <section className="rounded-lg bg-slate-900 p-4">
