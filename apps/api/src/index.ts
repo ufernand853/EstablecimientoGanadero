@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { parseCommand } from "@eg/shared";
+import { categorySynonyms, parseCommand } from "@eg/shared";
 import { getDb, getMongoClient } from "./db.js";
 
 const app = Fastify({ logger: true });
@@ -278,11 +278,12 @@ const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
   return now;
 };
 
-const loadContext = async () => {
+const loadContext = async (establishmentId?: string) => {
   const { commandContext, consignors, slaughterhouses } = await getCollections();
   const baseContext = await commandContext.findOne({ _id: "default" });
-  const consignorDocs = await consignors.find({ status: "ACTIVE" }).toArray();
-  const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE" }).toArray();
+  const establishmentFilter = establishmentId ? { establishmentId } : {};
+  const consignorDocs = await consignors.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
+  const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
   const safeBaseContext: CommandContext = baseContext
     ? {
         paddocks: baseContext.paddocks,
@@ -294,18 +295,29 @@ const loadContext = async () => {
         consignors: [],
         slaughterhouses: [],
       };
-  const paddocks = await loadPaddocks();
+  const paddocks = establishmentId
+    ? await loadPaddocksByEstablishment(establishmentId)
+    : await loadPaddocks();
+  const scopedPaddocks = establishmentId
+    ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
+    : (paddocks.length
+      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
+      : safeBaseContext.paddocks);
+  const scopedConsignors = establishmentId
+    ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
+    : (consignorDocs.length
+      ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
+      : safeBaseContext.consignors);
+  const scopedSlaughterhouses = establishmentId
+    ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
+    : (slaughterhouseDocs.length
+      ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
+      : safeBaseContext.slaughterhouses);
   return {
     ...safeBaseContext,
-    paddocks: paddocks.length
-      ? paddocks.map((paddock) => ({ id: paddock.id, name: paddock.name }))
-      : safeBaseContext.paddocks,
-    consignors: consignorDocs.length
-      ? consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name }))
-      : safeBaseContext.consignors,
-    slaughterhouses: slaughterhouseDocs.length
-      ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
-      : safeBaseContext.slaughterhouses,
+    paddocks: scopedPaddocks,
+    consignors: scopedConsignors,
+    slaughterhouses: scopedSlaughterhouses,
   };
 };
 
@@ -356,6 +368,11 @@ const findEstablishmentById = async (id: string) => {
 const loadPaddocks = async () => {
   const { paddocks } = await getCollections();
   return paddocks.find().toArray();
+};
+
+const loadPaddocksByEstablishment = async (establishmentId: string) => {
+  const { paddocks } = await getCollections();
+  return paddocks.find({ establishmentId }).toArray();
 };
 
 const insertPaddock = async (paddock: Paddock) => {
@@ -488,6 +505,126 @@ const composeLocalAssistantResponse = (
     "",
     closing,
   ].join("\n");
+};
+
+const normalizeCommandText = (value: string) => value
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/\p{Diacritic}/gu, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const findCategoryFromText = (text: string) => {
+  const normalized = normalizeCommandText(text);
+  for (const [category, synonyms] of Object.entries(categorySynonyms)) {
+    if (synonyms.some((synonym) => normalized.includes(normalizeCommandText(synonym)))) {
+      return category;
+    }
+  }
+  return null;
+};
+
+const findPaddockInContext = (rawName: string, paddocks: CommandContext["paddocks"]) => {
+  const needle = normalizeCommandText(rawName);
+  if (!needle) return null;
+  const exact = paddocks.find((paddock) => normalizeCommandText(paddock.name) === needle);
+  if (exact) return exact;
+  return paddocks.find((paddock) => {
+    const candidate = normalizeCommandText(paddock.name);
+    return candidate.includes(needle) || needle.includes(candidate);
+  }) ?? null;
+};
+
+const tryFallbackMoveParse = (text: string, context: CommandContext) => {
+  const normalized = normalizeCommandText(text);
+  if (!/\b(mover|move|trasladar|pasar)\b/.test(normalized)) {
+    return null;
+  }
+
+  const qtyMatch = text.match(/(\d+)/);
+  const fromMatch = text.match(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*([^,]+?)(?=\s+(?:al|a|hacia)\s|,|$)/i);
+  const toMatch = text.match(/(?:al|a|hacia)\s+(?:el|la|los|las)?\s*([^,]+?)(?=,|\s+hoy|$)/i);
+  const from = findPaddockInContext(fromMatch?.[1] ?? "", context.paddocks);
+  const to = findPaddockInContext(toMatch?.[1] ?? "", context.paddocks);
+  const category = findCategoryFromText(text);
+  const qty = qtyMatch ? Number(qtyMatch[1]) : null;
+
+  if (!qty || !category || !from?.id || !to?.id) {
+    return null;
+  }
+
+  return {
+    intent: "MOVE",
+    confidence: 0.6,
+    proposedOperations: [{
+      type: "MOVE",
+      occurredAt: new Date(),
+      payload: {
+        qty,
+        category,
+        fromPaddockId: from.id,
+        toPaddockId: to.id,
+      },
+    }],
+    warnings: [],
+    errors: [],
+    confirmationToken: `fallback-${Date.now().toString(36)}`,
+  } as ReturnType<typeof parseCommand>;
+};
+
+const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => {
+  const normalized = prompt
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+
+  const isMoveRequest = /\b(mover|movimiento|trasladar|pasar)\b/.test(normalized);
+  if (isMoveRequest) {
+    const hasQty = /\b\d+\b/.test(normalized);
+    const hasFrom = /\b(desde|del|de la|de los|de las|de)\b/.test(normalized);
+    const hasTo = /\b(al|a|hacia)\b/.test(normalized);
+    const categoryTerms = Object.values(categorySynonyms).flat().map((term) => term.toLowerCase());
+    const hasCategory = categoryTerms.some((term) => normalized.includes(term));
+
+    if (hasQty && hasFrom && hasTo && hasCategory) {
+      const paddockHint = paddockNames.length
+        ? ` Potreros disponibles: ${paddockNames.slice(0, 8).join(", ")}.`
+        : "";
+      return [
+        "Entendí una orden de movimiento, pero no pude mapear algún potrero/categoría con datos válidos del establecimiento activo.",
+        "Probá repetirla usando nombres exactos de potreros y categoría.",
+        paddockHint,
+      ].join(" ").trim();
+    }
+
+    return [
+      "Puedo ejecutarlo, pero me faltan datos para impactar la base.",
+      "Decime todo en una línea, por ejemplo:",
+      "\"Mover 10 terneros del Potrero 1 al Potrero 2\".",
+      "Después confirmá con: hazlo.",
+    ].join(" ");
+  }
+
+  const isHealthRequest = /\b(vacunar|vacunacion|desparasitar|tratamiento|tratar)\b/.test(normalized);
+  if (isHealthRequest) {
+    return [
+      "Puedo registrarlo, pero necesito datos mínimos.",
+      "Ejemplo: \"Vacunar 120 terneros con Clostridial 7 vías hoy\" y luego \"hazlo\".",
+    ].join(" ");
+  }
+
+  const isIncidentReviewRequest = /\b(revisar|ver|listar|mostrar|consultar)\b.*\b(incidentes|incidencias|alertas)\b/.test(normalized)
+    || /\b(incidentes|incidencias|alertas)\b/.test(normalized);
+  if (isIncidentReviewRequest) {
+    return [
+      "Para revisar incidentes, pedímelo así:",
+      "\"Mostrame incidentes abiertos\" o \"Listar incidentes críticos del Potrero 3\".",
+      "Si querés registrar uno nuevo: \"Registrar incidente en Potrero 2: alambre caído, severidad alta\".",
+    ].join(" ");
+  }
+
+  return null;
 };
 
 const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
@@ -907,7 +1044,12 @@ app.post("/commands/parse", async (request, reply) => {
     });
   }
   try {
-    const commandContext = await loadContext();
+    const establishment = await findEstablishmentById(body.data.establishmentId);
+    if (!establishment) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+    }
+
+    const commandContext = await loadContext(body.data.establishmentId);
     const parsed = parseCommand(body.data.text, commandContext);
     return reply.send(parsed);
   } catch (parseError) {
@@ -1155,9 +1297,13 @@ app.post("/ai/chat", async (request, reply) => {
   }
 
   let parsedCommand: ReturnType<typeof parseCommand> | null = null;
+  let commandContext: CommandContext | null = null;
   try {
-    const commandContext = await loadContext();
+    commandContext = await loadContext(body.data.establishmentId);
     parsedCommand = parseCommand(body.data.prompt, commandContext);
+    if ((!parsedCommand || parsedCommand.intent === "UNKNOWN") && commandContext) {
+      parsedCommand = tryFallbackMoveParse(body.data.prompt, commandContext) ?? parsedCommand;
+    }
   } catch (parseError) {
     request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
     await appendCommandLog({
@@ -1229,6 +1375,22 @@ app.post("/ai/chat", async (request, reply) => {
       },
       parsedCommand,
     });
+  }
+
+  const operationalNudge = detectOperationalNudge(
+    body.data.prompt,
+    commandContext?.paddocks.map((paddock) => paddock.name) ?? [],
+  );
+  if (operationalNudge) {
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "AI_CHAT",
+      stage: "PARSED",
+      intent: null,
+      message: "Solicitud operativa detectada sin datos suficientes para parseo estructurado.",
+      payload: { prompt: body.data.prompt },
+    });
+    return reply.send({ response: operationalNudge });
   }
 
   const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
