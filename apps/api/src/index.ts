@@ -507,6 +507,71 @@ const composeLocalAssistantResponse = (
   ].join("\n");
 };
 
+const normalizeCommandText = (value: string) => value
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/\p{Diacritic}/gu, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const findCategoryFromText = (text: string) => {
+  const normalized = normalizeCommandText(text);
+  for (const [category, synonyms] of Object.entries(categorySynonyms)) {
+    if (synonyms.some((synonym) => normalized.includes(normalizeCommandText(synonym)))) {
+      return category;
+    }
+  }
+  return null;
+};
+
+const findPaddockInContext = (rawName: string, paddocks: CommandContext["paddocks"]) => {
+  const needle = normalizeCommandText(rawName);
+  if (!needle) return null;
+  const exact = paddocks.find((paddock) => normalizeCommandText(paddock.name) === needle);
+  if (exact) return exact;
+  return paddocks.find((paddock) => {
+    const candidate = normalizeCommandText(paddock.name);
+    return candidate.includes(needle) || needle.includes(candidate);
+  }) ?? null;
+};
+
+const tryFallbackMoveParse = (text: string, context: CommandContext) => {
+  const normalized = normalizeCommandText(text);
+  if (!/\b(mover|move|trasladar|pasar)\b/.test(normalized)) {
+    return null;
+  }
+
+  const qtyMatch = text.match(/(\d+)/);
+  const fromMatch = text.match(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*([^,]+?)(?=\s+(?:al|a|hacia)\s|,|$)/i);
+  const toMatch = text.match(/(?:al|a|hacia)\s+(?:el|la|los|las)?\s*([^,]+?)(?=,|\s+hoy|$)/i);
+  const from = findPaddockInContext(fromMatch?.[1] ?? "", context.paddocks);
+  const to = findPaddockInContext(toMatch?.[1] ?? "", context.paddocks);
+  const category = findCategoryFromText(text);
+  const qty = qtyMatch ? Number(qtyMatch[1]) : null;
+
+  if (!qty || !category || !from?.id || !to?.id) {
+    return null;
+  }
+
+  return {
+    intent: "MOVE",
+    confidence: 0.6,
+    proposedOperations: [{
+      type: "MOVE",
+      occurredAt: new Date(),
+      payload: {
+        qty,
+        category,
+        fromPaddockId: from.id,
+        toPaddockId: to.id,
+      },
+    }],
+    warnings: [],
+    errors: [],
+    confirmationToken: `fallback-${Date.now().toString(36)}`,
+  } as ReturnType<typeof parseCommand>;
+};
+
 const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => {
   const normalized = prompt
     .toLowerCase()
@@ -1236,6 +1301,9 @@ app.post("/ai/chat", async (request, reply) => {
   try {
     commandContext = await loadContext(body.data.establishmentId);
     parsedCommand = parseCommand(body.data.prompt, commandContext);
+    if ((!parsedCommand || parsedCommand.intent === "UNKNOWN") && commandContext) {
+      parsedCommand = tryFallbackMoveParse(body.data.prompt, commandContext) ?? parsedCommand;
+    }
   } catch (parseError) {
     request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
     await appendCommandLog({
