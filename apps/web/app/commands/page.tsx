@@ -46,6 +46,14 @@ type SuggestedApiCall = {
   missingOrInvalidFields: string[];
 };
 
+type AIBehavior = {
+  id: string;
+  trigger: string;
+  expectedBehavior: string;
+  notes: string | null;
+  createdAt: string;
+};
+
 const CONFIRMATION_KEYWORDS = ["hazlo", "confirmado", "hacelo", "ejecutalo"];
 
 const normalizeText = (value: string) => value
@@ -198,6 +206,9 @@ export default function CommandsPage() {
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
   const [logs, setLogs] = useState<CommandLog[]>([]);
+  const [behaviors, setBehaviors] = useState<AIBehavior[]>([]);
+  const [trainingForm, setTrainingForm] = useState({ trigger: "", expectedBehavior: "", notes: "" });
+  const [trainingStatus, setTrainingStatus] = useState<"idle" | "saving">("idle");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
@@ -218,6 +229,23 @@ export default function CommandsPage() {
     }
   };
 
+  const loadBehaviors = async (estId: string) => {
+    if (!estId) {
+      setBehaviors([]);
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/ai/behaviors?establishmentId=${estId}`);
+      if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as { behaviors: AIBehavior[] };
+      setBehaviors(data.behaviors ?? []);
+    } catch {
+      // silent fallback
+    }
+  };
+
   useEffect(() => {
     const loadEstablishments = async () => {
       try {
@@ -231,6 +259,7 @@ export default function CommandsPage() {
           const nextId = data.establishments[0]?.id ?? "";
           setEstablishmentId(nextId);
           await loadCommandLogs(nextId);
+          await loadBehaviors(nextId);
         }
       } catch (fetchError) {
         setError(fetchError instanceof Error ? fetchError.message : "Error inesperado.");
@@ -248,7 +277,45 @@ export default function CommandsPage() {
 
   useEffect(() => {
     void loadCommandLogs(establishmentId);
+    void loadBehaviors(establishmentId);
   }, [establishmentId]);
+
+  const saveBehavior = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!establishmentId) {
+      setError("Seleccioná un establecimiento para entrenar comportamientos.");
+      return;
+    }
+    if (!trainingForm.trigger.trim() || !trainingForm.expectedBehavior.trim()) {
+      setError("Completá disparador y comportamiento esperado.");
+      return;
+    }
+    setError(null);
+    setTrainingStatus("saving");
+    try {
+      const response = await fetch(`${API_URL}/ai/behaviors`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishmentId,
+          trigger: trainingForm.trigger,
+          expectedBehavior: trainingForm.expectedBehavior,
+          notes: trainingForm.notes || undefined,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const message = typeof body.message === "string" ? body.message : "No se pudo guardar el comportamiento.";
+        throw new Error(message);
+      }
+      setTrainingForm({ trigger: "", expectedBehavior: "", notes: "" });
+      await loadBehaviors(establishmentId);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Error inesperado al guardar entrenamiento.");
+    } finally {
+      setTrainingStatus("idle");
+    }
+  };
 
   const speechAvailable = useMemo(
     () => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
@@ -690,6 +757,52 @@ export default function CommandsPage() {
         </form>
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      </section>
+
+      <section className="rounded-lg bg-slate-900 p-4">
+        <h3 className="text-sm font-semibold text-slate-200">Entrenamiento IA (acumulativo)</h3>
+        <p className="mt-1 text-xs text-slate-400">
+          Definí reglas de comportamiento. Cada regla queda guardada y se reutiliza en futuras respuestas del establecimiento.
+        </p>
+        <form className="mt-3 space-y-2" onSubmit={saveBehavior}>
+          <input
+            className="w-full rounded bg-slate-800 p-2 text-sm"
+            placeholder="Disparador (ej: cuando pregunte por sanidad de terneros)"
+            value={trainingForm.trigger}
+            onChange={(event) => setTrainingForm((prev) => ({ ...prev, trigger: event.target.value }))}
+          />
+          <textarea
+            className="h-20 w-full rounded bg-slate-800 p-2 text-sm"
+            placeholder="Comportamiento esperado (ej: responder checklist sanitario + próximos 7 días)"
+            value={trainingForm.expectedBehavior}
+            onChange={(event) => setTrainingForm((prev) => ({ ...prev, expectedBehavior: event.target.value }))}
+          />
+          <input
+            className="w-full rounded bg-slate-800 p-2 text-sm"
+            placeholder="Notas opcionales"
+            value={trainingForm.notes}
+            onChange={(event) => setTrainingForm((prev) => ({ ...prev, notes: event.target.value }))}
+          />
+          <button
+            type="submit"
+            className="rounded bg-indigo-500 px-3 py-2 text-xs font-semibold text-white"
+            disabled={trainingStatus === "saving"}
+          >
+            {trainingStatus === "saving" ? "Guardando..." : "Guardar comportamiento"}
+          </button>
+        </form>
+
+        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded bg-slate-950/70 p-3 text-xs">
+          {behaviors.length === 0 && <p className="text-slate-400">Todavía no hay comportamientos entrenados.</p>}
+          {behaviors.map((behavior) => (
+            <article key={behavior.id} className="rounded border border-slate-800 bg-slate-900 p-2">
+              <p className="font-semibold text-slate-200">Si detecta: {behavior.trigger}</p>
+              <p className="mt-1 text-slate-300">Debe responder: {behavior.expectedBehavior}</p>
+              {behavior.notes && <p className="mt-1 text-slate-400">Notas: {behavior.notes}</p>}
+              <p className="mt-1 text-slate-500">{new Date(behavior.createdAt).toLocaleString("es-AR")}</p>
+            </article>
+          ))}
+        </div>
       </section>
       <section className="rounded-lg bg-slate-900 p-4">
         <h3 className="text-sm font-semibold text-slate-200">Log de llamadas (últimas 20)</h3>

@@ -35,9 +35,26 @@ const aiChatSchema = z.object({
   })).max(20).optional(),
 });
 
+const aiBehaviorSchema = z.object({
+  establishmentId: z.string().uuid(),
+  trigger: z.string().min(3),
+  expectedBehavior: z.string().min(5),
+  notes: z.string().max(500).optional(),
+});
+
 type AIMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+type AIBehavior = {
+  id: string;
+  establishmentId: string;
+  trigger: string;
+  expectedBehavior: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type CommandContext = {
@@ -253,6 +270,7 @@ const getCollections = async () => {
     confirmations: db.collection<Record<string, unknown>>("confirmations"),
     commandLogs: db.collection<CommandLog>("command_logs"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
+    aiBehaviors: db.collection<AIBehavior>("ai_behaviors"),
   };
 };
 
@@ -417,6 +435,16 @@ const appendCommandLog = async (entry: Omit<CommandLog, "id" | "createdAt">) => 
     createdAt: new Date().toISOString(),
     ...entry,
   });
+};
+
+const loadAIBehaviors = async (establishmentId: string) => {
+  const { aiBehaviors } = await getCollections();
+  return aiBehaviors.find({ establishmentId }).sort({ createdAt: -1 }).limit(50).toArray();
+};
+
+const insertAIBehavior = async (behavior: AIBehavior) => {
+  const { aiBehaviors } = await getCollections();
+  await aiBehaviors.insertOne(behavior);
 };
 
 const loadHerds = async () => {
@@ -627,7 +655,12 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
   return null;
 };
 
-const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>, establishment: Establishment) => {
+const callOpenAIChat = async (
+  messages: AIMessage[],
+  snapshot: Awaited<ReturnType<typeof buildEstablishmentSnapshot>>,
+  establishment: Establishment,
+  behaviors: AIBehavior[],
+) => {
   const persistedSettings = await loadAISettings();
   const apiKey = persistedSettings?.openAiApiKey || process.env.OPENAI_API_KEY;
   const prompt = messages[messages.length - 1]?.content ?? "";
@@ -642,6 +675,13 @@ const callOpenAIChat = async (messages: AIMessage[], snapshot: Awaited<ReturnTyp
     "Si faltan datos, avisalo y pedí aclaración de forma breve.",
     `Establecimiento activo: ${establishment.name} (${establishment.id}).`,
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
+    `Comportamientos entrenados acumulados (JSON): ${JSON.stringify(
+      behaviors.map((behavior) => ({
+        trigger: behavior.trigger,
+        expectedBehavior: behavior.expectedBehavior,
+        notes: behavior.notes,
+      })),
+    )}`,
   ].join("\n");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1393,14 +1433,17 @@ app.post("/ai/chat", async (request, reply) => {
     return reply.send({ response: operationalNudge });
   }
 
-  const snapshot = await buildEstablishmentSnapshot(body.data.establishmentId);
+  const [snapshot, behaviors] = await Promise.all([
+    buildEstablishmentSnapshot(body.data.establishmentId),
+    loadAIBehaviors(body.data.establishmentId),
+  ]);
   const messages: AIMessage[] = [
     ...(body.data.history ?? []),
     { role: "user", content: body.data.prompt },
   ];
 
   try {
-    const response = await callOpenAIChat(messages, snapshot, establishment);
+    const response = await callOpenAIChat(messages, snapshot, establishment, behaviors);
     return reply.send({
       response,
       contextMeta: {
@@ -1417,6 +1460,45 @@ app.post("/ai/chat", async (request, reply) => {
       message: chatError instanceof Error ? chatError.message : "No se pudo consultar el servicio de IA.",
     });
   }
+});
+
+app.get("/ai/behaviors", async (request, reply) => {
+  const establishmentId = z.string().uuid().safeParse((request.query as { establishmentId?: string }).establishmentId);
+  if (!establishmentId.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "establishmentId inválido." });
+  }
+  const establishment = await findEstablishmentById(establishmentId.data);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const behaviors = await loadAIBehaviors(establishmentId.data);
+  return { behaviors };
+});
+
+app.post("/ai/behaviors", async (request, reply) => {
+  const body = aiBehaviorSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const now = new Date().toISOString();
+  const behavior: AIBehavior = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    trigger: body.data.trigger.trim(),
+    expectedBehavior: body.data.expectedBehavior.trim(),
+    notes: body.data.notes?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await insertAIBehavior(behavior);
+  return reply.status(201).send(behavior);
 });
 
 app.get("/health-events", async (request) => {
