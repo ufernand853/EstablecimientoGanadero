@@ -53,6 +53,20 @@ describe("parseCommand", () => {
     expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
   });
 
+  it("parses MOVE commands when user says 'move' in english", () => {
+    const result = parseCommand("Move 10 novillos del Potrero 3 al Potrero 7", context);
+    expect(result.intent).toBe("MOVE");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
+  });
+
+  it("parses MOVE commands with 'a' as destination preposition", () => {
+    const result = parseCommand("Pasar 15 novillos de Potrero 3 a Potrero 7", context);
+    expect(result.intent).toBe("MOVE");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
+    expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
+  });
+
   it("parses VACCINATION commands", () => {
     const result = parseCommand("Vacunar lote vaquillonas aftosa 2ml el 2026-02-01", context);
     expect(result.intent).toBe("VACCINATION");

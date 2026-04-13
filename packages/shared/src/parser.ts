@@ -137,13 +137,16 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     confirmationToken: generateConfirmationToken(),
   };
 
-  if (/\bmover\b/.test(normalized)) {
+  const isMoveIntent = /\b(mover|move|trasladar|pasar)\b/.test(normalized);
+  if (isMoveIntent) {
     const qtyMatch = text.match(/(\d+)/);
     const qty = qtyMatch ? Number(qtyMatch[1]) : null;
     const category = findCategory(text);
-    const [originSegment = "", destinationSegment = ""] = text.split(/\sal\s+/i, 2);
-    const fromMatch = originSegment.match(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*(.+)$/i);
-    const toMatch = destinationSegment.match(/^([^,]+?)(?:,|\s+hoy|$)/i);
+    const fromMatches = Array.from(text.matchAll(/(?:desde|del|de\s+la|de\s+los|de\s+las|de)\s+(?:el|la|los|las)?\s*([^,]+?)(?=\s+(?:al|a|hacia)\s|,|$)/gi));
+    const toMatches = Array.from(text.matchAll(/\b(?:al|hacia)\s+(?:el|la|los|las)?\s*([^,]+?)(?=,|\s+hoy|$)/gi));
+    const toMatchUsingA = text.match(/\b(?:de|desde|del|de\s+la|de\s+los|de\s+las)\b[\s\S]*?\ba\s+(?:el|la|los|las)?\s*([^,]+?)(?=,|\s+hoy|$)/i);
+    const fromMatch = fromMatches[fromMatches.length - 1];
+    const toMatch = toMatches[toMatches.length - 1] ?? toMatchUsingA;
     const fromName = fromMatch?.[1]?.trim() ?? "";
     const toName = toMatch?.[1]?.trim() ?? "";
     const from = fromName ? fuzzyFind(fromName, context.paddocks) : { match: null, alternatives: [] };
