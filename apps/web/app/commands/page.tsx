@@ -101,11 +101,15 @@ const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
   return `Detecté una operación de tipo ${parsed.intent} para: \"${prompt}\".`;
 };
 
-const parseOperationalCommand = async (text: string) => {
+const parseOperationalCommand = async (text: string, establishmentId: string) => {
+  if (!establishmentId) {
+    return null;
+  }
+
   const response = await fetch(`${API_URL}/commands/parse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ establishmentId, text }),
   });
 
   if (!response.ok) {
@@ -424,11 +428,11 @@ export default function CommandsPage() {
         }
 
         const parsedLatestCommand = latestOperationalPrompt
-          ? await parseOperationalCommand(latestOperationalPrompt)
+          ? await parseOperationalCommand(latestOperationalPrompt, establishmentId)
           : null;
         const parsedAssistantHint = parsedLatestCommand || !latestAssistantHint
           ? null
-          : await parseOperationalCommand(latestAssistantHint);
+          : await parseOperationalCommand(latestAssistantHint, establishmentId);
         const commandToExecute = parsedLatestCommand ?? parsedAssistantHint;
         const sourcePrompt = parsedLatestCommand ? latestOperationalPrompt : latestAssistantHint;
 
@@ -486,7 +490,7 @@ export default function CommandsPage() {
         return;
       }
 
-      const parsedCommand = await parseOperationalCommand(prompt);
+      const parsedCommand = await parseOperationalCommand(prompt, establishmentId);
       if (parsedCommand) {
         const hasBlockingIssues = (parsedCommand.errors?.length ?? 0) > 0 || (parsedCommand.warnings?.length ?? 0) > 0;
         if (hasBlockingIssues) {
