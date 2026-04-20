@@ -1313,6 +1313,21 @@ const manualWeaningSchema = z.object({
   notes: z.string().min(1).optional().nullable(),
 });
 
+const manualSlaughterShipmentSchema = z.object({
+  establishmentId: z.string().uuid(),
+  consignorId: z.string().uuid().optional().nullable(),
+  destination: z.string().min(2),
+  slaughterhouseId: z.string().uuid().optional().nullable(),
+  items: z.array(z.object({
+    paddockId: z.string().uuid(),
+    category: z.string().min(2),
+    qty: z.number().int().positive(),
+  })).min(1),
+  earTags: z.array(z.string().min(1)).optional().default([]),
+  occurredAt: z.string().datetime().optional(),
+  notes: z.string().min(1).optional().nullable(),
+});
+
 const incidentSchema = z.object({
   establishmentId: z.string().uuid(),
   paddockId: z.string().uuid().nullable().optional(),
@@ -2579,6 +2594,82 @@ app.post("/operational-events/weaning", async (request, reply) => {
       qty: body.data.qty,
       notes: body.data.notes ?? null,
       allocations,
+    },
+    source: "MANUAL",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await insertOperationalEvent(event);
+
+  const herds = await loadHerds();
+  return reply.status(201).send({ ok: true, event, herds });
+});
+
+app.post("/operational-events/slaughter-shipment", async (request, reply) => {
+  const body = manualSlaughterShipmentSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({
+      code: "VALIDATION_ERROR",
+      issues: body.error.issues,
+    });
+  }
+
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const { consignors, slaughterhouses } = await getCollections();
+
+  if (body.data.consignorId) {
+    const consignor = await consignors.findOne({ id: body.data.consignorId });
+    if (!consignor || consignor.establishmentId !== body.data.establishmentId || consignor.status !== "ACTIVE") {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Consignatario no encontrado o inactivo." });
+    }
+  }
+
+  if (body.data.slaughterhouseId) {
+    const slaughterhouse = await slaughterhouses.findOne({ id: body.data.slaughterhouseId });
+    if (!slaughterhouse || slaughterhouse.establishmentId !== body.data.establishmentId || slaughterhouse.status !== "ACTIVE") {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado o inactivo." });
+    }
+  }
+
+  const now = new Date().toISOString();
+  for (const item of body.data.items) {
+    const paddock = await findPaddockById(item.paddockId);
+    if (!paddock || paddock.establishmentId !== body.data.establishmentId) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado para el establecimiento." });
+    }
+    const herd = await findHerdByPaddockCategory(item.paddockId, item.category);
+    if (!herd || herd.count < item.qty) {
+      return reply.status(409).send({
+        code: "INSUFFICIENT_STOCK",
+        message: `No hay stock suficiente en ${paddock.name} para ${item.category}. Disponible: ${herd?.count ?? 0}, solicitado: ${item.qty}.`,
+      });
+    }
+  }
+
+  for (const item of body.data.items) {
+    const herd = await findHerdByPaddockCategory(item.paddockId, item.category);
+    if (!herd) {
+      return reply.status(409).send({ code: "INSUFFICIENT_STOCK", message: `No existe stock para ${item.category}.` });
+    }
+    await updateHerdStock(item.paddockId, item.category, herd.count - item.qty, now);
+  }
+
+  const event: OperationalEvent = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    kind: "SLAUGHTER_SHIPMENT",
+    occurredAt: body.data.occurredAt ?? now,
+    payload: {
+      consignorId: body.data.consignorId ?? null,
+      destination: body.data.destination,
+      slaughterhouseId: body.data.slaughterhouseId ?? null,
+      items: body.data.items,
+      earTags: body.data.earTags,
+      notes: body.data.notes ?? null,
     },
     source: "MANUAL",
     createdAt: now,
