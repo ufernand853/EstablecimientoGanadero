@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getApiUrl } from "../lib/api-url";
 
@@ -16,6 +16,7 @@ const topLevelLinks = [
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
@@ -55,12 +56,28 @@ export function AppHeader() {
             Panel de control para operaciones, lotes, potreros y consignaciones.
           </p>
         </div>
-        <a
-          className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
-          href={withBasePath("/dashboard")}
-        >
-          Ir al panel
-        </a>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
+          >
+            Atrás
+          </button>
+          <button
+            type="button"
+            onClick={() => router.forward()}
+            className="rounded border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
+          >
+            Adelante
+          </button>
+          <a
+            className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
+            href={withBasePath("/")}
+          >
+            Inicio
+          </a>
+        </div>
       </div>
       <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
       {sessionNotice ? (
