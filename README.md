@@ -132,6 +132,48 @@ Edita esos archivos para ajustar los datos de testing sin depender de una base d
 - "Yerra 60 terneros, castrar 30, hoy"
 - "Enviar a frigorífico Las Moras por consignatario Pérez: 35 novillos a 620, 12 vacas a 480 hoy"
 
+## Suscripciones, webhook de pagos y demo 5 días
+
+Se agregó un flujo completo para alta por suscripción y activación por webhook externo:
+
+1. `POST /auth/register-subscription`: crea un checkout pendiente con `referenceId`.
+2. El checkout se paga en la pasarela externa (fuera de la app).
+3. La pasarela debe invocar `POST /billing/webhook` con `eventType=payment.succeeded`.
+4. El webhook activa tenant, usuario owner, membresía y suscripción.
+5. El usuario inicia sesión en `/login` vía `POST /auth/login`.
+
+### Endpoints nuevos
+
+- `POST /auth/register-subscription`
+- `POST /auth/demo-request`
+- `POST /billing/webhook`
+- `POST /auth/login`
+- `GET /auth/session`
+- `POST /auth/logout`
+
+### Firma del webhook
+
+La API valida la cabecera:
+
+```text
+x-webhook-signature: <hmac_sha256_hex>
+```
+
+La firma se calcula como `HMAC_SHA256(raw_json_body, BILLING_WEBHOOK_SECRET)`.
+
+Variables sugeridas:
+
+```bash
+SESSION_SECRET=un-secreto-largo-y-unico
+BILLING_WEBHOOK_SECRET=un-secreto-webhook-largo-y-unico
+```
+
+### Demo
+
+`POST /auth/demo-request` crea un checkout demo (5 días) y devuelve un `referenceId`.
+La activación se completa exactamente igual que un pago real: enviando el webhook exitoso para ese `referenceId`.
+Cuando la suscripción está próxima a vencer, `/auth/session` devuelve notificación de expiración para mostrar en frontend.
+
 ## Repo structure
 ```
 /
