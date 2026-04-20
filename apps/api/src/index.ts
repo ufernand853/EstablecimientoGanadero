@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { categorySynonyms, parseCommand } from "@eg/shared";
 import { getDb, getMongoClient } from "./db.js";
@@ -29,6 +30,38 @@ const confirmSchema = z.object({
 const undoConfirmationSchema = z.object({
   establishmentId: z.string().uuid(),
   confirmationId: z.string().min(1),
+});
+
+const registerSubscriptionSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2),
+  companyName: z.string().min(2),
+  password: z.string().min(8),
+  planCode: z.string().min(2).default("PRO"),
+});
+
+const webhookSchema = z.object({
+  provider: z.string().min(2).default("generic"),
+  providerEventId: z.string().min(3),
+  eventType: z.enum(["payment.succeeded", "payment.failed", "subscription.cancelled"]),
+  referenceId: z.string().min(8),
+  email: z.string().email().optional(),
+  amountCents: z.number().int().nonnegative().optional(),
+  currency: z.string().optional(),
+  occurredAt: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+const demoRequestSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2),
+  companyName: z.string().min(2),
+  password: z.string().min(8).optional(),
 });
 
 const aiChatSchema = z.object({
@@ -263,9 +296,94 @@ type ConfirmationRecord = {
   undoReason?: string;
 };
 
+type Tenant = {
+  id: string;
+  name: string;
+  status: "ACTIVE" | "SUSPENDED";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type UserAccount = {
+  id: string;
+  email: string;
+  fullName: string;
+  passwordHash: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+};
+
+type Membership = {
+  id: string;
+  tenantId: string;
+  userId: string;
+  role: "OWNER" | "ADMIN" | "OPERATOR" | "READONLY";
+  createdAt: string;
+};
+
+type SubscriptionPlan = {
+  id: string;
+  code: string;
+  name: string;
+  billingPeriodDays: number;
+  amountCents: number;
+  currency: string;
+  trialDays: number;
+  isDemo: boolean;
+  active: boolean;
+};
+
+type Subscription = {
+  id: string;
+  tenantId: string;
+  planCode: string;
+  status: "PENDING" | "ACTIVE" | "PAST_DUE" | "CANCELLED" | "TRIALING" | "EXPIRED";
+  provider: string;
+  providerCustomerId: string | null;
+  providerSubscriptionId: string | null;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  graceUntil: string | null;
+  cancelAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type BillingCheckout = {
+  id: string;
+  referenceId: string;
+  email: string;
+  fullName: string;
+  companyName: string;
+  planCode: string;
+  passwordHash: string;
+  status: "PENDING_PAYMENT" | "COMPLETED" | "FAILED";
+  tenantId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  kind: "SUBSCRIPTION" | "DEMO";
+};
+
+type BillingEvent = {
+  id: string;
+  provider: string;
+  providerEventId: string;
+  referenceId: string;
+  eventType: string;
+  status: "PROCESSED" | "IGNORED" | "FAILED";
+  payload: Record<string, unknown>;
+  processedAt: string;
+};
+
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+const SESSION_COOKIE_NAME = "eg_session";
+const SESSION_SECRET = process.env.SESSION_SECRET ?? "eg-dev-session-secret-change-me";
+const BILLING_WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "eg-dev-webhook-secret-change-me";
+const DEMO_TRIAL_DAYS = 5;
 
 const getCollections = async () => {
   const db = await getDb();
@@ -288,7 +406,121 @@ const getCollections = async () => {
     commandLogs: db.collection<CommandLog>("command_logs"),
     commandContext: db.collection<CommandContext & { _id: string }>("command_context"),
     aiBehaviors: db.collection<AIBehavior>("ai_behaviors"),
+    tenants: db.collection<Tenant>("tenants"),
+    users: db.collection<UserAccount>("users"),
+    memberships: db.collection<Membership>("memberships"),
+    subscriptionPlans: db.collection<SubscriptionPlan>("subscription_plans"),
+    subscriptions: db.collection<Subscription>("subscriptions"),
+    billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
+    billingEvents: db.collection<BillingEvent>("billing_events"),
   };
+};
+
+const hashPassword = (password: string) => {
+  const salt = randomBytes(16).toString("hex");
+  const derived = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${derived}`;
+};
+
+const verifyPassword = (password: string, hash: string) => {
+  const [salt, expectedHex] = hash.split(":");
+  if (!salt || !expectedHex) return false;
+  const expected = Buffer.from(expectedHex, "hex");
+  const current = scryptSync(password, salt, 64);
+  if (expected.length !== current.length) return false;
+  return timingSafeEqual(expected, current);
+};
+
+const signSessionToken = (payload: { userId: string; tenantId: string; role: Membership["role"] }) =>
+  jwt.sign(payload, SESSION_SECRET, { algorithm: "HS256", expiresIn: "8h" });
+
+const verifySessionToken = (token: string) => {
+  try {
+    return jwt.verify(token, SESSION_SECRET) as { userId: string; tenantId: string; role: Membership["role"] };
+  } catch {
+    return null;
+  }
+};
+
+const parseCookies = (cookieHeader?: string) => {
+  if (!cookieHeader) return new Map<string, string>();
+  return new Map(
+    cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [key, ...rest] = part.split("=");
+        return [key, decodeURIComponent(rest.join("="))];
+      }),
+  );
+};
+
+const getSessionFromRequest = async (request: { headers: Record<string, unknown> }) => {
+  const cookies = parseCookies(typeof request.headers.cookie === "string" ? request.headers.cookie : undefined);
+  const token = cookies.get(SESSION_COOKIE_NAME);
+  if (!token) return null;
+  const claims = verifySessionToken(token);
+  if (!claims) return null;
+  const { users, memberships, subscriptions } = await getCollections();
+  const [user, membership, subscription] = await Promise.all([
+    users.findOne({ id: claims.userId, status: "ACTIVE" }),
+    memberships.findOne({ userId: claims.userId, tenantId: claims.tenantId }),
+    subscriptions.findOne({ tenantId: claims.tenantId }, { sort: { updatedAt: -1 } }),
+  ]);
+  if (!user || !membership || !subscription) return null;
+  return { user, membership, subscription };
+};
+
+const resolveSubscriptionStatus = (subscription: Subscription) => {
+  const now = new Date();
+  const periodEnd = new Date(subscription.currentPeriodEnd);
+  if (subscription.status === "CANCELLED" || subscription.status === "EXPIRED") {
+    return { canAccess: false, statusLabel: "EXPIRED" as const, daysLeft: 0 };
+  }
+  if (periodEnd < now) {
+    if (subscription.graceUntil && new Date(subscription.graceUntil) > now) {
+      const daysLeft = Math.max(0, Math.ceil((new Date(subscription.graceUntil).getTime() - now.getTime()) / 86400000));
+      return { canAccess: true, statusLabel: "GRACE" as const, daysLeft };
+    }
+    return { canAccess: false, statusLabel: "EXPIRED" as const, daysLeft: 0 };
+  }
+  const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / 86400000));
+  return { canAccess: true, statusLabel: subscription.status, daysLeft };
+};
+
+const ensureDefaultPlans = async () => {
+  const { subscriptionPlans } = await getCollections();
+  const count = await subscriptionPlans.countDocuments();
+  if (count > 0) return;
+  await subscriptionPlans.insertMany([
+    {
+      id: randomUUID(),
+      code: "PRO",
+      name: "Plan Pro Mensual",
+      billingPeriodDays: 30,
+      amountCents: 49900,
+      currency: "ARS",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+    },
+    {
+      id: randomUUID(),
+      code: "DEMO_5D",
+      name: "Demo 5 días",
+      billingPeriodDays: DEMO_TRIAL_DAYS,
+      amountCents: 0,
+      currency: "ARS",
+      trialDays: DEMO_TRIAL_DAYS,
+      isDemo: true,
+      active: true,
+    },
+  ]);
+};
+
+const setSessionCookie = (reply: { header: (name: string, value: string) => unknown }, token: string) => {
+  reply.header("Set-Cookie", `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`);
 };
 
 const loadAISettings = async () => {
@@ -2755,8 +2987,316 @@ app.delete("/animals/:id/photos/:photoId", async (request, reply) => {
   return reply.status(204).send();
 });
 
+app.post("/auth/register-subscription", async (request, reply) => {
+  const body = registerSubscriptionSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  await ensureDefaultPlans();
+  const { subscriptionPlans, billingCheckouts, users } = await getCollections();
+  const plan = await subscriptionPlans.findOne({ code: body.data.planCode, active: true, isDemo: false });
+  if (!plan) {
+    return reply.status(404).send({ code: "PLAN_NOT_FOUND", message: "No existe el plan solicitado." });
+  }
+  const existingUser = await users.findOne({ email: body.data.email.toLowerCase() });
+  if (existingUser) {
+    return reply.status(409).send({ code: "EMAIL_IN_USE", message: "Ese correo ya se encuentra registrado." });
+  }
+  const now = new Date().toISOString();
+  const checkout: BillingCheckout = {
+    id: randomUUID(),
+    referenceId: `eg_${Date.now()}_${randomUUID().slice(0, 8)}`,
+    email: body.data.email.toLowerCase(),
+    fullName: body.data.fullName.trim(),
+    companyName: body.data.companyName.trim(),
+    planCode: plan.code,
+    passwordHash: hashPassword(body.data.password),
+    status: "PENDING_PAYMENT",
+    tenantId: null,
+    createdAt: now,
+    updatedAt: now,
+    kind: "SUBSCRIPTION",
+  };
+  await billingCheckouts.insertOne(checkout);
+  return reply.status(201).send({
+    checkoutId: checkout.id,
+    referenceId: checkout.referenceId,
+    status: checkout.status,
+    webhookUrl: "/billing/webhook",
+    message: "Checkout pendiente creado. Envía `referenceId` a la pasarela y confirma por webhook.",
+  });
+});
+
+app.post("/auth/demo-request", async (request, reply) => {
+  const body = demoRequestSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  await ensureDefaultPlans();
+  const { subscriptionPlans, billingCheckouts } = await getCollections();
+  const demoPlan = await subscriptionPlans.findOne({ code: "DEMO_5D", active: true, isDemo: true });
+  if (!demoPlan) {
+    return reply.status(500).send({ code: "DEMO_PLAN_MISSING", message: "No hay plan demo configurado." });
+  }
+  const now = new Date().toISOString();
+  const plainPassword = body.data.password ?? `Demo${randomUUID().slice(0, 8)}!`;
+  const checkout: BillingCheckout = {
+    id: randomUUID(),
+    referenceId: `demo_${Date.now()}_${randomUUID().slice(0, 8)}`,
+    email: body.data.email.toLowerCase(),
+    fullName: body.data.fullName.trim(),
+    companyName: body.data.companyName.trim(),
+    planCode: demoPlan.code,
+    passwordHash: hashPassword(plainPassword),
+    status: "PENDING_PAYMENT",
+    tenantId: null,
+    createdAt: now,
+    updatedAt: now,
+    kind: "DEMO",
+  };
+  await billingCheckouts.insertOne(checkout);
+  return reply.status(201).send({
+    referenceId: checkout.referenceId,
+    webhookSimulationPayload: {
+      provider: "demo",
+      providerEventId: `evt_${randomUUID().slice(0, 10)}`,
+      eventType: "payment.succeeded",
+      referenceId: checkout.referenceId,
+      email: checkout.email,
+    },
+    generatedPassword: body.data.password ? undefined : plainPassword,
+    message: "Demo creado. Invoca /billing/webhook con eventType=payment.succeeded para activar acceso.",
+  });
+});
+
+app.post("/billing/webhook", async (request, reply) => {
+  const signature = request.headers["x-webhook-signature"];
+  const rawBody = JSON.stringify(request.body ?? {});
+  const expectedSignature = createHmac("sha256", BILLING_WEBHOOK_SECRET).update(rawBody).digest("hex");
+  if (typeof signature !== "string" || signature !== expectedSignature) {
+    return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Firma de webhook inválida." });
+  }
+  const body = webhookSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const event = body.data;
+  await ensureDefaultPlans();
+  const { billingEvents, billingCheckouts, users, tenants, memberships, subscriptions, subscriptionPlans, establishments } = await getCollections();
+  const duplicated = await billingEvents.findOne({ provider: event.provider, providerEventId: event.providerEventId });
+  if (duplicated) {
+    return reply.send({ ok: true, duplicated: true });
+  }
+  const checkout = await billingCheckouts.findOne({ referenceId: event.referenceId });
+  if (!checkout) {
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      referenceId: event.referenceId,
+      eventType: event.eventType,
+      status: "FAILED",
+      payload: event as Record<string, unknown>,
+      processedAt: new Date().toISOString(),
+    });
+    return reply.status(404).send({ code: "CHECKOUT_NOT_FOUND", message: "No existe el checkout asociado." });
+  }
+  if (event.eventType === "payment.failed") {
+    await billingCheckouts.updateOne({ id: checkout.id }, { $set: { status: "FAILED", updatedAt: new Date().toISOString() } });
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      referenceId: event.referenceId,
+      eventType: event.eventType,
+      status: "PROCESSED",
+      payload: event as Record<string, unknown>,
+      processedAt: new Date().toISOString(),
+    });
+    return reply.send({ ok: true, status: "failed_recorded" });
+  }
+  if (event.eventType === "subscription.cancelled") {
+    if (checkout.tenantId) {
+      await subscriptions.updateMany({ tenantId: checkout.tenantId, status: { $in: ["ACTIVE", "TRIALING", "PAST_DUE"] } }, { $set: { status: "CANCELLED", updatedAt: new Date().toISOString() } });
+    }
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: event.provider,
+      providerEventId: event.providerEventId,
+      referenceId: event.referenceId,
+      eventType: event.eventType,
+      status: "PROCESSED",
+      payload: event as Record<string, unknown>,
+      processedAt: new Date().toISOString(),
+    });
+    return reply.send({ ok: true, status: "subscription_cancelled" });
+  }
+  const plan = await subscriptionPlans.findOne({ code: checkout.planCode, active: true });
+  if (!plan) {
+    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout inválido." });
+  }
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const end = new Date(now.getTime() + plan.billingPeriodDays * 86400000).toISOString();
+  const tenantId = checkout.tenantId ?? randomUUID();
+  const userId = randomUUID();
+  const existingUser = await users.findOne({ email: checkout.email });
+  const effectiveUserId = existingUser?.id ?? userId;
+
+  if (!checkout.tenantId) {
+    await tenants.insertOne({
+      id: tenantId,
+      name: checkout.companyName,
+      status: "ACTIVE",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await establishments.insertOne({
+      id: randomUUID(),
+      name: checkout.companyName,
+      timezone: "UTC-3",
+      mapImageUrl: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    if (!existingUser) {
+      await users.insertOne({
+        id: effectiveUserId,
+        email: checkout.email,
+        fullName: checkout.fullName,
+        passwordHash: checkout.passwordHash,
+        status: "ACTIVE",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        lastLoginAt: null,
+      });
+    }
+    await memberships.insertOne({
+      id: randomUUID(),
+      tenantId,
+      userId: effectiveUserId,
+      role: "OWNER",
+      createdAt: nowIso,
+    });
+  }
+
+  await subscriptions.insertOne({
+    id: randomUUID(),
+    tenantId,
+    planCode: plan.code,
+    status: plan.isDemo ? "TRIALING" : "ACTIVE",
+    provider: event.provider,
+    providerCustomerId: null,
+    providerSubscriptionId: null,
+    currentPeriodStart: nowIso,
+    currentPeriodEnd: end,
+    graceUntil: null,
+    cancelAt: null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  await billingCheckouts.updateOne(
+    { id: checkout.id },
+    {
+      $set: {
+        status: "COMPLETED",
+        tenantId,
+        updatedAt: nowIso,
+      },
+    },
+  );
+
+  await billingEvents.insertOne({
+    id: randomUUID(),
+    provider: event.provider,
+    providerEventId: event.providerEventId,
+    referenceId: event.referenceId,
+    eventType: event.eventType,
+    status: "PROCESSED",
+    payload: event as Record<string, unknown>,
+    processedAt: nowIso,
+  });
+
+  return reply.send({
+    ok: true,
+    status: "activated",
+    tenantId,
+    email: checkout.email,
+    expiresAt: end,
+  });
+});
+
+app.post("/auth/login", async (request, reply) => {
+  const body = loginSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { users, memberships, subscriptions } = await getCollections();
+  const user = await users.findOne({ email: body.data.email.toLowerCase(), status: "ACTIVE" });
+  if (!user || !verifyPassword(body.data.password, user.passwordHash)) {
+    return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." });
+  }
+  const membership = await memberships.findOne({ userId: user.id });
+  if (!membership) {
+    return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organización asociada." });
+  }
+  const subscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
+  if (!subscription) {
+    return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
+  }
+  const access = resolveSubscriptionStatus(subscription);
+  if (!access.canAccess) {
+    return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
+  }
+  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role });
+  setSessionCookie(reply, token);
+  await users.updateOne({ id: user.id }, { $set: { lastLoginAt: new Date().toISOString() } });
+  return reply.send({
+    ok: true,
+    user: { id: user.id, email: user.email, fullName: user.fullName, role: membership.role },
+    subscription: {
+      status: access.statusLabel,
+      daysLeft: access.daysLeft,
+      currentPeriodEnd: subscription.currentPeriodEnd,
+    },
+  });
+});
+
+app.get("/auth/session", async (request, reply) => {
+  const session = await getSessionFromRequest(request);
+  if (!session) {
+    return reply.status(401).send({ code: "UNAUTHORIZED" });
+  }
+  const access = resolveSubscriptionStatus(session.subscription);
+  const notifyType = access.daysLeft <= 1 ? "CRITICAL" : access.daysLeft <= 3 ? "WARNING" : access.daysLeft <= 5 ? "INFO" : "NONE";
+  return reply.send({
+    user: {
+      id: session.user.id,
+      email: session.user.email,
+      fullName: session.user.fullName,
+      role: session.membership.role,
+    },
+    subscription: {
+      status: access.statusLabel,
+      daysLeft: access.daysLeft,
+      currentPeriodEnd: session.subscription.currentPeriodEnd,
+      notification: notifyType === "NONE" ? null : {
+        level: notifyType,
+        message: `Tu suscripción vence en ${access.daysLeft} día(s).`,
+      },
+    },
+  });
+});
+
+app.post("/auth/logout", async (_request, reply) => {
+  reply.header("Set-Cookie", `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  return reply.send({ ok: true });
+});
+
 const start = async () => {
   try {
+    await ensureDefaultPlans();
     await app.listen({ port: 3001, host: "0.0.0.0" });
   } catch (error) {
     app.log.error(error);

@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
+import { getApiUrl } from "../lib/api-url";
 
 const topLevelLinks = [
   { href: withBasePath("/"), label: "Inicio" },
@@ -14,9 +16,26 @@ const topLevelLinks = [
 
 export function AppHeader() {
   const pathname = usePathname();
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
+  const API_URL = getApiUrl();
+
+  useEffect(() => {
+    const loadSession = async () => {
+      try {
+        const response = await fetch(`${API_URL}/auth/session`, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { subscription?: { notification?: { message?: string } | null } };
+        const message = data.subscription?.notification?.message;
+        setSessionNotice(message ?? null);
+      } catch {
+        setSessionNotice(null);
+      }
+    };
+    loadSession();
+  }, [API_URL]);
 
   return (
     <header className="mb-8 flex flex-col gap-4">
@@ -44,6 +63,11 @@ export function AppHeader() {
         </a>
       </div>
       <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
+      {sessionNotice ? (
+        <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
+          {sessionNotice}
+        </div>
+      ) : null}
       {isHome ? (
         <div className="overflow-hidden rounded-2xl border border-slate-800">
           <img

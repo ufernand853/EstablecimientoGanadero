@@ -51,7 +51,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isAuthenticated = request.cookies.get("eg_auth")?.value === "1";
+  const hasLegacyAuth = request.cookies.get("eg_auth")?.value === "1";
+  const hasSessionAuth = Boolean(request.cookies.get("eg_session")?.value);
+  const isAuthenticated = hasLegacyAuth || hasSessionAuth;
 
   if (!isAuthenticated && !isPublicRoute(pathname)) {
     const loginUrl = request.nextUrl.clone();
