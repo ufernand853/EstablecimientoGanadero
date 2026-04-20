@@ -11,6 +11,7 @@ const menuGroups = [
     description: "Altas, cargas y acciones operativas del día a día.",
     links: [
       { href: withBasePath("/operations"), label: "Operaciones" },
+      { href: withBasePath("/shipments"), label: "Embarques" },
       { href: withBasePath("/incidents"), label: "Incidentes" },
       { href: withBasePath("/slaughter-shipments"), label: "Consignaciones" },
       { href: withBasePath("/insemination"), label: "Inseminación" },
