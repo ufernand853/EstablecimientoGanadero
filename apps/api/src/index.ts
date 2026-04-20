@@ -384,6 +384,12 @@ const SESSION_COOKIE_NAME = "eg_session";
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "eg-dev-session-secret-change-me";
 const BILLING_WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "eg-dev-webhook-secret-change-me";
 const DEMO_TRIAL_DAYS = 5;
+const PERPETUAL_ACCESS_EMAILS = new Set(
+  (process.env.PERPETUAL_ACCESS_EMAILS ?? "ufernand853@gmail.com")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 const getCollections = async () => {
   const db = await getDb();
@@ -488,6 +494,8 @@ const resolveSubscriptionStatus = (subscription: Subscription) => {
   const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / 86400000));
   return { canAccess: true, statusLabel: subscription.status, daysLeft };
 };
+
+const hasPerpetualAccess = (email: string) => PERPETUAL_ACCESS_EMAILS.has(email.toLowerCase());
 
 const ensureDefaultPlans = async () => {
   const { subscriptionPlans } = await getCollections();
@@ -3246,7 +3254,8 @@ app.post("/auth/login", async (request, reply) => {
     return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
   }
   const access = resolveSubscriptionStatus(subscription);
-  if (!access.canAccess) {
+  const perpetualAccess = hasPerpetualAccess(user.email);
+  if (!access.canAccess && !perpetualAccess) {
     return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
   }
   const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role });
@@ -3256,8 +3265,8 @@ app.post("/auth/login", async (request, reply) => {
     ok: true,
     user: { id: user.id, email: user.email, fullName: user.fullName, role: membership.role },
     subscription: {
-      status: access.statusLabel,
-      daysLeft: access.daysLeft,
+      status: perpetualAccess ? "PERPETUAL" : access.statusLabel,
+      daysLeft: perpetualAccess ? null : access.daysLeft,
       currentPeriodEnd: subscription.currentPeriodEnd,
     },
   });
@@ -3269,6 +3278,7 @@ app.get("/auth/session", async (request, reply) => {
     return reply.status(401).send({ code: "UNAUTHORIZED" });
   }
   const access = resolveSubscriptionStatus(session.subscription);
+  const perpetualAccess = hasPerpetualAccess(session.user.email);
   const notifyType = access.daysLeft <= 1 ? "CRITICAL" : access.daysLeft <= 3 ? "WARNING" : access.daysLeft <= 5 ? "INFO" : "NONE";
   return reply.send({
     user: {
@@ -3278,10 +3288,10 @@ app.get("/auth/session", async (request, reply) => {
       role: session.membership.role,
     },
     subscription: {
-      status: access.statusLabel,
-      daysLeft: access.daysLeft,
+      status: perpetualAccess ? "PERPETUAL" : access.statusLabel,
+      daysLeft: perpetualAccess ? null : access.daysLeft,
       currentPeriodEnd: session.subscription.currentPeriodEnd,
-      notification: notifyType === "NONE" ? null : {
+      notification: perpetualAccess || notifyType === "NONE" ? null : {
         level: notifyType,
         message: `Tu suscripción vence en ${access.daysLeft} día(s).`,
       },
