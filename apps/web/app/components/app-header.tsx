@@ -56,27 +56,27 @@ export function AppHeader() {
             Panel de control para operaciones, lotes, potreros y consignaciones.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-3 gap-2 md:max-w-xl">
           <button
             type="button"
             onClick={() => router.back()}
-            className="rounded border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
+            className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            Atrás
+            ← Atrás
           </button>
+          <a
+            className="flex h-11 w-full items-center justify-center rounded bg-emerald-500 px-3 text-sm font-semibold text-slate-950"
+            href={withBasePath("/")}
+          >
+            ⌂ Inicio
+          </a>
           <button
             type="button"
             onClick={() => router.forward()}
-            className="rounded border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
+            className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            Adelante
+            Adelante →
           </button>
-          <a
-            className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950"
-            href={withBasePath("/")}
-          >
-            Inicio
-          </a>
         </div>
       </div>
       <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
