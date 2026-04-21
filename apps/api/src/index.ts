@@ -163,6 +163,11 @@ type Consignor = {
   id: string;
   establishmentId: string;
   name: string;
+  address: string | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
   updatedAt: string;
@@ -172,6 +177,11 @@ type Slaughterhouse = {
   id: string;
   establishmentId: string;
   name: string;
+  address: string | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
   updatedAt: string;
@@ -1090,6 +1100,11 @@ const insertReproductionEvent = async (event: ReproductionEvent) => {
 const consignorSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
+  address: z.string().min(2).optional().nullable(),
+  contactName: z.string().min(2).optional().nullable(),
+  phone: z.string().min(6).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
@@ -1191,17 +1206,32 @@ app.post("/admin/openai-settings/test", async (request, reply) => {
 
 const consignorUpdateSchema = z.object({
   name: z.string().min(2).optional(),
+  address: z.string().min(2).optional().nullable(),
+  contactName: z.string().min(2).optional().nullable(),
+  phone: z.string().min(6).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
 const slaughterhouseSchema = z.object({
   establishmentId: z.string().uuid(),
   name: z.string().min(2),
+  address: z.string().min(2).optional().nullable(),
+  contactName: z.string().min(2).optional().nullable(),
+  phone: z.string().min(6).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
 const slaughterhouseUpdateSchema = z.object({
   name: z.string().min(2).optional(),
+  address: z.string().min(2).optional().nullable(),
+  contactName: z.string().min(2).optional().nullable(),
+  phone: z.string().min(6).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  notes: z.string().min(1).optional().nullable(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
@@ -2784,6 +2814,11 @@ app.post("/consignors", async (request, reply) => {
     id: randomUUID(),
     establishmentId: body.data.establishmentId,
     name: body.data.name,
+    address: body.data.address ?? null,
+    contactName: body.data.contactName ?? null,
+    phone: body.data.phone ?? null,
+    email: body.data.email ?? null,
+    notes: body.data.notes ?? null,
     status: body.data.status ?? "ACTIVE",
     createdAt: now,
     updatedAt: now,
@@ -2810,7 +2845,18 @@ app.patch("/consignors/:id", async (request, reply) => {
   };
   await consignors.updateOne(
     { id: request.params.id },
-    { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } },
+    {
+      $set: {
+        name: updated.name,
+        address: updated.address ?? null,
+        contactName: updated.contactName ?? null,
+        phone: updated.phone ?? null,
+        email: updated.email ?? null,
+        notes: updated.notes ?? null,
+        status: updated.status,
+        updatedAt: updated.updatedAt,
+      },
+    },
   );
   return reply.send(updated);
 });
@@ -2855,6 +2901,11 @@ app.post("/slaughterhouses", async (request, reply) => {
     id: randomUUID(),
     establishmentId: body.data.establishmentId,
     name: body.data.name,
+    address: body.data.address ?? null,
+    contactName: body.data.contactName ?? null,
+    phone: body.data.phone ?? null,
+    email: body.data.email ?? null,
+    notes: body.data.notes ?? null,
     status: body.data.status ?? "ACTIVE",
     createdAt: now,
     updatedAt: now,
@@ -2881,7 +2932,18 @@ app.patch("/slaughterhouses/:id", async (request, reply) => {
   };
   await slaughterhouses.updateOne(
     { id: request.params.id },
-    { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } },
+    {
+      $set: {
+        name: updated.name,
+        address: updated.address ?? null,
+        contactName: updated.contactName ?? null,
+        phone: updated.phone ?? null,
+        email: updated.email ?? null,
+        notes: updated.notes ?? null,
+        status: updated.status,
+        updatedAt: updated.updatedAt,
+      },
+    },
   );
   return reply.send(updated);
 });

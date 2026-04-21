@@ -6,13 +6,28 @@ import { getApiUrl } from "../../lib/api-url";
 const API_URL = getApiUrl();
 
 type Establishment = { id: string; name: string };
-type Consignor = { id: string; establishmentId: string; name: string; status: "ACTIVE" | "INACTIVE" };
+type Consignor = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  address: string | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  status: "ACTIVE" | "INACTIVE";
+};
 
 export default function ConsignorsPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [consignors, setConsignors] = useState<Consignor[]>([]);
   const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = async (selectedEstablishmentId?: string) => {
@@ -37,13 +52,27 @@ export default function ConsignorsPage() {
     const response = await fetch(`${API_URL}/consignors`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ establishmentId, name: name.trim(), status: "ACTIVE" }),
+      body: JSON.stringify({
+        establishmentId,
+        name: name.trim(),
+        address: address.trim() || null,
+        contactName: contactName.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        notes: notes.trim() || null,
+        status: "ACTIVE",
+      }),
     });
     if (!response.ok) {
       setError("No se pudo crear consignatario.");
       return;
     }
     setName("");
+    setAddress("");
+    setContactName("");
+    setPhone("");
+    setEmail("");
+    setNotes("");
     await load(establishmentId);
   };
 
@@ -65,16 +94,29 @@ export default function ConsignorsPage() {
         </select>
       </header>
       <section className="rounded-lg bg-slate-900 p-4">
-        <form className="flex gap-3" onSubmit={handleCreate}>
-          <input className="flex-1 rounded bg-slate-800 p-2 text-sm" placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
+        <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreate}>
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Dirección" value={address} onChange={(e) => setAddress(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Contacto" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Celular / Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} />
           <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Crear</button>
         </form>
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </section>
       <section className="rounded-lg bg-slate-900 p-4 grid gap-2">
         {consignors.map((consignor) => (
-          <div key={consignor.id} className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <p className="font-semibold">{consignor.name}</p>
+          <div key={consignor.id} className="flex items-start justify-between border-b border-slate-800 pb-2">
+            <div>
+              <p className="font-semibold">{consignor.name}</p>
+              <p className="text-xs text-slate-400">
+                {consignor.address || "Sin dirección"} · {consignor.contactName || "Sin contacto"} · {consignor.phone || "Sin teléfono"}
+              </p>
+              {(consignor.email || consignor.notes) && (
+                <p className="text-xs text-slate-500">{consignor.email || consignor.notes}</p>
+              )}
+            </div>
             <button className="rounded bg-slate-700 px-3 py-1 text-xs" onClick={() => toggleStatus(consignor)}>
               {consignor.status}
             </button>
