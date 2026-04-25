@@ -15,6 +15,7 @@ const menuGroups = [
       { href: withBasePath("/incidents"), label: "Incidentes" },
       { href: withBasePath("/slaughter-shipments"), label: "Consignaciones" },
       { href: withBasePath("/insemination"), label: "Inseminación" },
+      { href: withBasePath("/traceability"), label: "Trazabilidad (piloto)" },
     ],
   },
   {
