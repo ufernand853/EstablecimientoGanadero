@@ -35,6 +35,7 @@ const menuGroups = [
     links: [
       { href: withBasePath("/dashboard"), label: "Indicadores" },
       { href: withBasePath("/commands/changes"), label: "Cambios IA" },
+      { href: withBasePath("/traceability/dashboard"), label: "Panel trazabilidad" },
     ],
   },
   {
