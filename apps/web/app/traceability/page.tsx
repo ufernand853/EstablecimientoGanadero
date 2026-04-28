@@ -1,6 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getApiUrl } from "../lib/api-url";
+
+const API_URL = getApiUrl();
 
 type CaptureSource = "MANUAL" | "FOTO" | "RFID";
 type TraceabilityEventType =
@@ -9,6 +12,8 @@ type TraceabilityEventType =
   | "PREÑEZ_CONFIRMADA"
   | "VACUNACION_PENDIENTE"
   | "VACUNACION_REALIZADA"
+  | "DESPARASITACION"
+  | "TRATAMIENTO"
   | "TRASLADO"
   | "MUERTE"
   | "ENVIO_FRIGORIFICO"
@@ -24,12 +29,16 @@ type TraceabilityEvent = {
   notes?: string;
 };
 
+type Establishment = { id: string; name: string };
+
 const EVENT_LABELS: Record<TraceabilityEventType, string> = {
   ASIGNACION_POTRERO: "Asignación a potrero",
   INSEMINACION: "Inseminación",
-  PREÑEZ_CONFIRMADA: "Preñez confirmada",
+  "PREÑEZ_CONFIRMADA": "Preñez confirmada",
   VACUNACION_PENDIENTE: "Pendiente de vacunación",
   VACUNACION_REALIZADA: "Vacunación realizada",
+  DESPARASITACION: "Desparasitación",
+  TRATAMIENTO: "Tratamiento",
   TRASLADO: "Traslado",
   MUERTE: "Muerte",
   ENVIO_FRIGORIFICO: "Envío a frigorífico",
@@ -88,6 +97,8 @@ const ACTION_OPTIONS: TraceabilityEventType[] = [
   "PREÑEZ_CONFIRMADA",
   "VACUNACION_PENDIENTE",
   "VACUNACION_REALIZADA",
+  "DESPARASITACION",
+  "TRATAMIENTO",
   "TRASLADO",
   "MUERTE",
   "ENVIO_FRIGORIFICO",
@@ -113,6 +124,20 @@ function buildAiSummary(events: TraceabilityEvent[], caravan: string) {
   ].join(" ");
 }
 
+function mapApiEventToLocal(e: Record<string, unknown>): TraceabilityEvent {
+  const apiSource = e.source as string;
+  const source: CaptureSource = apiSource === "RFID" ? "RFID" : apiSource === "FOTO" ? "FOTO" : "MANUAL";
+  return {
+    id: e.id as string,
+    caravan: e.earTag as string,
+    type: e.type as TraceabilityEventType,
+    occurredAt: e.occurredAt as string,
+    source,
+    user: (e.createdBy as string) || "Sistema",
+    notes: (e.notes as string) || undefined,
+  };
+}
+
 export default function TraceabilityPilotPage() {
   const [caravanSearch, setCaravanSearch] = useState("UY-10452");
   const [manualInput, setManualInput] = useState("UY-10452");
@@ -122,6 +147,38 @@ export default function TraceabilityPilotPage() {
   const [events, setEvents] = useState<TraceabilityEvent[]>(SAMPLE_EVENTS);
   const [message, setMessage] = useState<string | null>(null);
 
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [establishmentId, setEstablishmentId] = useState<string>("");
+  const [useLiveData, setUseLiveData] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_URL}/establishments`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.establishments)) {
+          setEstablishments(data.establishments);
+          if (data.establishments[0]) setEstablishmentId(data.establishments[0].id);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!establishmentId) return;
+    setLoadingEvents(true);
+    fetch(`${API_URL}/traceability/events?establishmentId=${establishmentId}&limit=300`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.events) && data.events.length > 0) {
+          setEvents(data.events.map(mapApiEventToLocal));
+          setUseLiveData(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingEvents(false));
+  }, [establishmentId]);
+
   const filteredEvents = useMemo(
     () => events.filter((event) => event.caravan.toLowerCase().includes(caravanSearch.toLowerCase())).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt)),
     [events, caravanSearch],
@@ -129,7 +186,7 @@ export default function TraceabilityPilotPage() {
 
   const aiSummary = useMemo(() => buildAiSummary(filteredEvents, caravanSearch), [filteredEvents, caravanSearch]);
 
-  const registerEvent = (source: CaptureSource, caravan: string, eventType?: TraceabilityEventType) => {
+  const registerEvent = async (source: CaptureSource, caravan: string, eventType?: TraceabilityEventType) => {
     const normalizedCaravan = caravan.trim().toUpperCase();
     if (!normalizedCaravan) {
       setMessage("Ingresá o detectá una caravana válida para registrar el evento.");
@@ -137,8 +194,9 @@ export default function TraceabilityPilotPage() {
     }
 
     const type = eventType ?? selectedAction;
+    const tempId = `evt-${Date.now()}`;
     const nextEvent: TraceabilityEvent = {
-      id: `evt-${Date.now()}`,
+      id: tempId,
       caravan: normalizedCaravan,
       type,
       occurredAt: new Date().toISOString(),
@@ -150,12 +208,37 @@ export default function TraceabilityPilotPage() {
     setEvents((current) => [nextEvent, ...current]);
     setCaravanSearch(normalizedCaravan);
     setMessage(`Se registró ${EVENT_LABELS[type].toLowerCase()} para ${normalizedCaravan} (origen ${source}).`);
+
+    if (establishmentId) {
+      try {
+        const apiSource = source === "RFID" ? "RFID" : source === "FOTO" ? "FOTO" : "MANUAL";
+        const res = await fetch(`${API_URL}/traceability/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            establishmentId,
+            earTag: normalizedCaravan,
+            type,
+            notes: notes.trim() || null,
+            source: apiSource,
+            occurredAt: new Date().toISOString(),
+          }),
+        });
+        if (res.ok) {
+          const saved = (await res.json()) as { id: string };
+          setEvents((prev) => prev.map((e) => (e.id === tempId ? { ...e, id: saved.id } : e)));
+          setUseLiveData(true);
+        }
+      } catch {
+        // keep optimistic update
+      }
+    }
   };
 
-  const handleBulkRfid = (event: FormEvent) => {
+  const handleBulkRfid = async (event: FormEvent) => {
     event.preventDefault();
     const validReads = SAMPLE_RFID_READS.filter((item) => item.status === "OK" && item.caravan !== "-");
-    const nextEvents = validReads.map((item, index) => ({
+    const nextEvents: TraceabilityEvent[] = validReads.map((item, index) => ({
       id: `rfid-${Date.now()}-${index}`,
       caravan: item.caravan,
       type: selectedAction,
@@ -167,16 +250,55 @@ export default function TraceabilityPilotPage() {
 
     setEvents((current) => [...nextEvents, ...current]);
     setMessage(`Se aplicó ${EVENT_LABELS[selectedAction].toLowerCase()} a ${nextEvents.length} lecturas RFID válidas.`);
+
+    if (establishmentId) {
+      await Promise.allSettled(
+        nextEvents.map((e) =>
+          fetch(`${API_URL}/traceability/events`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              establishmentId,
+              earTag: e.caravan,
+              type: e.type,
+              notes: e.notes || null,
+              source: "RFID",
+              occurredAt: e.occurredAt,
+            }),
+          }),
+        ),
+      );
+    }
   };
 
   return (
     <main className="space-y-6">
       <header className="rounded-lg bg-slate-900 p-5">
-        <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Piloto funcional</p>
-        <h2 className="mt-2 text-xl font-semibold">Trazabilidad por caravana</h2>
-        <p className="mt-2 text-sm text-slate-300">
-          Apartado inicial para validar el flujo de identificación (manual/foto/RFID), acciones operativas y consulta histórica asistida por IA antes de integrarlo al menú principal definitivo.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Piloto funcional</p>
+            <h2 className="mt-2 text-xl font-semibold">Trazabilidad por caravana</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Identificación individual (manual/foto/RFID), acciones operativas y consulta histórica asistida por IA.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            {establishments.length > 0 ? (
+              <select
+                className="rounded bg-slate-800 px-3 py-2 text-sm"
+                value={establishmentId}
+                onChange={(e) => setEstablishmentId(e.target.value)}
+              >
+                {establishments.map((est) => (
+                  <option key={est.id} value={est.id}>{est.name}</option>
+                ))}
+              </select>
+            ) : null}
+            <span className={`text-xs ${useLiveData ? "text-emerald-400" : "text-slate-500"}`}>
+              {loadingEvents ? "Cargando datos..." : useLiveData ? "● Datos en tiempo real" : "● Datos de ejemplo"}
+            </span>
+          </div>
+        </div>
       </header>
 
       {message ? <p className="rounded border border-emerald-600 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{message}</p> : null}

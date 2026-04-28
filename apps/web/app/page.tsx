@@ -15,7 +15,7 @@ const menuGroups = [
       { href: withBasePath("/incidents"), label: "Incidentes" },
       { href: withBasePath("/slaughter-shipments"), label: "Consignaciones" },
       { href: withBasePath("/insemination"), label: "Inseminación" },
-      { href: withBasePath("/traceability"), label: "Trazabilidad (piloto)" },
+      { href: withBasePath("/traceability"), label: "Trazabilidad" },
     ],
   },
   {
@@ -35,12 +35,16 @@ const menuGroups = [
     links: [
       { href: withBasePath("/dashboard"), label: "Indicadores" },
       { href: withBasePath("/commands/changes"), label: "Cambios IA" },
+      { href: withBasePath("/traceability/dashboard"), label: "Panel trazabilidad" },
     ],
   },
   {
     title: "Modo IA",
-    description: "Acceso directo a la pantalla actual del modo IA.",
-    links: [{ href: withBasePath("/commands"), label: "Abrir Modo IA" }],
+    description: "Interfaz de lenguaje natural para operaciones de lote y consultas.",
+    links: [
+      { href: withBasePath("/commands"), label: "Modo IA completo" },
+      { href: withBasePath("/campo"), label: "Modo Campo (operario)" },
+    ],
   },
   {
     title: "Configuración",

@@ -80,6 +80,36 @@ const aiBehaviorSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+const TRACEABILITY_EVENT_TYPES = [
+  "ASIGNACION_POTRERO",
+  "INSEMINACION",
+  "PREÑEZ_CONFIRMADA",
+  "VACUNACION_PENDIENTE",
+  "VACUNACION_REALIZADA",
+  "DESPARASITACION",
+  "TRATAMIENTO",
+  "TRASLADO",
+  "MUERTE",
+  "ENVIO_FRIGORIFICO",
+  "OBSERVACION",
+] as const;
+
+const traceabilityEventCreateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  earTag: z.string().min(1).max(50),
+  type: z.enum(TRACEABILITY_EVENT_TYPES),
+  paddockId: z.string().uuid().optional().nullable(),
+  paddockName: z.string().max(200).optional().nullable(),
+  product: z.string().max(200).optional().nullable(),
+  dose: z.string().max(100).optional().nullable(),
+  weight: z.number().positive().optional().nullable(),
+  destination: z.string().max(200).optional().nullable(),
+  notes: z.string().max(1000).optional().nullable(),
+  occurredAt: z.string().datetime().optional(),
+  source: z.enum(["MANUAL", "COMANDO_IA", "RFID", "FOTO"]).default("MANUAL"),
+  createdBy: z.string().max(200).optional().nullable(),
+});
+
 type AIMessage = {
   role: "user" | "assistant";
   content: string;
@@ -387,6 +417,39 @@ type BillingEvent = {
   processedAt: string;
 };
 
+type TraceabilityEventType =
+  | "ASIGNACION_POTRERO"
+  | "INSEMINACION"
+  | "PREÑEZ_CONFIRMADA"
+  | "VACUNACION_PENDIENTE"
+  | "VACUNACION_REALIZADA"
+  | "DESPARASITACION"
+  | "TRATAMIENTO"
+  | "TRASLADO"
+  | "MUERTE"
+  | "ENVIO_FRIGORIFICO"
+  | "OBSERVACION";
+
+type TraceabilityCaptureSource = "MANUAL" | "COMANDO_IA" | "RFID" | "FOTO";
+
+type TraceabilityEvent = {
+  id: string;
+  establishmentId: string;
+  earTag: string;
+  type: TraceabilityEventType;
+  paddockId: string | null;
+  paddockName: string | null;
+  product: string | null;
+  dose: string | null;
+  weight: number | null;
+  destination: string | null;
+  notes: string | null;
+  occurredAt: string;
+  source: TraceabilityCaptureSource;
+  createdBy: string | null;
+  createdAt: string;
+};
+
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -429,6 +492,7 @@ const getCollections = async () => {
     subscriptions: db.collection<Subscription>("subscriptions"),
     billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
     billingEvents: db.collection<BillingEvent>("billing_events"),
+    traceabilityEvents: db.collection<TraceabilityEvent>("traceability_events"),
   };
 };
 
@@ -725,8 +789,8 @@ const loadHerds = async () => {
 };
 
 const buildEstablishmentSnapshot = async (establishmentId: string) => {
-  const { paddocks, herds, movements, healthEvents, consignors, slaughterhouses, herdCategories } = await getCollections();
-  const [paddockDocs, herdDocs, movementDocs, healthEventDocs, consignorDocs, slaughterhouseDocs, categoryDocs] = await Promise.all([
+  const { paddocks, herds, movements, healthEvents, consignors, slaughterhouses, herdCategories, traceabilityEvents } = await getCollections();
+  const [paddockDocs, herdDocs, movementDocs, healthEventDocs, consignorDocs, slaughterhouseDocs, categoryDocs, recentTraceabilityDocs] = await Promise.all([
     paddocks.find({ establishmentId }).toArray(),
     herds.find().toArray(),
     movements.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
@@ -734,6 +798,7 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
     consignors.find({ establishmentId, status: "ACTIVE" }).toArray(),
     slaughterhouses.find({ establishmentId, status: "ACTIVE" }).toArray(),
     herdCategories.find({ establishmentId, status: "ACTIVE" }).toArray(),
+    traceabilityEvents.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
   ]);
 
   const paddockIds = new Set(paddockDocs.map((paddock) => paddock.id));
@@ -747,6 +812,13 @@ const buildEstablishmentSnapshot = async (establishmentId: string) => {
     activeConsignors: consignorDocs.map((consignor) => ({ id: consignor.id, name: consignor.name })),
     activeSlaughterhouses: slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name })),
     activeCategories: categoryDocs.map((category) => ({ id: category.id, name: category.name })),
+    recentTraceabilityEvents: recentTraceabilityDocs.map((e) => ({
+      earTag: e.earTag,
+      type: e.type,
+      occurredAt: e.occurredAt,
+      paddockName: e.paddockName,
+      notes: e.notes,
+    })),
   };
 };
 
@@ -925,6 +997,72 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
   }
 
   return null;
+};
+
+const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,6})\b/i;
+
+const detectEarTagInText = (text: string): string | null => {
+  const match = text.match(EAR_TAG_REGEX);
+  if (!match) return null;
+  return match[1].trim().toUpperCase().replace(/\s+/, "-");
+};
+
+const TRACEABILITY_KEYWORD_MAP: Array<{ keywords: RegExp; type: TraceabilityEventType }> = [
+  { keywords: /\b(vacun[ao]r?|vacunacion|vacuna)\b/i, type: "VACUNACION_REALIZADA" },
+  { keywords: /\b(vacuna\s+pendiente|pendiente\s+vacun)\b/i, type: "VACUNACION_PENDIENTE" },
+  { keywords: /\b(desparasit[ao]r?|desparasitacion|ivermectina|vermifugo)\b/i, type: "DESPARASITACION" },
+  { keywords: /\b(trat[ao]r?|tratamiento|antibiotico|medicamento)\b/i, type: "TRATAMIENTO" },
+  { keywords: /\b(inseminacion|inseminar|iatf|semen)\b/i, type: "INSEMINACION" },
+  { keywords: /\b(pre[nñ]ez|pre[nñ]ada|ecografia|preñada)\b/i, type: "PREÑEZ_CONFIRMADA" },
+  { keywords: /\b(traslad[ao]r?|traslado|mov[eé]r?|mover)\b/i, type: "TRASLADO" },
+  { keywords: /\b(asignar?\s+potrero|potrero\s+\d+|asignacion\s+potrero)\b/i, type: "ASIGNACION_POTRERO" },
+  { keywords: /\b(muerte|muerto|muri[oó]|falleci[oó]|crepado)\b/i, type: "MUERTE" },
+  { keywords: /\b(frigorifico|enviar\s+a\s+frigorifico|remision|faena)\b/i, type: "ENVIO_FRIGORIFICO" },
+];
+
+const detectTraceabilityEventType = (text: string): TraceabilityEventType => {
+  const normalized = text.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  for (const entry of TRACEABILITY_KEYWORD_MAP) {
+    if (entry.keywords.test(normalized)) return entry.type;
+  }
+  return "OBSERVACION";
+};
+
+const isTraceabilityQuery = (text: string): boolean =>
+  /\b(qu[eé]\s+pas[oó]|historial|eventos|resumen|estado|d[oó]nde\s+est[aá]|cu[aá]ndo|ver\s+caravana|consultar)\b/i.test(text);
+
+const TRACEABILITY_EVENT_LABELS: Record<TraceabilityEventType, string> = {
+  ASIGNACION_POTRERO: "asignación a potrero",
+  INSEMINACION: "inseminación",
+  "PREÑEZ_CONFIRMADA": "preñez confirmada",
+  VACUNACION_PENDIENTE: "vacunación pendiente",
+  VACUNACION_REALIZADA: "vacunación realizada",
+  DESPARASITACION: "desparasitación",
+  TRATAMIENTO: "tratamiento",
+  TRASLADO: "traslado",
+  MUERTE: "muerte",
+  ENVIO_FRIGORIFICO: "envío a frigorífico",
+  OBSERVACION: "observación",
+};
+
+const buildTraceabilitySummary = (events: TraceabilityEvent[], earTag: string): string => {
+  if (!events.length) {
+    return `No se encontraron eventos registrados para la caravana ${earTag}.`;
+  }
+  const latest = events[0];
+  const insemination = events.find((e) => e.type === "INSEMINACION");
+  const pregnancy = events.find((e) => e.type === "PREÑEZ_CONFIRMADA");
+  const pendingVaccination = events.find((e) => e.type === "VACUNACION_PENDIENTE");
+  const lastPaddock = events.find((e) => e.type === "ASIGNACION_POTRERO" || e.type === "TRASLADO");
+
+  return [
+    `La caravana ${earTag} tiene ${events.length} evento(s) registrado(s).`,
+    lastPaddock?.paddockName ? `Último potrero conocido: ${lastPaddock.paddockName}.` : "",
+    insemination ? `Inseminación registrada el ${new Date(insemination.occurredAt).toLocaleDateString("es-UY")}.` : "",
+    pregnancy ? `Preñez confirmada el ${new Date(pregnancy.occurredAt).toLocaleDateString("es-UY")}.` : "",
+    pendingVaccination ? "Tiene al menos una vacunación pendiente." : "",
+    `Último evento: ${TRACEABILITY_EVENT_LABELS[latest.type]} (${new Date(latest.occurredAt).toLocaleString("es-UY")}).`,
+  ].filter(Boolean).join(" ");
 };
 
 const callOpenAIChat = async (
@@ -1702,6 +1840,56 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  // Detección de caravana individual — tiene prioridad sobre el parser de lotes
+  const detectedEarTag = detectEarTagInText(body.data.prompt);
+  if (detectedEarTag) {
+    const { traceabilityEvents: traceabilityCol } = await getCollections();
+    if (isTraceabilityQuery(body.data.prompt)) {
+      const animalEvents = await traceabilityCol
+        .find({ establishmentId: body.data.establishmentId, earTag: detectedEarTag })
+        .sort({ occurredAt: -1 })
+        .limit(20)
+        .toArray();
+      const summary = buildTraceabilitySummary(animalEvents, detectedEarTag);
+      return reply.send({
+        response: summary,
+        traceabilityEvents: animalEvents,
+        earTag: detectedEarTag,
+      });
+    }
+
+    const eventType = detectTraceabilityEventType(body.data.prompt);
+    const paddockMatch = body.data.prompt.match(/potrero\s+([a-z0-9\s\-]+)/i);
+    const productMatch = body.data.prompt.match(/(?:con|producto|vacuna)\s+([a-záéíóúñ][a-záéíóúñ\s]+)/i);
+    const doseMatch = body.data.prompt.match(/(\d+(?:\.\d+)?\s?ml)/i);
+
+    const suggestedPayload = {
+      establishmentId: body.data.establishmentId,
+      earTag: detectedEarTag,
+      type: eventType,
+      paddockName: paddockMatch?.[1]?.trim() ?? null,
+      product: productMatch?.[1]?.trim() ?? null,
+      dose: doseMatch?.[1] ?? null,
+      notes: body.data.prompt.trim(),
+      source: "COMANDO_IA" as const,
+      occurredAt: new Date().toISOString(),
+    };
+
+    return reply.send({
+      response: `Detecté la caravana **${detectedEarTag}**. Voy a registrar: ${TRACEABILITY_EVENT_LABELS[eventType]}. Confirmá con "Hacelo" para guardar.`,
+      suggestedApiCall: {
+        action: "registrar_evento_trazabilidad",
+        endpoint: "/traceability/events",
+        method: "POST",
+        requiresConfirmation: true,
+        isReady: true,
+        requestPreview: suggestedPayload,
+      },
+      earTag: detectedEarTag,
+      detectedEventType: eventType,
+    });
   }
 
   let parsedCommand: ReturnType<typeof parseCommand> | null = null;
@@ -3146,6 +3334,130 @@ app.delete("/animals/:id/photos/:photoId", async (request, reply) => {
   const { animalPhotos } = await getCollections();
   await animalPhotos.deleteOne({ id: request.params.photoId, animalId: request.params.id });
   return reply.status(204).send();
+});
+
+// ─── Trazabilidad individual ──────────────────────────────────────────────────
+
+app.post("/traceability/events", async (request, reply) => {
+  const body = traceabilityEventCreateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+  const { traceabilityEvents } = await getCollections();
+  const now = new Date().toISOString();
+  const event: TraceabilityEvent = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    earTag: body.data.earTag.trim().toUpperCase(),
+    type: body.data.type,
+    paddockId: body.data.paddockId ?? null,
+    paddockName: body.data.paddockName?.trim() || null,
+    product: body.data.product?.trim() || null,
+    dose: body.data.dose?.trim() || null,
+    weight: body.data.weight ?? null,
+    destination: body.data.destination?.trim() || null,
+    notes: body.data.notes?.trim() || null,
+    occurredAt: body.data.occurredAt ?? now,
+    source: body.data.source,
+    createdBy: body.data.createdBy?.trim() || null,
+    createdAt: now,
+  };
+  await traceabilityEvents.insertOne(event);
+  return reply.status(201).send(event);
+});
+
+app.get("/traceability/events", async (request) => {
+  const query = request.query as {
+    establishmentId?: string;
+    earTag?: string;
+    type?: string;
+    fromDate?: string;
+    toDate?: string;
+    limit?: string;
+  };
+  const { traceabilityEvents } = await getCollections();
+  const filter: Record<string, unknown> = {};
+  if (query.establishmentId) filter.establishmentId = query.establishmentId;
+  if (query.earTag) filter.earTag = query.earTag.trim().toUpperCase();
+  if (query.type) filter.type = query.type;
+  if (query.fromDate || query.toDate) {
+    const range: Record<string, string> = {};
+    if (query.fromDate) range.$gte = query.fromDate;
+    if (query.toDate) range.$lte = query.toDate;
+    filter.occurredAt = range;
+  }
+  const limit = Math.min(Number(query.limit ?? 100), 500);
+  const events = await traceabilityEvents.find(filter).sort({ occurredAt: -1 }).limit(limit).toArray();
+  return { events };
+});
+
+app.get("/traceability/animals/:earTag", async (request, reply) => {
+  const earTag = (request.params as { earTag: string }).earTag.trim().toUpperCase();
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  if (!establishmentId) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  }
+  const { animals, traceabilityEvents } = await getCollections();
+  const [animalDoc, events] = await Promise.all([
+    animals.findOne({ establishmentId, earTag }),
+    traceabilityEvents
+      .find({ establishmentId, earTag })
+      .sort({ occurredAt: -1 })
+      .limit(100)
+      .toArray(),
+  ]);
+  const summary = buildTraceabilitySummary(events, earTag);
+  return {
+    animal: animalDoc ?? null,
+    events,
+    summary,
+    earTag,
+  };
+});
+
+app.get("/traceability/dashboard", async (request, reply) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  if (!establishmentId) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  }
+  const { traceabilityEvents, animals } = await getCollections();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [recentEvents, totalAnimals, eventsByType] = await Promise.all([
+    traceabilityEvents
+      .find({ establishmentId })
+      .sort({ occurredAt: -1 })
+      .limit(20)
+      .toArray(),
+    animals.countDocuments({ establishmentId, status: "ACTIVO" }),
+    traceabilityEvents
+      .aggregate([
+        { $match: { establishmentId, occurredAt: { $gte: thirtyDaysAgo } } },
+        { $group: { _id: "$type", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ])
+      .toArray(),
+  ]);
+
+  const pendingVaccinations = await traceabilityEvents.countDocuments({
+    establishmentId,
+    type: "VACUNACION_PENDIENTE",
+    occurredAt: { $gte: thirtyDaysAgo },
+  });
+
+  const uniqueTracked = await traceabilityEvents.distinct("earTag", { establishmentId });
+
+  return {
+    totalActiveAnimals: totalAnimals,
+    totalTrackedAnimals: uniqueTracked.length,
+    pendingVaccinations,
+    recentEvents,
+    eventsByType: eventsByType.map((row) => ({ type: row._id, count: row.count })),
+  };
 });
 
 app.post("/auth/register-subscription", async (request, reply) => {
