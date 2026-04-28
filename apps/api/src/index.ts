@@ -3339,6 +3339,10 @@ app.delete("/animals/:id/photos/:photoId", async (request, reply) => {
 // ─── Trazabilidad individual ──────────────────────────────────────────────────
 
 app.post("/traceability/events", async (request, reply) => {
+  const session = await getSessionFromRequest(request);
+  if (session && session.membership.role === "READONLY") {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Los usuarios de solo lectura no pueden registrar eventos." });
+  }
   const body = traceabilityEventCreateSchema.safeParse(request.body);
   if (!body.success) {
     return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
@@ -3420,6 +3424,10 @@ app.get("/traceability/animals/:earTag", async (request, reply) => {
 });
 
 app.get("/traceability/dashboard", async (request, reply) => {
+  const session = await getSessionFromRequest(request);
+  if (session && !["OWNER", "ADMIN"].includes(session.membership.role)) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Acceso restringido a administradores y propietarios." });
+  }
   const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
   if (!establishmentId) {
     return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });

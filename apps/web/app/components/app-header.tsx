@@ -5,20 +5,47 @@ import { usePathname, useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getApiUrl } from "../lib/api-url";
 
-const topLevelLinks = [
+type NavLink = {
+  href: string;
+  label: string;
+  minRole?: "OPERATOR" | "ADMIN";
+};
+
+const ALL_TOP_LINKS: NavLink[] = [
   { href: withBasePath("/"), label: "Inicio" },
-  { href: withBasePath("/operations"), label: "Registrar" },
+  { href: withBasePath("/operations"), label: "Registrar", minRole: "OPERATOR" },
   { href: withBasePath("/animals"), label: "Consultar" },
   { href: withBasePath("/dashboard"), label: "Reportes" },
-  { href: withBasePath("/commands"), label: "Modo IA" },
+  { href: withBasePath("/commands"), label: "Modo IA", minRole: "OPERATOR" },
+  { href: withBasePath("/campo"), label: "Campo", minRole: "OPERATOR" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
-  { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
+  { href: withBasePath("/admin/ai-settings"), label: "Configuración", minRole: "ADMIN" },
 ];
+
+const meetsMinRole = (role: string | null, minRole?: "OPERATOR" | "ADMIN"): boolean => {
+  if (!minRole) return true;
+  // No role cookie yet → backward-compatible: show all links until next login.
+  if (!role) return true;
+  if (minRole === "OPERATOR") return ["OPERATOR", "ADMIN", "OWNER"].includes(role);
+  if (minRole === "ADMIN") return ["ADMIN", "OWNER"].includes(role);
+  return false;
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  OWNER: "Propietario",
+  ADMIN: "Administrador",
+  OPERATOR: "Operador",
+  READONLY: "Solo lectura",
+};
 
 export function AppHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
@@ -29,15 +56,35 @@ export function AppHeader() {
       try {
         const response = await fetch(`${API_URL}/auth/session`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { subscription?: { notification?: { message?: string } | null } };
-        const message = data.subscription?.notification?.message;
-        setSessionNotice(message ?? null);
+        const data = (await response.json()) as {
+          user?: { role?: string; fullName?: string };
+          subscription?: { notification?: { message?: string } | null };
+        };
+        setSessionNotice(data.subscription?.notification?.message ?? null);
+        setUserRole(data.user?.role ?? null);
+        setUserName(data.user?.fullName ?? null);
       } catch {
         setSessionNotice(null);
       }
     };
     loadSession();
   }, [API_URL]);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await fetch(`${API_URL}/auth/logout`, { method: "POST" });
+    } catch {
+      // ignore network errors
+    }
+    const cookiePath = BASE_PATH || "/";
+    document.cookie = `eg_role=; path=${cookiePath}; max-age=0`;
+    document.cookie = `eg_auth=; path=${cookiePath}; max-age=0`;
+    router.push(withBasePath("/login"));
+    router.refresh();
+  };
+
+  const visibleLinks = ALL_TOP_LINKS.filter((link) => meetsMinRole(userRole, link.minRole));
 
   return (
     <header className="mb-8 flex flex-col gap-4">
@@ -80,12 +127,44 @@ export function AppHeader() {
           </button>
         </div>
       </div>
-      <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
+
+      {/* Session info row */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
+        {(userName ?? userRole) ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400">
+              {userName ? <span className="text-slate-200">{userName}</span> : null}
+              {userRole ? (
+                <span className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${
+                  userRole === "OWNER" || userRole === "ADMIN"
+                    ? "bg-emerald-900 text-emerald-300"
+                    : userRole === "OPERATOR"
+                      ? "bg-sky-900 text-sky-300"
+                      : "bg-slate-800 text-slate-400"
+                }`}>
+                  {ROLE_LABELS[userRole] ?? userRole}
+                </span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-400 transition hover:border-red-600 hover:text-red-400 disabled:opacity-50"
+            >
+              {isLoggingOut ? "Saliendo..." : "Salir"}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
       {sessionNotice ? (
         <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
           {sessionNotice}
         </div>
       ) : null}
+
       {isHome ? (
         <div className="overflow-hidden rounded-2xl border border-slate-800">
           <img
@@ -96,8 +175,9 @@ export function AppHeader() {
           />
         </div>
       ) : null}
+
       <nav className="flex flex-wrap gap-2">
-        {topLevelLinks.map((link) => (
+        {visibleLinks.map((link) => (
           <a
             key={link.href}
             className="rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-500"

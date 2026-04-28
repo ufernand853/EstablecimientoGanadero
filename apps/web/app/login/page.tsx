@@ -34,6 +34,11 @@ export default function LoginPage() {
       });
 
       if (response.ok) {
+        const data = (await response.json()) as { user?: { role?: string } };
+        const cookiePath = BASE_PATH || "/";
+        const secureFlag = window.location.protocol === "https:" ? "; secure" : "";
+        const role = data.user?.role ?? "OPERATOR";
+        document.cookie = `eg_role=${role}; path=${cookiePath}; max-age=28800; samesite=lax${secureFlag}`;
         const params = new URLSearchParams(window.location.search);
         const nextPath = params.get("next") || withBasePath("/dashboard");
         router.push(nextPath);
@@ -45,6 +50,7 @@ export default function LoginPage() {
         const cookiePath = BASE_PATH || "/";
         const secureFlag = window.location.protocol === "https:" ? "; secure" : "";
         document.cookie = `eg_auth=1; path=${cookiePath}; max-age=28800; samesite=lax${secureFlag}`;
+        document.cookie = `eg_role=OWNER; path=${cookiePath}; max-age=28800; samesite=lax${secureFlag}`;
         const params = new URLSearchParams(window.location.search);
         const nextPath = params.get("next") || withBasePath("/dashboard");
         router.push(nextPath);
