@@ -19,6 +19,7 @@ const ALL_TOP_LINKS: NavLink[] = [
   { href: withBasePath("/commands"), label: "Modo IA", minRole: "OPERATOR" },
   { href: withBasePath("/campo"), label: "Campo", minRole: "OPERATOR" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
+  { href: withBasePath("/traceability/dashboard"), label: "Panel Gerencial", minRole: "ADMIN" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración", minRole: "ADMIN" },
 ];
 
