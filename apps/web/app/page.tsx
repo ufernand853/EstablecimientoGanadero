@@ -64,6 +64,20 @@ export default function HomePage() {
       <section className="rounded-lg bg-slate-900 p-6 shadow">
         <h2 className="text-xl font-semibold">Inicio</h2>
         <p className="mt-2 text-slate-300">Navegación simplificada por flujo de uso diario.</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <a
+            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+            href={withBasePath("/campo")}
+          >
+            Ir a modo campo
+          </a>
+          <a
+            className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
+            href={withBasePath("/traceability/dashboard")}
+          >
+            Ir a modo gestión
+          </a>
+        </div>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {menuGroups.map((group) => (
             <article key={group.title} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">

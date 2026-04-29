@@ -54,6 +54,15 @@ type PendingEvent = {
   source: "COMANDO_IA";
   occurredAt: string;
 };
+type FieldTask = {
+  id: string;
+  establishmentId: string;
+  title: string;
+  notes: string;
+  earTag: string | null;
+  status: "PENDIENTE" | "COMPLETADA";
+  createdAt: string;
+};
 
 type Feedback = { kind: "success" | "info" | "error"; text: string };
 
@@ -86,11 +95,14 @@ export default function CampoPage() {
   const [pendingEvent, setPendingEvent] = useState<PendingEvent | null>(null);
   const [pendingHerdResponse, setPendingHerdResponse] = useState<string | null>(null);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+  const [tasks, setTasks] = useState<FieldTask[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const tasksStorageKey = "eg-field-tasks-v1";
 
   // Load establishments
   useEffect(() => {
@@ -112,6 +124,17 @@ export default function CampoPage() {
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data.events)) setRecentEvents(data.events); })
       .catch(() => {});
+  }, [establishment]);
+
+  useEffect(() => {
+    if (!establishment) return;
+    try {
+      const raw = localStorage.getItem(tasksStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as FieldTask[]) : [];
+      setTasks(parsed.filter((task) => task.establishmentId === establishment.id && task.status === "PENDIENTE"));
+    } catch {
+      setTasks([]);
+    }
   }, [establishment]);
 
   const refreshRecentEvents = () => {
@@ -205,6 +228,22 @@ export default function CampoPage() {
       });
 
       if (res.ok) {
+        if (selectedTaskId && establishment) {
+          try {
+            const raw = localStorage.getItem(tasksStorageKey);
+            const parsed = raw ? (JSON.parse(raw) as FieldTask[]) : [];
+            const updated = parsed.map((task) => (
+              task.id === selectedTaskId && task.establishmentId === establishment.id
+                ? { ...task, status: "COMPLETADA" as const }
+                : task
+            ));
+            localStorage.setItem(tasksStorageKey, JSON.stringify(updated));
+            setTasks(updated.filter((task) => task.establishmentId === establishment.id && task.status === "PENDIENTE"));
+            setSelectedTaskId("");
+          } catch {
+            // ignore storage issues
+          }
+        }
         setFeedback({
           kind: "success",
           text: `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
@@ -314,6 +353,15 @@ export default function CampoPage() {
           {pendingEvent.paddockName ? <p className="mt-1 text-sm text-slate-300">Potrero: {pendingEvent.paddockName}</p> : null}
           {pendingEvent.product ? <p className="mt-1 text-sm text-slate-300">Producto: {pendingEvent.product}{pendingEvent.dose ? ` · ${pendingEvent.dose}` : ""}</p> : null}
           {pendingEvent.notes ? <p className="mt-1 text-sm text-slate-400">{pendingEvent.notes}</p> : null}
+          <div className="mt-3">
+            <p className="text-xs text-slate-300">Asociar tarea (opcional)</p>
+            <select className="mt-1 w-full rounded bg-slate-800 px-2 py-2 text-sm text-slate-200" value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)}>
+              <option value="">Sin asociar</option>
+              {tasks.filter((task) => !task.earTag || task.earTag === pendingEvent.earTag).map((task) => (
+                <option key={task.id} value={task.id}>{task.title}</option>
+              ))}
+            </select>
+          </div>
           <div className="mt-5 flex gap-3">
             <button
               type="button"
@@ -351,6 +399,17 @@ export default function CampoPage() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {tasks.length > 0 ? (
+        <section className="mx-4 mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
+          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+            {tasks.slice(0, 5).map((task) => (
+              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}</li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {/* Spacer */}
