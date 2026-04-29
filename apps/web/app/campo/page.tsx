@@ -86,6 +86,14 @@ const getSpeechRecognition = (): SpeechRecognitionCtor | null => {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
 
+const formatTaskOptionLabel = (task: FieldTask) => {
+  const detailParts = [
+    task.earTag ? `Animal ${task.earTag}` : "Para cualquier animal",
+    task.notes ? `Qué hacer: ${task.notes}` : null,
+  ].filter(Boolean);
+  return `${task.title} — ${detailParts.join(" · ")}`;
+};
+
 export default function CampoPage() {
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
@@ -355,10 +363,13 @@ export default function CampoPage() {
           {pendingEvent.notes ? <p className="mt-1 text-sm text-slate-400">{pendingEvent.notes}</p> : null}
           <div className="mt-3">
             <p className="text-xs text-slate-300">Asociar tarea (opcional)</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Elegí la tarea que estás realizando ahora. Leé el texto completo para saber exactamente qué hacer.
+            </p>
             <select className="mt-1 w-full rounded bg-slate-800 px-2 py-2 text-sm text-slate-200" value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)}>
-              <option value="">Sin asociar</option>
+              <option value="">No asociar tarea en este registro</option>
               {tasks.filter((task) => !task.earTag || task.earTag === pendingEvent.earTag).map((task) => (
-                <option key={task.id} value={task.id}>{task.title}</option>
+                <option key={task.id} value={task.id}>{formatTaskOptionLabel(task)}</option>
               ))}
             </select>
           </div>
