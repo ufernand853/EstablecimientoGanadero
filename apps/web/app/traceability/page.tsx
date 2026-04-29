@@ -45,52 +45,6 @@ const EVENT_LABELS: Record<TraceabilityEventType, string> = {
   OBSERVACION: "Observación",
 };
 
-const SAMPLE_EVENTS: TraceabilityEvent[] = [
-  {
-    id: "evt-1",
-    caravan: "UY-10452",
-    type: "ASIGNACION_POTRERO",
-    occurredAt: "2026-03-02T09:20:00Z",
-    source: "RFID",
-    user: "Operario 1",
-    notes: "Potrero 7",
-  },
-  {
-    id: "evt-2",
-    caravan: "UY-10452",
-    type: "INSEMINACION",
-    occurredAt: "2026-03-15T14:10:00Z",
-    source: "MANUAL",
-    user: "Veterinaria",
-    notes: "Protocolo IATF lote otoño",
-  },
-  {
-    id: "evt-3",
-    caravan: "UY-10452",
-    type: "PREÑEZ_CONFIRMADA",
-    occurredAt: "2026-04-18T11:00:00Z",
-    source: "MANUAL",
-    user: "Veterinaria",
-    notes: "Ecografía positiva",
-  },
-  {
-    id: "evt-4",
-    caravan: "UY-9981",
-    type: "VACUNACION_PENDIENTE",
-    occurredAt: "2026-04-20T08:05:00Z",
-    source: "RFID",
-    user: "Operario 2",
-    notes: "Clostridiosis",
-  },
-];
-
-const SAMPLE_RFID_READS = [
-  { eid: "982.000123456789", caravan: "UY-10452", status: "OK" },
-  { eid: "982.000123456790", caravan: "UY-9981", status: "OK" },
-  { eid: "982.000123456790", caravan: "UY-9981", status: "DUPLICADA" },
-  { eid: "982.000123456791", caravan: "-", status: "SIN_ASOCIAR" },
-];
-
 const ACTION_OPTIONS: TraceabilityEventType[] = [
   "ASIGNACION_POTRERO",
   "INSEMINACION",
@@ -142,14 +96,14 @@ export default function TraceabilityPilotPage() {
   const [caravanSearch, setCaravanSearch] = useState("UY-10452");
   const [manualInput, setManualInput] = useState("UY-10452");
   const [photoDetectedInput, setPhotoDetectedInput] = useState("UY-10452");
+  const [rfidBatchInput, setRfidBatchInput] = useState("");
   const [selectedAction, setSelectedAction] = useState<TraceabilityEventType>("ASIGNACION_POTRERO");
   const [notes, setNotes] = useState("Potrero 7");
-  const [events, setEvents] = useState<TraceabilityEvent[]>(SAMPLE_EVENTS);
+  const [events, setEvents] = useState<TraceabilityEvent[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState<string>("");
-  const [useLiveData, setUseLiveData] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
   useEffect(() => {
@@ -170,10 +124,7 @@ export default function TraceabilityPilotPage() {
     fetch(`${API_URL}/traceability/events?establishmentId=${establishmentId}&limit=300`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data.events) && data.events.length > 0) {
-          setEvents(data.events.map(mapApiEventToLocal));
-          setUseLiveData(true);
-        }
+        if (Array.isArray(data.events)) setEvents(data.events.map(mapApiEventToLocal));
       })
       .catch(() => {})
       .finally(() => setLoadingEvents(false));
@@ -227,7 +178,6 @@ export default function TraceabilityPilotPage() {
         if (res.ok) {
           const saved = (await res.json()) as { id: string };
           setEvents((prev) => prev.map((e) => (e.id === tempId ? { ...e, id: saved.id } : e)));
-          setUseLiveData(true);
         }
       } catch {
         // keep optimistic update
@@ -237,10 +187,21 @@ export default function TraceabilityPilotPage() {
 
   const handleBulkRfid = async (event: FormEvent) => {
     event.preventDefault();
-    const validReads = SAMPLE_RFID_READS.filter((item) => item.status === "OK" && item.caravan !== "-");
-    const nextEvents: TraceabilityEvent[] = validReads.map((item, index) => ({
+    const validReads = Array.from(
+      new Set(
+        rfidBatchInput
+          .split(/\r?\n/)
+          .map((item) => item.trim().toUpperCase())
+          .filter((item) => item.length > 0),
+      ),
+    );
+    if (validReads.length === 0) {
+      setMessage("Ingresá al menos una caravana en el lote RFID.");
+      return;
+    }
+    const nextEvents: TraceabilityEvent[] = validReads.map((caravan, index) => ({
       id: `rfid-${Date.now()}-${index}`,
-      caravan: item.caravan,
+      caravan,
       type: selectedAction,
       occurredAt: new Date().toISOString(),
       source: "RFID" as const,
@@ -294,8 +255,8 @@ export default function TraceabilityPilotPage() {
                 ))}
               </select>
             ) : null}
-            <span className={`text-xs ${useLiveData ? "text-emerald-400" : "text-slate-500"}`}>
-              {loadingEvents ? "Cargando datos..." : useLiveData ? "● Datos en tiempo real" : "● Datos de ejemplo"}
+            <span className="text-xs text-emerald-400">
+              {loadingEvents ? "Cargando datos..." : "● Datos en tiempo real"}
             </span>
           </div>
         </div>
@@ -341,13 +302,13 @@ export default function TraceabilityPilotPage() {
 
         <article className="rounded-lg bg-slate-900 p-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">3) Lector RFID</h3>
-          <p className="mt-2 text-xs text-slate-400">Importación de sesión descargada por Bluetooth/archivo.</p>
-          <div className="mt-3 space-y-2 text-xs">
-            <p>Lecturas: {SAMPLE_RFID_READS.length}</p>
-            <p>Válidas: {SAMPLE_RFID_READS.filter((item) => item.status === "OK").length}</p>
-            <p>Duplicadas: {SAMPLE_RFID_READS.filter((item) => item.status === "DUPLICADA").length}</p>
-            <p>Sin asociar: {SAMPLE_RFID_READS.filter((item) => item.status === "SIN_ASOCIAR").length}</p>
-          </div>
+          <p className="mt-2 text-xs text-slate-400">Pegá una caravana por línea para importar la sesión.</p>
+          <textarea
+            className="mt-3 min-h-24 w-full rounded bg-slate-800 p-2 text-sm"
+            value={rfidBatchInput}
+            onChange={(event) => setRfidBatchInput(event.target.value)}
+            placeholder={"UY-10452\nUY-9981"}
+          />
           <form className="mt-3" onSubmit={handleBulkRfid}>
             <button type="submit" className="w-full rounded border border-slate-700 px-3 py-2 text-sm">
               Aplicar acción al lote RFID válido

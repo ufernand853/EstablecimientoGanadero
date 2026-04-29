@@ -56,6 +56,16 @@ type AnimalProfile = {
   earTag: string;
 };
 
+type FieldTask = {
+  id: string;
+  establishmentId: string;
+  title: string;
+  notes: string;
+  earTag: string | null;
+  status: "PENDIENTE" | "COMPLETADA";
+  createdAt: string;
+};
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const EVENT_TYPE_CONFIG: Record<TraceabilityEventType, { label: string; color: string }> = {
@@ -97,6 +107,11 @@ export default function TraceabilityDashboardPage() {
 
   const [selectedAnimal, setSelectedAnimal] = useState<AnimalProfile | null>(null);
   const [loadingAnimal, setLoadingAnimal] = useState(false);
+  const [tasks, setTasks] = useState<FieldTask[]>([]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
+  const [taskEarTag, setTaskEarTag] = useState("");
+  const tasksStorageKey = "eg-field-tasks-v1";
 
   // Load establishments
   useEffect(() => {
@@ -126,6 +141,54 @@ export default function TraceabilityDashboardPage() {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Error inesperado."))
       .finally(() => setLoading(false));
   }, [establishmentId]);
+
+  useEffect(() => {
+    if (!establishmentId) return;
+    try {
+      const raw = localStorage.getItem(tasksStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as FieldTask[]) : [];
+      setTasks(parsed.filter((t) => t.establishmentId === establishmentId));
+    } catch {
+      setTasks([]);
+    }
+  }, [establishmentId]);
+
+  const persistTasks = (nextForEstablishment: FieldTask[]) => {
+    setTasks(nextForEstablishment);
+    try {
+      const raw = localStorage.getItem(tasksStorageKey);
+      const all = raw ? (JSON.parse(raw) as FieldTask[]) : [];
+      const withoutCurrent = all.filter((t) => t.establishmentId !== establishmentId);
+      localStorage.setItem(tasksStorageKey, JSON.stringify([...withoutCurrent, ...nextForEstablishment]));
+    } catch {
+      // ignore storage issues
+    }
+  };
+
+  const createTask = () => {
+    if (!establishmentId || !taskTitle.trim()) return;
+    const newTask: FieldTask = {
+      id: crypto.randomUUID(),
+      establishmentId,
+      title: taskTitle.trim(),
+      notes: taskNotes.trim(),
+      earTag: taskEarTag.trim() ? taskEarTag.trim().toUpperCase() : null,
+      status: "PENDIENTE",
+      createdAt: new Date().toISOString(),
+    };
+    persistTasks([newTask, ...tasks]);
+    setTaskTitle("");
+    setTaskNotes("");
+    setTaskEarTag("");
+  };
+
+  const toggleTask = (id: string) => {
+    persistTasks(tasks.map((task) => (
+      task.id === id
+        ? { ...task, status: task.status === "PENDIENTE" ? "COMPLETADA" : "PENDIENTE" }
+        : task
+    )));
+  };
 
   const loadAnimalProfile = async (earTag: string) => {
     if (!establishmentId) return;
@@ -189,7 +252,7 @@ export default function TraceabilityDashboardPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-900 p-5">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Trazabilidad</p>
-          <h2 className="mt-1 text-xl font-semibold">Panel gerencial</h2>
+          <h2 className="mt-1 text-xl font-semibold">Panel de gestión</h2>
           <p className="mt-1 text-sm text-slate-400">Actividad de los últimos 30 días por animal individual.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -356,6 +419,33 @@ export default function TraceabilityDashboardPage() {
           </section>
         </div>
       ) : null}
+
+      <section className="rounded-lg bg-slate-900 p-5">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Gestión de tareas de campo</h3>
+        <p className="mt-1 text-xs text-slate-400">Se sincronizan en este navegador con Modo Campo y se pueden asociar al registro.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Título de tarea" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Caravana (opcional)" value={taskEarTag} onChange={(e) => setTaskEarTag(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder="Notas (opcional)" value={taskNotes} onChange={(e) => setTaskNotes(e.target.value)} />
+        </div>
+        <button type="button" onClick={createTask} className="mt-3 rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950">Crear tarea</button>
+        <ul className="mt-4 space-y-2">
+          {tasks.map((task) => (
+            <li key={task.id} className="rounded border border-slate-800 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">{task.title}</p>
+                  <p className="text-xs text-slate-400">{task.earTag ? `Caravana: ${task.earTag} · ` : ""}{task.notes || "Sin notas"}</p>
+                </div>
+                <button type="button" className="rounded border border-slate-700 px-2 py-1 text-xs" onClick={() => toggleTask(task.id)}>
+                  {task.status === "PENDIENTE" ? "Marcar completada" : "Reabrir"}
+                </button>
+              </div>
+            </li>
+          ))}
+          {tasks.length === 0 ? <li className="text-sm text-slate-500">No hay tareas creadas.</li> : null}
+        </ul>
+      </section>
 
       {/* Recent events table */}
       {!loading && dashboard && dashboard.recentEvents.length > 0 ? (
