@@ -26,7 +26,10 @@ export default function AdminUsersPage() {
   const [role, setRole] = useState<Role>("OPERATOR");
 
   const load = async () => {
-    const response = await fetch(`${API_URL}/admin/users`, { cache: "no-store" });
+    const response = await fetch(`${API_URL}/admin/users`, {
+      cache: "no-store",
+      credentials: "include",
+    });
     if (!response.ok) throw new Error();
     const data = (await response.json()) as { users: UserRow[] };
     setRows(data.users);
@@ -42,6 +45,7 @@ export default function AdminUsersPage() {
     const response = await fetch(`${API_URL}/admin/users`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email, fullName, password, role }),
     });
 
@@ -62,6 +66,7 @@ export default function AdminUsersPage() {
     const response = await fetch(`${API_URL}/admin/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
 

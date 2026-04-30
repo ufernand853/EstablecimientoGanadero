@@ -30,6 +30,21 @@ export function AppHeader() {
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
   const API_URL = getApiUrl();
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // no-op: igualmente limpiamos cookies locales
+    }
+    const cookiePath = BASE_PATH || "/";
+    const secureFlag = window.location.protocol === "https:" ? "; secure" : "";
+    document.cookie = `eg_auth=; path=${cookiePath}; max-age=0; samesite=lax${secureFlag}`;
+    router.push(withBasePath("/login"));
+    router.refresh();
+  };
 
   useEffect(() => {
     const loadSession = async () => {
@@ -51,17 +66,19 @@ export function AppHeader() {
   return (
     <header className="mb-8 flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <a
-          href="https://linsse.com"
-          target="_blank"
-          rel="noreferrer"
-          className="ml-auto order-2 rounded-lg border border-slate-700 bg-slate-900/50 p-2 transition hover:border-emerald-500"
-          aria-label="Linsse"
-        >
-          <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-14 w-auto" />
-        </a>
-        <div>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://linsse.com"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-slate-700 bg-slate-900/50 p-1.5 transition hover:border-emerald-500"
+            aria-label="Linsse"
+          >
+            <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
+          </a>
           <h1 className="text-2xl font-semibold">Gestión Ganadera</h1>
+        </div>
+        <div>
           <p className="text-sm text-slate-300">
             Panel de control para operaciones, lotes, potreros y consignaciones.
           </p>
@@ -88,6 +105,13 @@ export function AppHeader() {
             Adelante →
           </button>
         </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="h-11 rounded border border-rose-700 px-3 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
+        >
+          Cerrar sesión
+        </button>
       </div>
       <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
       {sessionNotice ? (
