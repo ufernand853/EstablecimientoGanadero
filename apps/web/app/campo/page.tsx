@@ -412,20 +412,6 @@ export default function CampoPage() {
         </div>
       ) : null}
 
-      {tasks.length > 0 ? (
-        <section className="mx-4 mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-          <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
-            {tasks.slice(0, 5).map((task) => (
-              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
       {/* Input area */}
       <div className="border-t border-slate-800 bg-slate-950 px-4 pb-6 pt-4">
         {!establishment ? (
@@ -487,6 +473,17 @@ export default function CampoPage() {
           </>
         )}
       </div>
+
+      {tasks.length > 0 ? (
+        <section className="mx-4 mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
+          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+            {tasks.slice(0, 5).map((task) => (
+              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </main>
   );
 }
