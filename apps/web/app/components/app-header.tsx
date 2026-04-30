@@ -13,12 +13,19 @@ const topLevelLinks = [
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
+  { href: withBasePath("/admin/users"), label: "Usuarios" },
 ];
+
+const operatorAllowedLinks = new Set([
+  withBasePath("/"),
+  withBasePath("/campo"),
+]);
 
 export function AppHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [sessionRole, setSessionRole] = useState<string | null>(null);
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
@@ -29,11 +36,13 @@ export function AppHeader() {
       try {
         const response = await fetch(`${API_URL}/auth/session`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { subscription?: { notification?: { message?: string } | null } };
+        const data = await response.json() as { user?: { role?: string }; subscription?: { notification?: { message?: string } | null } };
         const message = data.subscription?.notification?.message;
         setSessionNotice(message ?? null);
+        setSessionRole(data.user?.role ?? null);
       } catch {
         setSessionNotice(null);
+        setSessionRole(null);
       }
     };
     loadSession();
@@ -97,7 +106,9 @@ export function AppHeader() {
         </div>
       ) : null}
       <nav className="flex flex-wrap gap-2">
-        {topLevelLinks.map((link) => (
+        {topLevelLinks
+          .filter((link) => sessionRole !== "OPERATOR" || operatorAllowedLinks.has(link.href))
+          .map((link) => (
           <a
             key={link.href}
             className="rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-500"
@@ -105,7 +116,7 @@ export function AppHeader() {
           >
             {link.label}
           </a>
-        ))}
+          ))}
       </nav>
     </header>
   );

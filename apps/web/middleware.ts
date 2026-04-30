@@ -2,6 +2,28 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/api"];
+const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
+
+function getSessionRoleFromToken(token: string | undefined): string | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { role?: string };
+    return typeof payload.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+function isOperatorAllowedPath(pathname: string) {
+  return OPERATOR_ALLOWED_PREFIXES.some((prefix) => {
+    if (prefix === "/") {
+      return pathname === "/";
+    }
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  });
+}
 
 const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() ?? "";
 const BASE_PATH = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}` : "";
@@ -67,6 +89,14 @@ export function middleware(request: NextRequest) {
     dashboardUrl.pathname = withBasePath("/dashboard");
     dashboardUrl.search = "";
     return NextResponse.redirect(dashboardUrl);
+  }
+
+  const sessionRole = getSessionRoleFromToken(request.cookies.get("eg_session")?.value);
+  if (sessionRole === "OPERATOR" && !isOperatorAllowedPath(pathname)) {
+    const campoUrl = request.nextUrl.clone();
+    campoUrl.pathname = withBasePath("/campo");
+    campoUrl.search = "";
+    return NextResponse.redirect(campoUrl);
   }
 
   return NextResponse.next();
