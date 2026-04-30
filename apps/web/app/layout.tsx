@@ -1,10 +1,24 @@
 import "./globals.css";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppHeader } from "./components/app-header";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Gestión Ganadera",
   description: "Gestión multi-establecimiento para ganadería extensiva",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Gestión Ganadera",
+  },
+  icons: {
+    icon: "/linsse-logo.svg",
+    apple: "/linsse-logo.svg",
+  },
+};
+export const viewport: Viewport = {
+  themeColor: "#166534",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
