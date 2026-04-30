@@ -64,6 +64,20 @@ const demoRequestSchema = z.object({
   password: z.string().min(8).optional(),
 });
 
+const adminUserCreateSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2),
+  password: z.string().min(8),
+  role: z.enum(["ADMIN", "OPERATOR", "READONLY"]).default("OPERATOR"),
+});
+
+const adminUserUpdateSchema = z.object({
+  fullName: z.string().min(2).optional(),
+  password: z.string().min(8).optional(),
+  role: z.enum(["OWNER", "ADMIN", "OPERATOR", "READONLY"]).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
 const aiChatSchema = z.object({
   establishmentId: z.string().uuid(),
   prompt: z.string().min(2),
@@ -3698,6 +3712,114 @@ app.post("/billing/webhook", async (request, reply) => {
     email: checkout.email,
     expiresAt: end,
   });
+});
+
+
+const hasLegacyAdminCookie = (request: { headers: Record<string, unknown> }) => {
+  const cookies = parseCookies(typeof request.headers.cookie === "string" ? request.headers.cookie : undefined);
+  return cookies.get("eg_auth") === "1";
+};
+
+const ensureAdminAccess = async (request: { headers: Record<string, unknown> }) => {
+  if (hasLegacyAdminCookie(request)) {
+    return { session: null as Awaited<ReturnType<typeof getSessionFromRequest>> | null };
+  }
+  const session = await getSessionFromRequest(request);
+  if (!session) return null;
+  if (session.membership.role !== "OWNER" && session.membership.role !== "ADMIN") return null;
+  return { session };
+};
+
+app.get("/admin/users", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+  const { users, memberships } = await getCollections();
+  const tenantId = access.session?.membership.tenantId;
+  const membershipFilter = tenantId ? { tenantId } : {};
+  const membershipDocs = await memberships.find(membershipFilter).toArray();
+  const userIds = membershipDocs.map((membership) => membership.userId);
+  const userDocs = userIds.length ? await users.find({ id: { $in: userIds } }).toArray() : [];
+  const usersById = new Map(userDocs.map((user) => [user.id, user]));
+  const rows = membershipDocs
+    .map((membership) => {
+      const user = usersById.get(membership.userId);
+      if (!user) return null;
+      return {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        status: user.status,
+        role: membership.role,
+        tenantId: membership.tenantId,
+        lastLoginAt: user.lastLoginAt ?? null,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  return reply.send({ users: rows });
+});
+
+app.post("/admin/users", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access || !access.session) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores autenticados." });
+  }
+  const body = adminUserCreateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { users, memberships } = await getCollections();
+  const email = body.data.email.toLowerCase();
+  const existingUser = await users.findOne({ email });
+  if (existingUser) {
+    return reply.status(409).send({ code: "USER_EXISTS", message: "El email ya está registrado." });
+  }
+  const now = new Date().toISOString();
+  const userId = randomUUID();
+  await users.insertOne({
+    id: userId,
+    email,
+    fullName: body.data.fullName.trim(),
+    passwordHash: hashPassword(body.data.password),
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+    lastLoginAt: null,
+  });
+  await memberships.insertOne({
+    id: randomUUID(),
+    tenantId: access.session.membership.tenantId,
+    userId,
+    role: body.data.role,
+    createdAt: now,
+  });
+  return reply.status(201).send({ ok: true, userId });
+});
+
+app.patch("/admin/users/:userId", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access || !access.session) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores autenticados." });
+  }
+  const params = request.params as { userId: string };
+  const body = adminUserUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { users, memberships } = await getCollections();
+  const membership = await memberships.findOne({ userId: params.userId, tenantId: access.session.membership.tenantId });
+  if (!membership) return reply.status(404).send({ code: "NOT_FOUND", message: "Usuario no encontrado." });
+  const now = new Date().toISOString();
+  const userUpdate: Record<string, unknown> = { updatedAt: now };
+  if (body.data.fullName) userUpdate.fullName = body.data.fullName.trim();
+  if (body.data.password) userUpdate.passwordHash = hashPassword(body.data.password);
+  if (body.data.status) userUpdate.status = body.data.status;
+  await users.updateOne({ id: params.userId }, { $set: userUpdate });
+  if (body.data.role && membership.role !== "OWNER") {
+    await memberships.updateOne({ id: membership.id }, { $set: { role: body.data.role } });
+  }
+  return reply.send({ ok: true });
 });
 
 app.post("/auth/login", async (request, reply) => {
