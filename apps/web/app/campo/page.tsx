@@ -308,12 +308,6 @@ export default function CampoPage() {
             <span className="text-xs text-slate-500">Cargando...</span>
           )}
         </div>
-        <a
-          href={withBasePath("/commands")}
-          className="text-xs text-slate-400 underline-offset-2 hover:text-emerald-400 hover:underline"
-        >
-          Modo IA completo
-        </a>
       </header>
 
       {/* Recent events */}
@@ -399,12 +393,6 @@ export default function CampoPage() {
           <p className="text-sm font-semibold text-amber-300">Operación de lote detectada</p>
           <p className="mt-1 text-sm text-slate-200">{pendingHerdResponse}</p>
           <div className="mt-3 flex gap-3">
-            <a
-              href={withBasePath("/commands")}
-              className="inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Abrir Modo IA completo
-            </a>
             <button type="button" onClick={cancelPending} className="text-sm text-slate-400">
               Ignorar
             </button>
