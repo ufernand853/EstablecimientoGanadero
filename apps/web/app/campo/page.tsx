@@ -432,6 +432,25 @@ export default function CampoPage() {
           <p className="text-center text-sm text-slate-500">Cargando establecimiento...</p>
         ) : (
           <>
+            <div className="mb-3 rounded-lg border border-emerald-700/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
+              Interfaz IA activa por defecto: podés escribir o dictar para cargar acciones.
+            </div>
+            <div className="mb-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => inputRef.current?.focus()}
+                className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:border-emerald-500"
+              >
+                ✍️ Escribir
+              </button>
+              <button
+                type="button"
+                onClick={isListening ? stopVoice : startVoice}
+                className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:border-emerald-500"
+              >
+                🎙️ {isListening ? "Detener dictado" : "Dictar"}
+              </button>
+            </div>
             {voiceError ? <p className="mb-2 text-xs text-red-400">{voiceError}</p> : null}
             <div className="flex items-end gap-3">
               <textarea

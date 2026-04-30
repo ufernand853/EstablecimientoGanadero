@@ -103,6 +103,30 @@ server {
 }
 ```
 
+
+## Operación en modo campo (empleado agrario)
+
+Flujo sugerido para un empleado en campo con baja fricción:
+
+1. **Selecciona establecimiento** en `/campo` y dicta o escribe lo que hizo (por ejemplo: "Vacuné la 1842 con aftosa 2ml").
+2. El módulo IA interpreta el texto y arma un **evento sugerido** con tipo, animal (`earTag`), producto, dosis, potrero y observaciones.
+3. El operario **confirma** la sugerencia en la misma pantalla.
+4. Al confirmar, el sistema registra el evento en trazabilidad (`/traceability/events`) y queda visible en "Últimos eventos".
+5. Si el texto corresponde a un **comando de lote** (mover, destetar, consignar, etc.), el sistema pide confirmación operativa y guarda el movimiento/operación.
+
+### Carga de información en campo
+
+- **Entrada principal:** texto natural en español (escrito o por voz), pensado para uso con guantes o manos ocupadas.
+- **Entrada asistida:** selector de tarea pendiente (recordatorios del día) almacenada localmente para facilitar ejecución.
+- **Validación humana:** siempre hay una instancia de confirmación antes de persistir eventos sensibles.
+- **Persistencia:** los eventos confirmados se guardan en backend y alimentan trazabilidad, sanidad y reportes.
+
+### Buenas prácticas operativas
+
+- Registrar cada acción **en el momento** para evitar olvidos.
+- Usar formatos simples: `qué + animal/lote + producto + dosis + fecha/hora`.
+- Supervisión semanal de eventos recientes y pendientes para control de calidad del dato.
+
 ## Ejecutar como servicio (Linux/systemd)
 Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
 
