@@ -29,6 +29,7 @@ export function AppHeader() {
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
+  const isCampo = normalizedPath === withBasePath("/campo");
   const API_URL = getApiUrl();
   const handleLogout = async () => {
     try {
@@ -77,11 +78,15 @@ export function AppHeader() {
             <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
           </a>
           <h1 className="text-2xl font-semibold">Gestión Ganadera</h1>
-        </div>
-        <div>
-          <p className="text-sm text-slate-300">
-            Panel de control para operaciones, lotes, potreros y consignaciones.
-          </p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded border border-rose-700 px-2 py-1 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
+            aria-label="Cerrar sesión"
+            title="Cerrar sesión"
+          >
+            ✕
+          </button>
         </div>
         <div className="grid w-full grid-cols-3 gap-2 md:max-w-xl">
           <button
@@ -89,31 +94,24 @@ export function AppHeader() {
             onClick={() => router.back()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            ← Atrás
+            ←
           </button>
           <a
             className="flex h-11 w-full items-center justify-center rounded bg-emerald-500 px-3 text-sm font-semibold text-slate-950"
             href={withBasePath("/")}
           >
-            ⌂ Inicio
+            ⌂
           </a>
           <button
             type="button"
             onClick={() => router.forward()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            Adelante →
+            →
           </button>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="h-11 rounded border border-rose-700 px-3 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
-        >
-          Cerrar sesión
-        </button>
       </div>
-      <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>
+      {isCampo ? null : <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>}
       {sessionNotice ? (
         <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
           {sessionNotice}
@@ -129,7 +127,7 @@ export function AppHeader() {
           />
         </div>
       ) : null}
-      <nav className="flex flex-wrap gap-2">
+      {isCampo ? null : <nav className="flex flex-wrap gap-2">
         {topLevelLinks
           .filter((link) => sessionRole !== "OPERATOR" || operatorAllowedLinks.has(link.href))
           .map((link) => (
@@ -141,7 +139,7 @@ export function AppHeader() {
             {link.label}
           </a>
           ))}
-      </nav>
+      </nav>}
     </header>
   );
 }
