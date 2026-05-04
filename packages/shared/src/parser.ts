@@ -179,10 +179,11 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
-  if (normalized.startsWith("vacunar")) {
+  const isVaccinationIntent = /\b(vacunar|vacunamos|vacunado|vacunados|aplicamos|aplicar)\b/.test(normalized);
+  if (isVaccinationIntent) {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
-    const productMatch = text.match(/vacunar\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
+    const productMatch = text.match(/(?:vacunar|vacunamos|aplicamos|aplicar)\s+[^,]+\s+(?:con\s+)?([a-záéíóúñ0-9\s.-]+)/i);
     const category = findCategory(text);
 
     result.intent = "VACCINATION";
@@ -201,7 +202,8 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
   }
 
 
-  if (normalized.startsWith("desparasitar")) {
+  const isDewormingIntent = /\b(desparasitar|desparasitamos)\b/.test(normalized);
+  if (isDewormingIntent) {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
     const productMatch = text.match(/desparasitar\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
@@ -242,7 +244,9 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
       },
     });
   }
-  if (normalized.startsWith("iniciar entore")) {
+  const isBreedingStartIntent = /\b(iniciar entore|entoramos|entoramos el potrero|largamos)\b/.test(normalized)
+    && (/\btoros?\b/.test(normalized) || normalized.includes("iniciar entore"));
+  if (isBreedingStartIntent) {
     const cows = findCategory(text) ?? "VACAS";
     const bullsMatch = text.match(/con\s+(\d+)\s+toros/i);
     const fromMatch = text.match(/desde\s+([^\s]+)\s+hasta/i);
@@ -300,7 +304,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
-  const isIncidentIntent = /\b(incidente|incidencia|alerta|lastimad|herid|lesionad)\b/.test(normalized)
+  const isIncidentIntent = /\b(incidente|incidencia|alerta|lastimad|herid|lesionad|caid|abichad|manc|muert)\b/.test(normalized)
     && !result.proposedOperations.length;
   if (isIncidentIntent) {
     const paddock = findPaddock(text, context.paddocks);
