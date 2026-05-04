@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
-import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -54,6 +53,12 @@ type PendingEvent = {
   source: "COMANDO_IA";
   occurredAt: string;
 };
+type PendingCommand = {
+  establishmentId: string;
+  confirmationToken: string;
+  edits?: Record<string, unknown>;
+};
+
 type FieldTask = {
   id: string;
   establishmentId: string;
@@ -107,6 +112,7 @@ export default function CampoPage() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingEvent, setPendingEvent] = useState<PendingEvent | null>(null);
   const [pendingHerdResponse, setPendingHerdResponse] = useState<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [tasks, setTasks] = useState<FieldTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
@@ -202,6 +208,7 @@ export default function CampoPage() {
     setFeedback(null);
     setPendingEvent(null);
     setPendingHerdResponse(null);
+    setPendingCommand(null);
 
     try {
       const previousHistory = chatHistory.slice(-20);
@@ -219,7 +226,7 @@ export default function CampoPage() {
         detectedEventType?: string;
         suggestedApiCall?: {
           endpoint: string;
-          requestPreview?: PendingEvent;
+          requestPreview?: PendingEvent | PendingCommand;
         };
       };
 
@@ -227,11 +234,11 @@ export default function CampoPage() {
 
       if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
-        setPendingEvent(data.suggestedApiCall.requestPreview);
+        setPendingEvent(data.suggestedApiCall.requestPreview as PendingEvent);
       } else if (data.suggestedApiCall?.endpoint === "/commands/confirm") {
-        const guidance = "Te entendí: es una operación de lote (por ejemplo mover, destetar o consignar). En Modo Campo solo confirmamos eventos individuales por caravana. Para ejecutar este lote, abrí Modo IA completo en /commands.";
-        setChatHistory((prev) => [...prev, { role: "assistant", content: guidance }]);
-        setPendingHerdResponse(guidance);
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setPendingHerdResponse(assistantMessage);
+        setPendingCommand((data.suggestedApiCall.requestPreview as PendingCommand | undefined) ?? null);
       } else {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
         setFeedback({ kind: "info", text: assistantMessage });
@@ -291,7 +298,33 @@ export default function CampoPage() {
   const cancelPending = () => {
     setPendingEvent(null);
     setPendingHerdResponse(null);
+    setPendingCommand(null);
     setFeedback(null);
+  };
+
+
+  const confirmHerdOperation = async () => {
+    if (!pendingCommand) return;
+    setStatus("sending");
+    try {
+      const res = await fetch(`${API_URL}/commands/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingCommand),
+      });
+      const data = (await res.json().catch(() => null)) as { summary?: string; message?: string } | null;
+      if (res.ok) {
+        setFeedback({ kind: "success", text: data?.summary ?? "Operación de lote confirmada." });
+      } else {
+        setFeedback({ kind: "error", text: data?.message ?? "No se pudo confirmar la operación de lote." });
+      }
+    } catch {
+      setFeedback({ kind: "error", text: "Error de conexión al confirmar la operación de lote." });
+    } finally {
+      setPendingHerdResponse(null);
+      setPendingCommand(null);
+      setStatus("idle");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -432,9 +465,14 @@ export default function CampoPage() {
           <p className="text-sm font-semibold text-amber-300">Operación de lote detectada</p>
           <p className="mt-1 text-sm text-slate-200">{pendingHerdResponse}</p>
           <div className="mt-3 flex gap-4">
-            <a href={withBasePath("/commands")} className="text-sm font-semibold text-emerald-300 underline underline-offset-2">
-              Ir a Modo IA completo
-            </a>
+            <button
+              type="button"
+              onClick={confirmHerdOperation}
+              disabled={isBusy || !pendingCommand}
+              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50"
+            >
+              {isBusy ? "Confirmando..." : "Confirmar lote"}
+            </button>
             <button type="button" onClick={cancelPending} className="text-sm text-slate-400">
               Ignorar
             </button>
