@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
-import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -54,6 +53,12 @@ type PendingEvent = {
   source: "COMANDO_IA";
   occurredAt: string;
 };
+type PendingCommand = {
+  establishmentId: string;
+  confirmationToken: string;
+  edits?: Record<string, unknown>;
+};
+
 type FieldTask = {
   id: string;
   establishmentId: string;
@@ -65,6 +70,11 @@ type FieldTask = {
 };
 
 type Feedback = { kind: "success" | "info" | "error"; text: string };
+
+type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -102,11 +112,13 @@ export default function CampoPage() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingEvent, setPendingEvent] = useState<PendingEvent | null>(null);
   const [pendingHerdResponse, setPendingHerdResponse] = useState<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
   const [tasks, setTasks] = useState<FieldTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -144,6 +156,10 @@ export default function CampoPage() {
       setTasks([]);
     }
   }, [establishment]);
+
+  useEffect(() => {
+    setChatHistory([]);
+  }, [establishment?.id]);
 
   const refreshRecentEvents = () => {
     if (!establishment) return;
@@ -192,12 +208,16 @@ export default function CampoPage() {
     setFeedback(null);
     setPendingEvent(null);
     setPendingHerdResponse(null);
+    setPendingCommand(null);
 
     try {
+      const previousHistory = chatHistory.slice(-20);
+      setChatHistory((prev) => [...prev, { role: "user", content: prompt }]);
+
       const res = await fetch(`${API_URL}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ establishmentId: establishment.id, prompt }),
+        body: JSON.stringify({ establishmentId: establishment.id, prompt, history: previousHistory }),
       });
 
       const data = (await res.json()) as {
@@ -206,19 +226,26 @@ export default function CampoPage() {
         detectedEventType?: string;
         suggestedApiCall?: {
           endpoint: string;
-          requestPreview?: PendingEvent;
+          requestPreview?: PendingEvent | PendingCommand;
         };
       };
 
+      const assistantMessage = data.response ?? "Sin respuesta.";
+
       if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
-        setPendingEvent(data.suggestedApiCall.requestPreview);
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setPendingEvent(data.suggestedApiCall.requestPreview as PendingEvent);
       } else if (data.suggestedApiCall?.endpoint === "/commands/confirm") {
-        setPendingHerdResponse(data.response ?? "Operación de lote detectada.");
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setPendingHerdResponse(assistantMessage);
+        setPendingCommand((data.suggestedApiCall.requestPreview as PendingCommand | undefined) ?? null);
       } else {
-        setFeedback({ kind: "info", text: data.response ?? "Sin respuesta." });
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setFeedback({ kind: "info", text: assistantMessage });
       }
     } catch {
       setFeedback({ kind: "error", text: "No se pudo conectar con el servidor." });
+      setChatHistory((prev) => [...prev, { role: "assistant", content: "No se pudo conectar con el servidor." }]);
     } finally {
       setStatus("idle");
     }
@@ -271,7 +298,33 @@ export default function CampoPage() {
   const cancelPending = () => {
     setPendingEvent(null);
     setPendingHerdResponse(null);
+    setPendingCommand(null);
     setFeedback(null);
+  };
+
+
+  const confirmHerdOperation = async () => {
+    if (!pendingCommand) return;
+    setStatus("sending");
+    try {
+      const res = await fetch(`${API_URL}/commands/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingCommand),
+      });
+      const data = (await res.json().catch(() => null)) as { summary?: string; message?: string } | null;
+      if (res.ok) {
+        setFeedback({ kind: "success", text: data?.summary ?? "Operación de lote confirmada." });
+      } else {
+        setFeedback({ kind: "error", text: data?.message ?? "No se pudo confirmar la operación de lote." });
+      }
+    } catch {
+      setFeedback({ kind: "error", text: "Error de conexión al confirmar la operación de lote." });
+    } finally {
+      setPendingHerdResponse(null);
+      setPendingCommand(null);
+      setStatus("idle");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -333,6 +386,25 @@ export default function CampoPage() {
         )}
       </section>
 
+      {chatHistory.length > 0 ? (
+        <section className="mx-4 mt-4 space-y-2">
+          <p className="text-xs uppercase tracking-widest text-slate-500">Conversación reciente</p>
+          {chatHistory.slice(-6).map((item, index) => (
+            <div
+              key={`${item.role}-${index}-${item.content.slice(0, 12)}`}
+              className={`rounded-lg px-3 py-2 text-sm ${
+                item.role === "user"
+                  ? "ml-8 bg-emerald-950/40 text-emerald-100 border border-emerald-800"
+                  : "mr-8 bg-slate-900 text-slate-200 border border-slate-700"
+              }`}
+            >
+              <p className="text-[10px] uppercase tracking-widest opacity-70">{item.role === "user" ? "Vos" : "IA"}</p>
+              <p className="mt-1 whitespace-pre-wrap">{item.content}</p>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
       {/* Feedback */}
       {feedback ? (
         <div className={`mx-4 mt-4 rounded-lg p-4 text-base font-semibold ${
@@ -392,7 +464,15 @@ export default function CampoPage() {
         <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 p-4">
           <p className="text-sm font-semibold text-amber-300">Operación de lote detectada</p>
           <p className="mt-1 text-sm text-slate-200">{pendingHerdResponse}</p>
-          <div className="mt-3 flex gap-3">
+          <div className="mt-3 flex gap-4">
+            <button
+              type="button"
+              onClick={confirmHerdOperation}
+              disabled={isBusy || !pendingCommand}
+              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50"
+            >
+              {isBusy ? "Confirmando..." : "Confirmar lote"}
+            </button>
             <button type="button" onClick={cancelPending} className="text-sm text-slate-400">
               Ignorar
             </button>
