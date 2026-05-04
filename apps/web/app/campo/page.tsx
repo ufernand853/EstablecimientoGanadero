@@ -224,13 +224,16 @@ export default function CampoPage() {
       };
 
       const assistantMessage = data.response ?? "Sin respuesta.";
-      setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
 
       if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
         setPendingEvent(data.suggestedApiCall.requestPreview);
       } else if (data.suggestedApiCall?.endpoint === "/commands/confirm") {
-        setPendingHerdResponse(assistantMessage || "Operación de lote detectada.");
+        const guidance = "Te entendí: es una operación de lote (por ejemplo mover, destetar o consignar). En Modo Campo solo confirmamos eventos individuales por caravana. Para ejecutar este lote, abrí Modo IA completo en /commands.";
+        setChatHistory((prev) => [...prev, { role: "assistant", content: guidance }]);
+        setPendingHerdResponse(guidance);
       } else {
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
         setFeedback({ kind: "info", text: assistantMessage });
       }
     } catch {
@@ -428,7 +431,10 @@ export default function CampoPage() {
         <div className="mx-4 mt-4 rounded-xl border border-amber-700 bg-amber-950/40 p-4">
           <p className="text-sm font-semibold text-amber-300">Operación de lote detectada</p>
           <p className="mt-1 text-sm text-slate-200">{pendingHerdResponse}</p>
-          <div className="mt-3 flex gap-3">
+          <div className="mt-3 flex gap-4">
+            <a href={withBasePath("/commands")} className="text-sm font-semibold text-emerald-300 underline underline-offset-2">
+              Ir a Modo IA completo
+            </a>
             <button type="button" onClick={cancelPending} className="text-sm text-slate-400">
               Ignorar
             </button>

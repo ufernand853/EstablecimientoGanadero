@@ -138,6 +138,13 @@ type AIBehavior = {
   createdAt: string;
   updatedAt: string;
 };
+const DEFAULT_AI_BEHAVIORS = [
+  { trigger: "mover {cantidad} {categoria} del potrero {origen} al potrero {destino}", expectedBehavior: "Detectar MOVE, pedir confirmación y ejecutar movimiento de lote." },
+  { trigger: "animal/es {estado} en potrero {potrero}", expectedBehavior: "Detectar INCIDENT_REPORT, pedir confirmación y registrar incidente con descripción y responsable." },
+  { trigger: "vacunamos/fueron vacunados {cantidad} {categoria} con {producto}", expectedBehavior: "Detectar VACCINATION, pedir confirmación y registrar evento sanitario." },
+  { trigger: "{cantidad} preñadas y {cantidad} vacías", expectedBehavior: "Detectar resumen reproductivo y responder con guía para registrar resultado reproductivo." },
+  { trigger: "entoramos potrero {potrero} con {cantidad} toros", expectedBehavior: "Detectar BREEDING_START, pedir confirmación y registrar evento de entore." },
+] as const;
 
 type CommandContext = {
   paddocks: { id: string; name: string }[];
@@ -789,6 +796,21 @@ const appendCommandLog = async (entry: Omit<CommandLog, "id" | "createdAt">) => 
 
 const loadAIBehaviors = async (establishmentId: string) => {
   const { aiBehaviors } = await getCollections();
+  const count = await aiBehaviors.countDocuments({ establishmentId });
+  if (count === 0) {
+    const now = new Date().toISOString();
+    await aiBehaviors.insertMany(
+      DEFAULT_AI_BEHAVIORS.map((item) => ({
+        id: randomUUID(),
+        establishmentId,
+        trigger: item.trigger,
+        expectedBehavior: item.expectedBehavior,
+        notes: "Template base persistido automáticamente para Modo Campo.",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
   return aiBehaviors.find({ establishmentId }).sort({ createdAt: -1 }).limit(50).toArray();
 };
 
