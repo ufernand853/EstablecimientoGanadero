@@ -1085,6 +1085,17 @@ const detectTraceabilityEventType = (text: string): TraceabilityEventType => {
 const isTraceabilityQuery = (text: string): boolean =>
   /\b(qu[eé]\s+pas[oó]|historial|eventos|resumen|estado|d[oó]nde\s+est[aá]|cu[aá]ndo|ver\s+caravana|consultar)\b/i.test(text);
 
+const detectAnimalRegistrationIntent = (text: string): boolean =>
+  /\b(registra(?:me|r)?|alta(?:\s+de)?\s+animal|cargar\s+animal|nueva?\s+vaquillona|ingresar\s+vaquillona)\b/i.test(text);
+
+const detectAnimalCategoryInText = (text: string): string | null => {
+  if (/\bvaquillon(?:a|as)\b/i.test(text)) return "vaquillona";
+  if (/\bvaqu(?:a|as)\b/i.test(text)) return "vaca";
+  if (/\bterner(?:a|as|o|os)\b/i.test(text)) return "ternero";
+  if (/\btor(?:o|os)\b/i.test(text)) return "toro";
+  return null;
+};
+
 const TRACEABILITY_EVENT_LABELS: Record<TraceabilityEventType, string> = {
   ASIGNACION_POTRERO: "asignación a potrero",
   INSEMINACION: "inseminación",
@@ -1914,8 +1925,49 @@ app.post("/ai/chat", async (request, reply) => {
       });
     }
 
-    const eventType = detectTraceabilityEventType(body.data.prompt);
     const paddockMatch = body.data.prompt.match(/potrero\s+([a-z0-9\s\-]+)/i);
+    const detectedPaddockName = paddockMatch?.[1]?.trim() ?? "Temporal";
+
+    if (detectAnimalRegistrationIntent(body.data.prompt)) {
+      const detectedCategory = detectAnimalCategoryInText(body.data.prompt) ?? "vaquillona";
+      const suggestedAnimalPayload = {
+        establishmentId: body.data.establishmentId,
+        earTag: detectedEarTag,
+        name: `Caravana ${detectedEarTag}`,
+        sex: "HEMBRA" as const,
+        category: detectedCategory,
+        status: "ACTIVO" as const,
+        notes: body.data.prompt.trim(),
+      };
+      const suggestedTraceabilityPayload = {
+        establishmentId: body.data.establishmentId,
+        earTag: detectedEarTag,
+        type: "ASIGNACION_POTRERO" as const,
+        paddockName: detectedPaddockName,
+        notes: `Alta automática de animal. ${body.data.prompt.trim()}`,
+        source: "COMANDO_IA" as const,
+        occurredAt: new Date().toISOString(),
+      };
+
+      return reply.send({
+        response: `Detecté la caravana **${detectedEarTag}**. Voy a dar de alta una **${detectedCategory}** y asociarla al potrero **${detectedPaddockName}**. Confirmá con "Hacelo" para guardar.`,
+        suggestedApiCall: {
+          action: "registrar_animal_y_asignar_potrero",
+          endpoint: "/animals + /traceability/events",
+          method: "POST",
+          requiresConfirmation: true,
+          isReady: true,
+          requestPreview: {
+            animal: suggestedAnimalPayload,
+            traceabilityEvent: suggestedTraceabilityPayload,
+          },
+        },
+        earTag: detectedEarTag,
+        detectedEventType: "ASIGNACION_POTRERO",
+      });
+    }
+
+    const eventType = detectTraceabilityEventType(body.data.prompt);
     const productMatch = body.data.prompt.match(/(?:con|producto|vacuna)\s+([a-záéíóúñ][a-záéíóúñ\s]+)/i);
     const doseMatch = body.data.prompt.match(/(\d+(?:\.\d+)?\s?ml)/i);
 
@@ -1923,7 +1975,7 @@ app.post("/ai/chat", async (request, reply) => {
       establishmentId: body.data.establishmentId,
       earTag: detectedEarTag,
       type: eventType,
-      paddockName: paddockMatch?.[1]?.trim() ?? null,
+      paddockName: detectedPaddockName,
       product: productMatch?.[1]?.trim() ?? null,
       dose: doseMatch?.[1] ?? null,
       notes: body.data.prompt.trim(),
