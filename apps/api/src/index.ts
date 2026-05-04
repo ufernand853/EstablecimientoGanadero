@@ -767,6 +767,24 @@ const deletePaddock = async (paddock: Paddock) => {
   ]);
 };
 
+
+const findPaddockByName = async (establishmentId: string, rawName: string) => {
+  const name = rawName.trim();
+  if (!name) return null;
+  const { paddocks } = await getCollections();
+  const docs = await paddocks.find({ establishmentId }).toArray();
+  const normalized = normalizeCommandText(name);
+  const exact = docs.find((item) => normalizeCommandText(item.name) === normalized);
+  if (exact) return exact;
+  return docs.find((item) => normalizeCommandText(item.name).includes(normalized) || normalized.includes(normalizeCommandText(item.name))) ?? null;
+};
+
+const inferCategoryFromPaddock = async (paddockId: string | null) => {
+  if (!paddockId) return null;
+  const { herds } = await getCollections();
+  const herdRows = await herds.find({ paddockId, count: { $gt: 0 } }).sort({ count: -1 }).toArray();
+  return herdRows[0]?.category ?? null;
+};
 const findPaddockById = async (id: string) => {
   const { paddocks } = await getCollections();
   return paddocks.findOne({ id });
@@ -3383,15 +3401,52 @@ app.post("/traceability/events", async (request, reply) => {
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
   }
-  const { traceabilityEvents } = await getCollections();
+  const { traceabilityEvents, animals } = await getCollections();
   const now = new Date().toISOString();
+  const normalizedEarTag = body.data.earTag.trim().toUpperCase();
+
+  let paddockId = body.data.paddockId ?? null;
+  let paddockName = body.data.paddockName?.trim() || null;
+  if (!paddockId && paddockName) {
+    const resolvedPaddock = await findPaddockByName(body.data.establishmentId, paddockName);
+    if (resolvedPaddock) {
+      paddockId = resolvedPaddock.id;
+      paddockName = resolvedPaddock.name;
+    }
+  }
+
+  const inferredCategory = await inferCategoryFromPaddock(paddockId);
+  const existingAnimal = await animals.findOne({ establishmentId: body.data.establishmentId, earTag: normalizedEarTag });
+  if (!existingAnimal) {
+    const animal: Animal = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      earTag: normalizedEarTag,
+      name: normalizedEarTag,
+      sex: "OTRO",
+      breed: null,
+      birthDate: null,
+      category: inferredCategory,
+      status: body.data.type === "MUERTE" ? "MUERTO" : "ACTIVO",
+      notes: "Alta automática desde modo campo",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await animals.insertOne(animal);
+  } else {
+    const updates: Partial<Animal> = { updatedAt: now };
+    if (!existingAnimal.category && inferredCategory) updates.category = inferredCategory;
+    if (body.data.type === "MUERTE" && existingAnimal.status !== "MUERTO") updates.status = "MUERTO";
+    await animals.updateOne({ id: existingAnimal.id }, { $set: updates });
+  }
+
   const event: TraceabilityEvent = {
     id: randomUUID(),
     establishmentId: body.data.establishmentId,
-    earTag: body.data.earTag.trim().toUpperCase(),
+    earTag: normalizedEarTag,
     type: body.data.type,
-    paddockId: body.data.paddockId ?? null,
-    paddockName: body.data.paddockName?.trim() || null,
+    paddockId,
+    paddockName,
     product: body.data.product?.trim() || null,
     dose: body.data.dose?.trim() || null,
     weight: body.data.weight ?? null,
