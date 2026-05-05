@@ -7,6 +7,7 @@ const API_URL = getApiUrl();
 
 type Establishment = { id: string; name: string };
 type HerdCategory = { id: string; name: string };
+type TraceabilityType = "INSEMINACION" | "PREÑEZ_CONFIRMADA" | "OBSERVACION";
 
 type ReproductionEvent = {
   id: string;
@@ -26,11 +27,22 @@ type ReproductionEvent = {
   notes: string | null;
 };
 
+type TraceabilityEvent = {
+  id: string;
+  earTag: string;
+  paddockName: string | null;
+  type: string;
+  occurredAt: string;
+  notes: string | null;
+};
+
 export default function InseminationPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [categories, setCategories] = useState<HerdCategory[]>([]);
   const [events, setEvents] = useState<ReproductionEvent[]>([]);
+  const [animalEvents, setAnimalEvents] = useState<TraceabilityEvent[]>([]);
+  const [animalFilter, setAnimalFilter] = useState<"ALL" | TraceabilityType>("ALL");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -46,6 +58,11 @@ export default function InseminationPage() {
   const [diagnosedQty, setDiagnosedQty] = useState(1);
   const [pregnantQty, setPregnantQty] = useState(0);
 
+  const [earTag, setEarTag] = useState("");
+  const [animalPaddock, setAnimalPaddock] = useState("");
+  const [animalType, setAnimalType] = useState<TraceabilityType>("PREÑEZ_CONFIRMADA");
+  const [animalNotes, setAnimalNotes] = useState("");
+
   const pregnancyRate = useMemo(() => {
     if (diagnosedQty <= 0) return 0;
     return Math.round((pregnantQty / diagnosedQty) * 100);
@@ -60,16 +77,19 @@ export default function InseminationPage() {
     if (!currentId) return;
     setEstablishmentId(currentId);
 
-    const [catResp, eventsResp] = await Promise.all([
+    const [catResp, eventsResp, traceabilityResp] = await Promise.all([
       fetch(`${API_URL}/herd-categories?establishmentId=${currentId}&status=ACTIVE`, { cache: "no-store" }),
       fetch(`${API_URL}/reproduction-events?establishmentId=${currentId}`, { cache: "no-store" }),
+      fetch(`${API_URL}/traceability/events?establishmentId=${currentId}&limit=300`, { cache: "no-store" }),
     ]);
 
     const catData = (await catResp.json()) as { categories: HerdCategory[] };
     const eventData = (await eventsResp.json()) as { reproductionEvents: ReproductionEvent[] };
+    const traceabilityData = (await traceabilityResp.json()) as { events: TraceabilityEvent[] };
 
     setCategories(catData.categories);
     setEvents(eventData.reproductionEvents);
+    setAnimalEvents(traceabilityData.events.filter((item) => ["INSEMINACION", "PREÑEZ_CONFIRMADA", "OBSERVACION"].includes(item.type)));
 
     if (catData.categories.length) {
       setEntoreCategory((prev) => catData.categories.some((item) => item.name === prev) ? prev : catData.categories[0].name);
@@ -89,26 +109,11 @@ export default function InseminationPage() {
       const response = await fetch(`${API_URL}/reproduction-events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          establishmentId,
-          type: "ENTORE",
-          category: entoreCategory,
-          lot: entoreLot.trim() || null,
-          servicedQty: Number(servicedQty),
-          bullsQty: Number(bullsQty),
-          protocol: protocol.trim() || null,
-          responsible: responsible.trim() || null,
-        }),
+        body: JSON.stringify({ establishmentId, type: "ENTORE", category: entoreCategory, lot: entoreLot.trim() || null, servicedQty: Number(servicedQty), bullsQty: Number(bullsQty), protocol: protocol.trim() || null, responsible: responsible.trim() || null }),
       });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data?.message ?? "No se pudo registrar el entore.");
-      }
-      setMessage("Entore registrado correctamente.");
-      setEntoreLot("");
-      setServicedQty(1);
-      setBullsQty(0);
-      setProtocol("");
+      if (!response.ok) throw new Error((await response.json())?.message ?? "No se pudo registrar el servicio.");
+      setMessage("Servicio registrado correctamente.");
+      setEntoreLot(""); setServicedQty(1); setBullsQty(0); setProtocol("");
       await loadData(establishmentId);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Error inesperado.");
@@ -117,104 +122,70 @@ export default function InseminationPage() {
 
   const handlePregnancy = async (event: FormEvent) => {
     event.preventDefault();
-    setError(null);
-    setMessage(null);
-
-    if (pregnantQty > diagnosedQty) {
-      setError("Preñadas no puede ser mayor que diagnosticadas.");
-      return;
-    }
-
+    setError(null); setMessage(null);
+    if (pregnantQty > diagnosedQty) return setError("Preñadas no puede ser mayor que diagnosticadas.");
     try {
       const response = await fetch(`${API_URL}/reproduction-events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          establishmentId,
-          type: "PREGNANCY_CHECK",
-          category: diagCategory,
-          lot: diagLot.trim() || null,
-          diagnosedQty: Number(diagnosedQty),
-          pregnantQty: Number(pregnantQty),
-          responsible: responsible.trim() || null,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId, type: "PREGNANCY_CHECK", category: diagCategory, lot: diagLot.trim() || null, diagnosedQty: Number(diagnosedQty), pregnantQty: Number(pregnantQty), responsible: responsible.trim() || null }),
       });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data?.message ?? "No se pudo registrar el diagnóstico de preñez.");
-      }
+      if (!response.ok) throw new Error((await response.json())?.message ?? "No se pudo registrar el diagnóstico de preñez.");
       setMessage("Diagnóstico de preñez guardado.");
-      setDiagLot("");
-      setDiagnosedQty(1);
-      setPregnantQty(0);
+      setDiagLot(""); setDiagnosedQty(1); setPregnantQty(0);
       await loadData(establishmentId);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Error inesperado.");
     }
   };
 
-  return (
-    <main className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">Reproducción (Entore y Preñez)</h2>
-          <p className="text-sm text-slate-300">Registrá servicio y diagnóstico por lote para medir eficiencia reproductiva.</p>
-        </div>
-        <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(e) => loadData(e.target.value)}>
-          {establishments.map((establishment) => (
-            <option key={establishment.id} value={establishment.id}>{establishment.name}</option>
-          ))}
-        </select>
-      </header>
+  const handleAnimalReproduction = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null); setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/traceability/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId, earTag, type: animalType, paddockName: animalPaddock.trim() || null, notes: animalNotes.trim() || null, source: "MANUAL" }),
+      });
+      if (!response.ok) throw new Error((await response.json())?.message ?? "No se pudo registrar el estado reproductivo individual.");
+      setMessage("Estado reproductivo individual registrado.");
+      setEarTag(""); setAnimalNotes("");
+      await loadData(establishmentId);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Error inesperado.");
+    }
+  };
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <article className="rounded-lg bg-slate-900 p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Nuevo entore</h3>
-          <form className="mt-3 grid gap-2" onSubmit={handleEntore}>
-            <select className="rounded bg-slate-800 p-2 text-sm" value={entoreCategory} onChange={(e) => setEntoreCategory(e.target.value)}>
-              {categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
-            </select>
-            <input className="rounded bg-slate-800 p-2 text-sm" value={entoreLot} onChange={(e) => setEntoreLot(e.target.value)} placeholder="Lote (opcional)" />
-            <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={1} value={servicedQty} onChange={(e) => setServicedQty(Number(e.target.value))} placeholder="Hembras en servicio" />
-            <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={0} value={bullsQty} onChange={(e) => setBullsQty(Number(e.target.value))} placeholder="Toros" />
-            <input className="rounded bg-slate-800 p-2 text-sm" value={protocol} onChange={(e) => setProtocol(e.target.value)} placeholder="Protocolo" />
-            <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Guardar entore</button>
-          </form>
-        </article>
+  const filteredAnimalEvents = animalEvents.filter((item) => animalFilter === "ALL" || item.type === animalFilter);
 
-        <article className="rounded-lg bg-slate-900 p-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Diagnóstico de preñez</h3>
-          <form className="mt-3 grid gap-2" onSubmit={handlePregnancy}>
-            <select className="rounded bg-slate-800 p-2 text-sm" value={diagCategory} onChange={(e) => setDiagCategory(e.target.value)}>
-              {categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
-            </select>
-            <input className="rounded bg-slate-800 p-2 text-sm" value={diagLot} onChange={(e) => setDiagLot(e.target.value)} placeholder="Lote (opcional)" />
-            <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={1} value={diagnosedQty} onChange={(e) => setDiagnosedQty(Number(e.target.value))} placeholder="Diagnosticadas" />
-            <input className="rounded bg-slate-800 p-2 text-sm" type="number" min={0} value={pregnantQty} onChange={(e) => setPregnantQty(Number(e.target.value))} placeholder="Preñadas" />
-            <p className="text-xs text-slate-400">Tasa estimada: {pregnancyRate}%</p>
-            <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Guardar diagnóstico</button>
-          </form>
-        </article>
-      </section>
+  return (<main className="space-y-6">
+    <header className="flex flex-wrap items-center justify-between gap-3"><div>
+      <h2 className="text-xl font-semibold">Reproducción</h2>
+      <p className="text-sm text-slate-300">Movimientos reproductivos por lote y por caravana: inseminación, preñez confirmada y falladas.</p>
+    </div>
+    <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(e) => loadData(e.target.value)}>{establishments.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+    </header>
+    <section className="grid gap-4 md:grid-cols-2">{/* forms unchanged simplified */}
+      <article className="rounded-lg bg-slate-900 p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Nuevo servicio</h3><form className="mt-3 grid gap-2" onSubmit={handleEntore}><select className="rounded bg-slate-800 p-2 text-sm" value={entoreCategory} onChange={(e) => setEntoreCategory(e.target.value)}>{categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><input className="rounded bg-slate-800 p-2 text-sm" value={entoreLot} onChange={(e) => setEntoreLot(e.target.value)} placeholder="Lote (opcional)" /><input className="rounded bg-slate-800 p-2 text-sm" type="number" min={1} value={servicedQty} onChange={(e) => setServicedQty(Number(e.target.value))} placeholder="Hembras en servicio" /><input className="rounded bg-slate-800 p-2 text-sm" type="number" min={0} value={bullsQty} onChange={(e) => setBullsQty(Number(e.target.value))} placeholder="Toros" /><input className="rounded bg-slate-800 p-2 text-sm" value={protocol} onChange={(e) => setProtocol(e.target.value)} placeholder="Protocolo" /><button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Guardar servicio</button></form></article>
+      <article className="rounded-lg bg-slate-900 p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Diagnóstico por lote</h3><form className="mt-3 grid gap-2" onSubmit={handlePregnancy}><select className="rounded bg-slate-800 p-2 text-sm" value={diagCategory} onChange={(e) => setDiagCategory(e.target.value)}>{categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><input className="rounded bg-slate-800 p-2 text-sm" value={diagLot} onChange={(e) => setDiagLot(e.target.value)} placeholder="Lote (opcional)" /><input className="rounded bg-slate-800 p-2 text-sm" type="number" min={1} value={diagnosedQty} onChange={(e) => setDiagnosedQty(Number(e.target.value))} placeholder="Diagnosticadas" /><input className="rounded bg-slate-800 p-2 text-sm" type="number" min={0} value={pregnantQty} onChange={(e) => setPregnantQty(Number(e.target.value))} placeholder="Preñadas" /><p className="text-xs text-slate-400">Tasa estimada: {pregnancyRate}%</p><button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Guardar diagnóstico</button></form></article>
+    </section>
 
-      <section className="rounded-lg bg-slate-900 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Historial reproductivo</h3>
-        <div className="mt-3 grid gap-2">
-          {events.map((item) => (
-            <div key={item.id} className="rounded bg-slate-800/60 p-3 text-sm">
-              <p className="font-semibold">{item.type === "ENTORE" ? "Entore" : "Diagnóstico de preñez"} · {item.category}</p>
-              <p className="text-xs text-slate-400">
-                {new Date(item.occurredAt).toLocaleString()} · Lote: {item.lot || "-"} · {item.type === "ENTORE"
-                  ? `Servicio: ${item.servicedQty ?? 0}`
-                  : `Preñadas: ${item.pregnantQty ?? 0}/${item.diagnosedQty ?? 0}`}
-              </p>
-            </div>
-          ))}
-          {events.length === 0 && <p className="text-sm text-slate-400">Sin eventos reproductivos.</p>}
-        </div>
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-        {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
-      </section>
-    </main>
-  );
+    <section className="rounded-lg bg-slate-900 p-4"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Estado reproductivo individual</h3>
+      <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleAnimalReproduction}>
+        <input className="rounded bg-slate-800 p-2 text-sm" value={earTag} onChange={(e) => setEarTag(e.target.value)} placeholder="Caravana (ej: 123455)" required />
+        <input className="rounded bg-slate-800 p-2 text-sm" value={animalPaddock} onChange={(e) => setAnimalPaddock(e.target.value)} placeholder="Potrero" />
+        <select className="rounded bg-slate-800 p-2 text-sm" value={animalType} onChange={(e) => setAnimalType(e.target.value as TraceabilityType)}><option value="INSEMINACION">Inseminada</option><option value="PREÑEZ_CONFIRMADA">Preñada</option><option value="OBSERVACION">Fallada / observación</option></select>
+        <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Registrar</button>
+        <input className="rounded bg-slate-800 p-2 text-sm md:col-span-4" value={animalNotes} onChange={(e) => setAnimalNotes(e.target.value)} placeholder="Notas (opcional): diagnóstico, tacto, ecografía, etc." />
+      </form>
+    </section>
+
+    <section className="rounded-lg bg-slate-900 p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Listado de caravanas reproductivas</h3>
+      <select className="rounded bg-slate-800 p-2 text-sm" value={animalFilter} onChange={(e) => setAnimalFilter(e.target.value as "ALL" | TraceabilityType)}><option value="ALL">Todas</option><option value="INSEMINACION">Inseminadas</option><option value="PREÑEZ_CONFIRMADA">Preñadas</option><option value="OBSERVACION">Falladas/obs.</option></select>
+    </div>
+      <div className="mt-3 grid gap-2">{filteredAnimalEvents.map((item) => <div key={item.id} className="rounded bg-slate-800/60 p-3 text-sm"><p className="font-semibold">{item.earTag} · {item.type === "INSEMINACION" ? "Inseminada" : item.type === "PREÑEZ_CONFIRMADA" ? "Preñada" : "Fallada / observación"}</p><p className="text-xs text-slate-400">{new Date(item.occurredAt).toLocaleString()} · Potrero: {item.paddockName || "-"}{item.notes ? ` · ${item.notes}` : ""}</p></div>)}
+      {filteredAnimalEvents.length === 0 && <p className="text-sm text-slate-400">Sin caravanas para ese filtro.</p>}</div>
+      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}</section>
+  </main>);
 }
