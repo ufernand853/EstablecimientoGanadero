@@ -30,6 +30,18 @@ type PendingCommand = {
   parsed: ParsedCommand;
 };
 
+type PendingTraceabilityEvent = {
+  establishmentId: string;
+  earTag: string;
+  type: string;
+  paddockName?: string | null;
+  product?: string | null;
+  dose?: string | null;
+  notes?: string | null;
+  source: "COMANDO_IA" | "MANUAL" | "RFID" | "FOTO";
+  occurredAt?: string;
+};
+
 type CommandLog = {
   id: string;
   stage: "PARSED" | "PARSE_ERROR" | "CONFIRM_SUCCESS" | "CONFIRM_ERROR";
@@ -45,6 +57,7 @@ type SuggestedApiCall = {
   requiresConfirmation: boolean;
   isReady: boolean;
   missingOrInvalidFields: string[];
+  requestPreview?: PendingTraceabilityEvent;
 };
 
 type AIBehavior = {
@@ -223,6 +236,7 @@ export default function CommandsPage() {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
+  const [pendingTraceabilityEvent, setPendingTraceabilityEvent] = useState<PendingTraceabilityEvent | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
   const [logs, setLogs] = useState<CommandLog[]>([]);
   const [showLogs, setShowLogs] = useState(false);
@@ -466,6 +480,41 @@ export default function CommandsPage() {
     setStatus("sending");
 
     try {
+      if (pendingTraceabilityEvent) {
+        if (!isConfirmationKeyword(prompt)) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ Hay un evento individual pendiente. Para guardarlo escribí: Hazlo, confirmado, hacelo o ejecutalo.",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        const saveResponse = await fetch(`${API_URL}/traceability/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pendingTraceabilityEvent),
+        });
+        setPendingTraceabilityEvent(null);
+        const saveBody = await saveResponse.json().catch(() => ({}));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: saveResponse.ok
+              ? `✅ Evento reproductivo guardado para caravana ${pendingTraceabilityEvent.earTag}.`
+              : `⚠️ No se pudo guardar el evento individual: ${typeof saveBody?.message === "string" ? saveBody.message : "error de validación o servidor."}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
       if (pendingCommand) {
         if (!isConfirmationKeyword(prompt)) {
           setMessages((prev) => [
@@ -636,6 +685,7 @@ export default function CommandsPage() {
         response: string;
         parsedCommand?: ParsedCommand;
         suggestedApiCall?: SuggestedApiCall;
+        earTag?: string;
         contextMeta?: { paddocks: number; stockRows: number; movements: number; healthEvents: number };
       };
 
@@ -668,6 +718,21 @@ export default function CommandsPage() {
             },
           ]);
         }
+      }
+      if (
+        data.suggestedApiCall?.endpoint === "/traceability/events"
+        && data.suggestedApiCall.requestPreview
+        && data.earTag
+      ) {
+        setPendingTraceabilityEvent(data.suggestedApiCall.requestPreview);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: "Para persistir este evento individual, confirmá con: Hazlo, confirmado, hacelo o ejecutalo.",
+          },
+        ]);
       }
       if (data.contextMeta) {
         setMeta(data.contextMeta);
