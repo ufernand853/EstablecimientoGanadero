@@ -245,6 +245,7 @@ export default function CommandsPage() {
   const [trainingStatus, setTrainingStatus] = useState<"idle" | "saving">("idle");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const promptFormRef = useRef<HTMLFormElement | null>(null);
 
   const loadCommandLogs = async (estId: string) => {
     if (!estId) {
@@ -487,7 +488,7 @@ export default function CommandsPage() {
             {
               id: createMessageId(),
               role: "assistant",
-              content: "⚠️ Hay un evento individual pendiente. Para guardarlo escribí: Hazlo, confirmado, hacelo o ejecutalo.",
+              content: "⚠️ Hay un evento individual pendiente. Usá el botón Confirmar (o escribí: confirmado).",
             },
           ]);
           setStatus("idle");
@@ -522,7 +523,7 @@ export default function CommandsPage() {
             {
               id: createMessageId(),
               role: "assistant",
-              content: "⚠️ Hay una acción pendiente de confirmación. Para ejecutarla escribí exactamente: Hazlo, confirmado, hacelo o ejecutalo.",
+              content: "⚠️ Hay una acción pendiente. Usá el botón Confirmar (o escribí: confirmado).",
             },
           ]);
           setStatus("idle");
@@ -585,7 +586,7 @@ export default function CommandsPage() {
             {
               id: createMessageId(),
               role: "assistant",
-              content: "⚠️ Recibí la confirmación, pero no encontré una instrucción operativa concreta para ejecutar. Escribí la acción en una sola línea (ej: 'Mover 10 toros del Potrero 1 al Potrero 2') y luego confirmá con 'hazlo'.",
+              content: "⚠️ Recibí la confirmación, pero no encontré una instrucción operativa concreta para ejecutar. Escribí la acción en una sola línea (ej: 'Mover 10 toros del Potrero 1 al Potrero 2') y luego usá Confirmar.",
             },
           ]);
           setStatus("idle");
@@ -658,7 +659,7 @@ export default function CommandsPage() {
           {
             id: createMessageId(),
             role: "assistant",
-            content: `${summarizePendingCommand(parsedCommand, prompt)}\n\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
+            content: `${summarizePendingCommand(parsedCommand, prompt)}\n\nPara ejecutarla, usá el botón Confirmar.`,
           },
         ]);
         setStatus("idle");
@@ -705,7 +706,7 @@ export default function CommandsPage() {
             {
               id: createMessageId(),
               role: "assistant",
-              content: `${summarizePendingCommand(data.parsedCommand as ParsedCommand, prompt)}\n\nAcción API sugerida: ${data.suggestedApiCall.method} ${data.suggestedApiCall.endpoint} (${data.suggestedApiCall.action}).\nPara ejecutarla, el próximo mensaje debe ser uno de estos comandos: Hazlo, confirmado, hacelo o ejecutalo.`,
+              content: `${summarizePendingCommand(data.parsedCommand as ParsedCommand, prompt)}\n\nAcción API sugerida: ${data.suggestedApiCall.method} ${data.suggestedApiCall.endpoint} (${data.suggestedApiCall.action}).\nPara ejecutarla, usá el botón Confirmar.`,
             },
           ]);
         } else {
@@ -730,7 +731,7 @@ export default function CommandsPage() {
           {
             id: createMessageId(),
             role: "assistant",
-            content: "Para persistir este evento individual, confirmá con: Hazlo, confirmado, hacelo o ejecutalo.",
+            content: "Para persistir este evento individual, usá el botón Confirmar.",
           },
         ]);
       }
@@ -819,7 +820,7 @@ export default function CommandsPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form className="mt-3 space-y-3" onSubmit={sendPrompt}>
+        <form ref={promptFormRef} className="mt-3 space-y-3" onSubmit={sendPrompt}>
           <textarea
             className="h-24 w-full rounded bg-slate-800 p-3 text-sm"
             placeholder="Ej: ¿Qué categoría tiene mayor stock y qué acciones recomendás para el próximo manejo sanitario?"
@@ -849,6 +850,19 @@ export default function CommandsPage() {
                 onClick={stopVoiceInput}
               >
                 ⏹ Detener voz
+              </button>
+            )}
+            {(pendingCommand || pendingTraceabilityEvent) && (
+              <button
+                type="button"
+                className="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                disabled={status === "sending"}
+                onClick={() => {
+                  setInput("confirmado");
+                  setTimeout(() => promptFormRef.current?.requestSubmit(), 0);
+                }}
+              >
+                Confirmar
               </button>
             )}
           </div>

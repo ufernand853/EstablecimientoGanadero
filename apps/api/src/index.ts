@@ -1703,11 +1703,22 @@ app.post("/commands/confirm", async (request, reply) => {
     const qty = Number(payload.qty);
     const category = typeof payload.category === "string" ? payload.category : "";
     const product = typeof payload.product === "string" ? payload.product : "";
+    const responsible = typeof payload.responsible === "string" ? payload.responsible.trim() : "";
+    const paddockId = typeof payload.paddockId === "string" ? payload.paddockId : "";
     const dose = typeof payload.dose === "string" ? payload.dose : null;
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
-    if (!qty || !category || !product) {
-      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.");
+    if (!qty || !category || !product || !responsible || !paddockId) {
+      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan producto, responsable, potrero, categoría o cantidad.");
+    }
+
+    const paddock = await findPaddockById(paddockId);
+    if (!paddock || paddock.establishmentId !== body.data.establishmentId) {
+      return failConfirm(404, "NOT_FOUND", "Potrero no encontrado para registrar el evento sanitario.");
+    }
+    const herd = await findHerdByPaddockCategory(paddockId, category);
+    if (!herd || herd.count < qty) {
+      return failConfirm(409, "INSUFFICIENT_STOCK", `No hay animales suficientes en ${paddock.name} para ${category}. Disponible: ${herd?.count ?? 0}, solicitado: ${qty}.`);
     }
 
     const now = new Date().toISOString();
@@ -1721,7 +1732,7 @@ app.post("/commands/confirm", async (request, reply) => {
       dose,
       route: null,
       notes: null,
-      responsible: null,
+      responsible,
       occurredAt: occurredAt ?? now,
       nextDueAt: null,
       status: "COMPLETED",

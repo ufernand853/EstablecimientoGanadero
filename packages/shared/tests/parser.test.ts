@@ -78,6 +78,19 @@ describe("parseCommand", () => {
     expect(result.proposedOperations[0]?.payload).toMatchObject({ qty: 45 });
   });
 
+  it("parses vaccination with product, potrero and vaccinator", () => {
+    const result = parseCommand("Vacunamos 10 toros del Potrero 3 con Aftosil y los vacunó Juan", context);
+    expect(result.intent).toBe("VACCINATION");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      qty: 10,
+      category: "TOROS",
+      paddockId: "11111111-1111-1111-1111-111111111111",
+      product: "Aftosil",
+      responsible: "Juan",
+    });
+  });
+
 
   it("parses DEWORMING commands", () => {
     const result = parseCommand("Desparasitar 120 terneros ivermectina 5ml hoy", context);
