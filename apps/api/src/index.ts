@@ -1053,7 +1053,7 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
   return null;
 };
 
-const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,6})\b/i;
+const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,8}|\d{4,8})\b/i;
 
 const detectEarTagInText = (text: string): string | null => {
   const match = text.match(EAR_TAG_REGEX);
@@ -1147,6 +1147,7 @@ const callOpenAIChat = async (
   const systemPrompt = [
     "Sos un asistente experto en gestión ganadera argentina.",
     "Respondé siempre en español claro, con pasos accionables y cálculos simples cuando ayuden.",
+    "Usá siempre la palabra 'potrero' y nunca 'paddock' en las respuestas al usuario.",
     "Si faltan datos, avisalo y pedí aclaración de forma breve.",
     `Establecimiento activo: ${establishment.name} (${establishment.id}).`,
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
@@ -3459,11 +3460,28 @@ app.post("/traceability/events", async (request, reply) => {
 
   let paddockId = body.data.paddockId ?? null;
   let paddockName = body.data.paddockName?.trim() || null;
+
+  if (!paddockId && !paddockName) {
+    paddockName = "Temporal";
+  }
+
   if (!paddockId && paddockName) {
     const resolvedPaddock = await findPaddockByName(body.data.establishmentId, paddockName);
     if (resolvedPaddock) {
       paddockId = resolvedPaddock.id;
       paddockName = resolvedPaddock.name;
+    } else {
+      const nowForPaddock = new Date().toISOString();
+      const createdPaddock: Paddock = {
+        id: randomUUID(),
+        establishmentId: body.data.establishmentId,
+        name: paddockName,
+        createdAt: nowForPaddock,
+        updatedAt: nowForPaddock,
+      };
+      await insertPaddock(createdPaddock);
+      paddockId = createdPaddock.id;
+      paddockName = createdPaddock.name;
     }
   }
 
