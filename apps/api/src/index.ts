@@ -1053,7 +1053,7 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
   return null;
 };
 
-const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,6})\b/i;
+const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,8}|\d{4,8})\b/i;
 
 const detectEarTagInText = (text: string): string | null => {
   const match = text.match(EAR_TAG_REGEX);
@@ -1147,6 +1147,7 @@ const callOpenAIChat = async (
   const systemPrompt = [
     "Sos un asistente experto en gestión ganadera argentina.",
     "Respondé siempre en español claro, con pasos accionables y cálculos simples cuando ayuden.",
+    "Usá siempre la palabra 'potrero' y nunca 'paddock' en las respuestas al usuario.",
     "Si faltan datos, avisalo y pedí aclaración de forma breve.",
     `Establecimiento activo: ${establishment.name} (${establishment.id}).`,
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
@@ -1702,11 +1703,22 @@ app.post("/commands/confirm", async (request, reply) => {
     const qty = Number(payload.qty);
     const category = typeof payload.category === "string" ? payload.category : "";
     const product = typeof payload.product === "string" ? payload.product : "";
+    const responsible = typeof payload.responsible === "string" ? payload.responsible.trim() : "";
+    const paddockId = typeof payload.paddockId === "string" ? payload.paddockId : "";
     const dose = typeof payload.dose === "string" ? payload.dose : null;
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
-    if (!qty || !category || !product) {
-      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan datos en la previsualización.");
+    if (!qty || !category || !product || !responsible || !paddockId) {
+      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan producto, responsable, potrero, categoría o cantidad.");
+    }
+
+    const paddock = await findPaddockById(paddockId);
+    if (!paddock || paddock.establishmentId !== body.data.establishmentId) {
+      return failConfirm(404, "NOT_FOUND", "Potrero no encontrado para registrar el evento sanitario.");
+    }
+    const herd = await findHerdByPaddockCategory(paddockId, category);
+    if (!herd || herd.count < qty) {
+      return failConfirm(409, "INSUFFICIENT_STOCK", `No hay animales suficientes en ${paddock.name} para ${category}. Disponible: ${herd?.count ?? 0}, solicitado: ${qty}.`);
     }
 
     const now = new Date().toISOString();
@@ -1720,7 +1732,7 @@ app.post("/commands/confirm", async (request, reply) => {
       dose,
       route: null,
       notes: null,
-      responsible: null,
+      responsible,
       occurredAt: occurredAt ?? now,
       nextDueAt: null,
       status: "COMPLETED",
@@ -3459,11 +3471,28 @@ app.post("/traceability/events", async (request, reply) => {
 
   let paddockId = body.data.paddockId ?? null;
   let paddockName = body.data.paddockName?.trim() || null;
+
+  if (!paddockId && !paddockName) {
+    paddockName = "Temporal";
+  }
+
   if (!paddockId && paddockName) {
     const resolvedPaddock = await findPaddockByName(body.data.establishmentId, paddockName);
     if (resolvedPaddock) {
       paddockId = resolvedPaddock.id;
       paddockName = resolvedPaddock.name;
+    } else {
+      const nowForPaddock = new Date().toISOString();
+      const createdPaddock: Paddock = {
+        id: randomUUID(),
+        establishmentId: body.data.establishmentId,
+        name: paddockName,
+        createdAt: nowForPaddock,
+        updatedAt: nowForPaddock,
+      };
+      await insertPaddock(createdPaddock);
+      paddockId = createdPaddock.id;
+      paddockName = createdPaddock.name;
     }
   }
 

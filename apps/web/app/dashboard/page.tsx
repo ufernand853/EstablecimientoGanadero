@@ -164,7 +164,7 @@ export default function DashboardPage() {
             Ir a Gestión sanitaria
           </a>
           <a className="rounded bg-slate-800 px-3 py-2 text-xs text-slate-200" href={withBasePath("/insemination")}>
-            Ir a Inseminación
+            Ir a Reproducción
           </a>
         </div>
       </section>

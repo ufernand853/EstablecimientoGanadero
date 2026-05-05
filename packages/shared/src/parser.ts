@@ -125,6 +125,14 @@ const findPaddock = (text: string, paddocks: NameEntity[]) => {
   return fuzzyFind(match[0], paddocks).match;
 };
 
+const extractResponsible = (text: string) => {
+  const byVaccinatedMatch = text.match(/(?:vacun[oó]|vacuno|vacunó)\s+([a-záéíóúñ][a-záéíóúñ\s.'-]{1,60})/i);
+  if (byVaccinatedMatch?.[1]) return byVaccinatedMatch[1].trim();
+  const byPorMatch = text.match(/\bpor\s+([a-záéíóúñ][a-záéíóúñ\s.'-]{1,60})/i);
+  if (byPorMatch?.[1]) return byPorMatch[1].trim();
+  return null;
+};
+
 const generateConfirmationToken = () => {
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `local-${Date.now().toString(36)}-${randomPart}`;
@@ -183,19 +191,25 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
   if (isVaccinationIntent) {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
-    const productMatch = text.match(/(?:vacunar|vacunamos|aplicamos|aplicar)\s+[^,]+\s+(?:con\s+)?([a-záéíóúñ0-9\s.-]+)/i);
+    const productMatch = text.match(/\bcon\s+([a-záéíóúñ0-9][a-záéíóúñ0-9\s.-]{1,80}?)(?=\s+y\s+(?:lo|los|la|las)\s+vacun|\s+por\s+[a-záéíóúñ]|,|\.|$)/i);
     const category = findCategory(text);
+    const paddock = findPaddock(text, context.paddocks);
+    const responsible = extractResponsible(text);
 
     result.intent = "VACCINATION";
     result.confidence = 0.65;
     if (!category) warnings.push("Falta categoría del lote a vacunar.");
+    if (!paddock) warnings.push("Falta o no se pudo identificar el potrero.");
+    if (!responsible) warnings.push("Falta indicar quién vacunó.");
     result.proposedOperations.push({
       type: "VACCINATION",
       occurredAt: parseDate(text),
       payload: {
         qty: qtyMatch ? Number(qtyMatch[1]) : null,
         category,
+        paddockId: paddock?.id ?? null,
         product: productMatch?.[1]?.trim() ?? null,
+        responsible,
         dose: doseMatch?.[1] ?? null,
       },
     });
