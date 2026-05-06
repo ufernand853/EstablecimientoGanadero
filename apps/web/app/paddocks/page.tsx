@@ -17,6 +17,8 @@ type Paddock = {
   createdAt: string;
   updatedAt: string;
 };
+type Animal = { id: string; earTag: string; category: string | null; status: string };
+type TraceabilityEvent = { earTag: string; paddockId: string | null; occurredAt: string };
 
 export default function PaddocksPage() {
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
@@ -25,6 +27,7 @@ export default function PaddocksPage() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [animalsByPaddock, setAnimalsByPaddock] = useState<Record<string, Animal[]>>({});
 
   const loadEstablishments = async () => {
     const response = await fetch(`${API_URL}/establishments`, { cache: "no-store" });
@@ -46,15 +49,33 @@ export default function PaddocksPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${API_URL}/paddocks?establishmentId=${encodeURIComponent(selectedEstablishmentId)}`,
-        { cache: "no-store" },
-      );
-      if (!response.ok) {
+      const [paddocksResponse, animalsResponse, eventsResponse] = await Promise.all([
+        fetch(`${API_URL}/paddocks?establishmentId=${encodeURIComponent(selectedEstablishmentId)}`, { cache: "no-store" }),
+        fetch(`${API_URL}/animals?establishmentId=${encodeURIComponent(selectedEstablishmentId)}`, { cache: "no-store" }),
+        fetch(`${API_URL}/traceability/events?establishmentId=${encodeURIComponent(selectedEstablishmentId)}&limit=500`, { cache: "no-store" }),
+      ]);
+      if (!paddocksResponse.ok || !animalsResponse.ok || !eventsResponse.ok) {
         throw new Error("No se pudieron cargar los potreros.");
       }
-      const data = (await response.json()) as { paddocks: Paddock[] };
+      const data = (await paddocksResponse.json()) as { paddocks: Paddock[] };
+      const animalsData = (await animalsResponse.json()) as { animals: Animal[] };
+      const eventsData = (await eventsResponse.json()) as { events: TraceabilityEvent[] };
       setPaddocks(data.paddocks);
+      const latestByEarTag = new Map<string, TraceabilityEvent>();
+      for (const event of eventsData.events) {
+        const current = latestByEarTag.get(event.earTag);
+        if (!current || new Date(event.occurredAt) > new Date(current.occurredAt)) {
+          latestByEarTag.set(event.earTag, event);
+        }
+      }
+      const grouped: Record<string, Animal[]> = {};
+      for (const animal of animalsData.animals) {
+        const latest = latestByEarTag.get(animal.earTag);
+        if (!latest?.paddockId) continue;
+        grouped[latest.paddockId] = grouped[latest.paddockId] ?? [];
+        grouped[latest.paddockId].push(animal);
+      }
+      setAnimalsByPaddock(grouped);
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Error inesperado.");
     } finally {
@@ -161,9 +182,21 @@ export default function PaddocksPage() {
         <div className="mt-3 grid gap-3">
           {!loading && paddocks.length === 0 && <p className="text-sm text-slate-400">No hay potreros para el establecimiento seleccionado.</p>}
           {paddocks.map((paddock) => (
-            <div key={paddock.id} className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <p className="font-semibold">{paddock.name}</p>
-              <span className="text-xs text-slate-400">{paddock.id}</span>
+            <div key={paddock.id} className="border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold">{paddock.name}</p>
+                <span className="text-xs text-slate-400">{paddock.id}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">Animales asignados: {animalsByPaddock[paddock.id]?.length ?? 0}</p>
+              {(animalsByPaddock[paddock.id]?.length ?? 0) > 0 && (
+                <div className="mt-2 space-y-1 rounded bg-slate-800/50 p-2 text-xs">
+                  {animalsByPaddock[paddock.id]?.map((animal) => (
+                    <p key={animal.id}>
+                      Caravana: <span className="font-semibold">{animal.earTag}</span> · Categoría: {animal.category ?? "Sin categoría"} · Estado: {animal.status}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

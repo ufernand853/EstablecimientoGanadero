@@ -3020,10 +3020,19 @@ app.post("/operational-events/slaughter-shipment", async (request, reply) => {
 const movementSchema = z.object({
   establishmentId: z.string().uuid(),
   fromPaddockId: z.string().uuid(),
-  toPaddockId: z.string().uuid(),
+  toPaddockId: z.string().uuid().optional(),
+  toPaddockName: z.string().min(2).max(200).optional(),
   category: z.string().min(2),
   quantity: z.number().int().positive(),
   occurredAt: z.string().datetime().optional(),
+}).superRefine((data, ctx) => {
+  if (!data.toPaddockId && !data.toPaddockName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Debe indicar toPaddockId o toPaddockName.",
+      path: ["toPaddockId"],
+    });
+  }
 });
 
 app.get("/movements", async (request) => {
@@ -3043,20 +3052,32 @@ app.post("/movements", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const { establishmentId, fromPaddockId, toPaddockId, category, quantity, occurredAt } =
+  const { establishmentId, fromPaddockId, toPaddockId, toPaddockName, category, quantity, occurredAt } =
     body.data;
 
-  const [fromPaddock, toPaddock] = await Promise.all([
-    findPaddockById(fromPaddockId),
-    findPaddockById(toPaddockId),
-  ]);
-  if (!fromPaddock || !toPaddock) {
+  const fromPaddock = await findPaddockById(fromPaddockId);
+  if (!fromPaddock) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero no encontrado." });
   }
-  if (
-    fromPaddock.establishmentId !== establishmentId ||
-    toPaddock.establishmentId !== establishmentId
-  ) {
+  let targetPaddock = toPaddockId ? await findPaddockById(toPaddockId) : null;
+  if (!targetPaddock && toPaddockName) {
+    targetPaddock = await findPaddockByName(establishmentId, toPaddockName.trim());
+    if (!targetPaddock) {
+      const nowForPaddock = new Date().toISOString();
+      targetPaddock = {
+        id: randomUUID(),
+        establishmentId,
+        name: toPaddockName.trim(),
+        createdAt: nowForPaddock,
+        updatedAt: nowForPaddock,
+      };
+      await insertPaddock(targetPaddock);
+    }
+  }
+  if (!targetPaddock) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Potrero destino no encontrado." });
+  }
+  if (fromPaddock.establishmentId !== establishmentId || targetPaddock.establishmentId !== establishmentId) {
     return reply.status(400).send({
       code: "ESTABLISHMENT_MISMATCH",
       message: "Los potreros no pertenecen al establecimiento indicado.",
@@ -3072,13 +3093,13 @@ app.post("/movements", async (request, reply) => {
     });
   }
   await updateHerdStock(fromPaddockId, category, fromHerd.count - quantity, now);
-  await saveHerdStock(toPaddockId, category, quantity, now);
+  await saveHerdStock(targetPaddock.id, category, quantity, now);
 
   const movement: HerdMovement = {
     id: randomUUID(),
     establishmentId,
     fromPaddockId,
-    toPaddockId,
+    toPaddockId: targetPaddock.id,
     category,
     quantity,
     occurredAt: occurredAt ?? now,
