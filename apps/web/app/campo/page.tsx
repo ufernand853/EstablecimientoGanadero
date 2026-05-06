@@ -53,6 +53,19 @@ type PendingEvent = {
   source: "COMANDO_IA";
   occurredAt: string;
 };
+
+type PendingAnimalRegistration = {
+  animal: {
+    establishmentId: string;
+    earTag: string;
+    name: string;
+    sex?: "MACHO" | "HEMBRA" | "OTRO";
+    category?: string | null;
+    status?: "ACTIVO" | "VENDIDO" | "MUERTO";
+    notes?: string | null;
+  };
+  traceabilityEvent: PendingEvent;
+};
 type PendingCommand = {
   establishmentId: string;
   confirmationToken: string;
@@ -136,6 +149,7 @@ export default function CampoPage() {
   const [status, setStatus] = useState<"idle" | "sending">("idle");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingEvent, setPendingEvent] = useState<PendingEvent | null>(null);
+  const [pendingAnimalRegistration, setPendingAnimalRegistration] = useState<PendingAnimalRegistration | null>(null);
   const [pendingHerdResponse, setPendingHerdResponse] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [pendingFieldConfirmation, setPendingFieldConfirmation] = useState<FieldConfirmationState | null>(null);
@@ -244,6 +258,7 @@ export default function CampoPage() {
     setPendingEvent(null);
     setPendingHerdResponse(null);
     setPendingCommand(null);
+    setPendingAnimalRegistration(null);
     setPendingFieldConfirmation(null);
 
     try {
@@ -266,7 +281,7 @@ export default function CampoPage() {
         preview?: { title: string; sections: Array<{ label: string; value: string; severity?: "normal" | "warning" | "critical" }> };
         suggestedApiCall?: {
           endpoint: string;
-          requestPreview?: PendingEvent | PendingCommand;
+          requestPreview?: PendingEvent | PendingCommand | PendingAnimalRegistration;
         };
       };
 
@@ -282,6 +297,9 @@ export default function CampoPage() {
           actionLabel: data.confirmation.actionLabel,
           riskLevel: data.confirmation.riskLevel,
         });
+      } else if (data.earTag && data.suggestedApiCall?.endpoint === "/animals + /traceability/events" && data.suggestedApiCall.requestPreview) {
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setPendingAnimalRegistration(data.suggestedApiCall.requestPreview as PendingAnimalRegistration);
       } else if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
         setPendingEvent(data.suggestedApiCall.requestPreview as PendingEvent);
@@ -362,6 +380,44 @@ export default function CampoPage() {
     }
   };
 
+  const confirmAnimalRegistration = async () => {
+    if (!pendingAnimalRegistration) return;
+    setStatus("sending");
+
+    try {
+      const animalRes = await fetch(`${API_URL}/animals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingAnimalRegistration.animal),
+      });
+      const animalData = (await animalRes.json().catch(() => null)) as { message?: string } | null;
+      if (!animalRes.ok) {
+        throw new Error(animalData?.message ?? "No se pudo dar de alta el animal.");
+      }
+
+      const eventRes = await fetch(`${API_URL}/traceability/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingAnimalRegistration.traceabilityEvent),
+      });
+      const eventData = (await eventRes.json().catch(() => null)) as { message?: string } | null;
+      if (!eventRes.ok) {
+        throw new Error(eventData?.message ?? "El animal fue dado de alta, pero no se pudo asociar el potrero.");
+      }
+
+      const summary = `${pendingAnimalRegistration.animal.earTag} — alta guardada y asociada a ${pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}.`;
+      setFeedback({ kind: "success", text: summary });
+      setChatHistory((prev) => [...prev, { role: "assistant", content: summary }]);
+      refreshRecentEvents();
+      refreshFieldData();
+    } catch (error) {
+      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "No se pudo confirmar el alta del animal." });
+    } finally {
+      setPendingAnimalRegistration(null);
+      setStatus("idle");
+    }
+  };
+
   const confirmFieldAction = async () => {
     if (!pendingFieldConfirmation || !establishment) return;
     setStatus("sending");
@@ -389,6 +445,7 @@ export default function CampoPage() {
     setPendingEvent(null);
     setPendingHerdResponse(null);
     setPendingCommand(null);
+    setPendingAnimalRegistration(null);
     setPendingFieldConfirmation(null);
     setFeedback(null);
   };
@@ -414,7 +471,7 @@ export default function CampoPage() {
     } finally {
       setPendingHerdResponse(null);
       setPendingCommand(null);
-    setPendingFieldConfirmation(null);
+      setPendingAnimalRegistration(null);
       setPendingFieldConfirmation(null);
       setStatus("idle");
     }
@@ -428,7 +485,7 @@ export default function CampoPage() {
   };
 
   const isBusy = status === "sending";
-  const hasPending = pendingEvent !== null || pendingHerdResponse !== null || pendingFieldConfirmation !== null;
+  const hasPending = pendingEvent !== null || pendingAnimalRegistration !== null || pendingHerdResponse !== null || pendingFieldConfirmation !== null;
 
   return (
     <main className="flex min-h-[calc(100vh-5rem)] flex-col bg-slate-950">
@@ -588,6 +645,43 @@ export default function CampoPage() {
               {isBusy ? "Confirmando..." : pendingFieldConfirmation.actionLabel}
             </button>
             <button type="button" onClick={cancelPending} className="rounded-xl border border-slate-600 px-5 py-3 text-base text-slate-300">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Pending animal registration */}
+      {pendingAnimalRegistration ? (
+        <div className="mx-4 mt-4 rounded-xl border-2 border-emerald-700 bg-slate-900 p-5">
+          <p className="text-xs uppercase tracking-widest text-emerald-400">Confirmar alta</p>
+          <p className="mt-3 text-2xl font-bold text-white">{pendingAnimalRegistration.animal.earTag}</p>
+          <p className="mt-1 text-lg text-emerald-300">Alta de animal y asignación a potrero</p>
+          <div className="mt-4 space-y-2">
+            <div className="flex justify-between rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200">
+              <span className="text-slate-400">Categoría</span>
+              <span className="font-semibold">{pendingAnimalRegistration.animal.category ?? "Sin informar"}</span>
+            </div>
+            <div className="flex justify-between rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200">
+              <span className="text-slate-400">Potrero</span>
+              <span className="font-semibold">{pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}</span>
+            </div>
+          </div>
+          {pendingAnimalRegistration.animal.notes ? <p className="mt-3 text-sm text-slate-400">{pendingAnimalRegistration.animal.notes}</p> : null}
+          <div className="mt-5 flex gap-3">
+            <button
+              type="button"
+              onClick={confirmAnimalRegistration}
+              disabled={isBusy}
+              className="flex-1 rounded-xl bg-emerald-500 py-3 text-base font-bold text-slate-950 disabled:opacity-50"
+            >
+              {isBusy ? "Guardando..." : "Confirmar alta"}
+            </button>
+            <button
+              type="button"
+              onClick={cancelPending}
+              className="rounded-xl border border-slate-600 px-5 py-3 text-base text-slate-300"
+            >
               Cancelar
             </button>
           </div>
