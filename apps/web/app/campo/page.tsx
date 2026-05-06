@@ -63,10 +63,31 @@ type FieldTask = {
   id: string;
   establishmentId: string;
   title: string;
-  notes: string;
+  description: string | null;
+  type: string;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "PENDING" | "IN_PROGRESS" | "DONE" | "CANCELLED" | "OVERDUE";
+  scheduledAt: string | null;
+  dueDate: string | null;
   earTag: string | null;
-  status: "PENDIENTE" | "COMPLETADA";
+  paddockName: string | null;
   createdAt: string;
+};
+
+type FieldKpis = {
+  totalAnimals: number;
+  pregnantFemales: number;
+  pendingTasks: number;
+  urgentTasks: number;
+};
+
+type FieldConfirmationState = {
+  token: string;
+  message: string;
+  title: string;
+  sections: Array<{ label: string; value: string; severity?: "normal" | "warning" | "critical" }>;
+  actionLabel: string;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
 };
 
 type Feedback = { kind: "success" | "info" | "error"; text: string };
@@ -99,7 +120,7 @@ const getSpeechRecognition = (): SpeechRecognitionCtor | null => {
 const formatTaskOptionLabel = (task: FieldTask) => {
   const detailParts = [
     task.earTag ? `Animal ${task.earTag}` : "Para cualquier animal",
-    task.notes ? `Qué hacer: ${task.notes}` : null,
+    task.description ? `Qué hacer: ${task.description}` : null,
   ].filter(Boolean);
   return `${task.title} — ${detailParts.join(" · ")}`;
 };
@@ -113,7 +134,9 @@ export default function CampoPage() {
   const [pendingEvent, setPendingEvent] = useState<PendingEvent | null>(null);
   const [pendingHerdResponse, setPendingHerdResponse] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
+  const [pendingFieldConfirmation, setPendingFieldConfirmation] = useState<FieldConfirmationState | null>(null);
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
+  const [fieldKpis, setFieldKpis] = useState<FieldKpis | null>(null);
   const [tasks, setTasks] = useState<FieldTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -122,7 +145,6 @@ export default function CampoPage() {
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const tasksStorageKey = "eg-field-tasks-v1";
 
   // Load establishments
   useEffect(() => {
@@ -146,15 +168,24 @@ export default function CampoPage() {
       .catch(() => {});
   }, [establishment]);
 
-  useEffect(() => {
+  const refreshFieldData = () => {
     if (!establishment) return;
-    try {
-      const raw = localStorage.getItem(tasksStorageKey);
-      const parsed = raw ? (JSON.parse(raw) as FieldTask[]) : [];
-      setTasks(parsed.filter((task) => task.establishmentId === establishment.id && task.status === "PENDIENTE"));
-    } catch {
-      setTasks([]);
-    }
+    const query = `establishmentId=${encodeURIComponent(establishment.id)}`;
+    Promise.all([
+      fetch(`${API_URL}/field/day-start?${query}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`${API_URL}/tasks?${query}&limit=5`, { cache: "no-store" }).then((r) => r.json()),
+    ])
+      .then(([dashboard, taskData]) => {
+        if (dashboard?.kpis) setFieldKpis(dashboard.kpis);
+        if (Array.isArray(taskData.tasks)) {
+          setTasks(taskData.tasks.filter((task: FieldTask) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE"));
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshFieldData();
   }, [establishment]);
 
   useEffect(() => {
@@ -209,12 +240,13 @@ export default function CampoPage() {
     setPendingEvent(null);
     setPendingHerdResponse(null);
     setPendingCommand(null);
+    setPendingFieldConfirmation(null);
 
     try {
       const previousHistory = chatHistory.slice(-20);
       setChatHistory((prev) => [...prev, { role: "user", content: prompt }]);
 
-      const res = await fetch(`${API_URL}/ai/chat`, {
+      const res = await fetch(`${API_URL}/field/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ establishmentId: establishment.id, prompt, history: previousHistory }),
@@ -222,17 +254,31 @@ export default function CampoPage() {
 
       const data = (await res.json()) as {
         response?: string;
+        message?: string;
         earTag?: string;
         detectedEventType?: string;
+        task?: FieldTask;
+        confirmation?: { token: string; actionLabel: string; riskLevel: "LOW" | "MEDIUM" | "HIGH" };
+        preview?: { title: string; sections: Array<{ label: string; value: string; severity?: "normal" | "warning" | "critical" }> };
         suggestedApiCall?: {
           endpoint: string;
           requestPreview?: PendingEvent | PendingCommand;
         };
       };
 
-      const assistantMessage = data.response ?? "Sin respuesta.";
+      const assistantMessage = data.message ?? data.response ?? "Sin respuesta.";
 
-      if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
+      if (data.confirmation) {
+        setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
+        setPendingFieldConfirmation({
+          token: data.confirmation.token,
+          message: assistantMessage,
+          title: data.preview?.title ?? "Confirmar acción",
+          sections: data.preview?.sections ?? [],
+          actionLabel: data.confirmation.actionLabel,
+          riskLevel: data.confirmation.riskLevel,
+        });
+      } else if (data.earTag && data.suggestedApiCall?.endpoint === "/traceability/events" && data.suggestedApiCall.requestPreview) {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
         setPendingEvent(data.suggestedApiCall.requestPreview as PendingEvent);
       } else if (data.suggestedApiCall?.endpoint === "/commands/confirm") {
@@ -241,7 +287,8 @@ export default function CampoPage() {
         setPendingCommand((data.suggestedApiCall.requestPreview as PendingCommand | undefined) ?? null);
       } else {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
-        setFeedback({ kind: "info", text: assistantMessage });
+        setFeedback({ kind: data.task ? "success" : "info", text: assistantMessage });
+        if (data.task) refreshFieldData();
       }
     } catch {
       setFeedback({ kind: "error", text: "No se pudo conectar con el servidor." });
@@ -263,20 +310,17 @@ export default function CampoPage() {
       });
 
       if (res.ok) {
-        if (selectedTaskId && establishment) {
+        if (selectedTaskId) {
           try {
-            const raw = localStorage.getItem(tasksStorageKey);
-            const parsed = raw ? (JSON.parse(raw) as FieldTask[]) : [];
-            const updated = parsed.map((task) => (
-              task.id === selectedTaskId && task.establishmentId === establishment.id
-                ? { ...task, status: "COMPLETADA" as const }
-                : task
-            ));
-            localStorage.setItem(tasksStorageKey, JSON.stringify(updated));
-            setTasks(updated.filter((task) => task.establishmentId === establishment.id && task.status === "PENDIENTE"));
+            await fetch(`${API_URL}/tasks/${selectedTaskId}/complete`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ notes: `Cerrada al confirmar ${EVENT_LABELS[pendingEvent.type]} de ${pendingEvent.earTag}` }),
+            });
             setSelectedTaskId("");
+            refreshFieldData();
           } catch {
-            // ignore storage issues
+            // ignore task completion issues
           }
         }
         setFeedback({
@@ -284,6 +328,7 @@ export default function CampoPage() {
           text: `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
         });
         refreshRecentEvents();
+        refreshFieldData();
       } else {
         setFeedback({ kind: "error", text: "No se pudo guardar el evento." });
       }
@@ -295,10 +340,34 @@ export default function CampoPage() {
     }
   };
 
+  const confirmFieldAction = async () => {
+    if (!pendingFieldConfirmation || !establishment) return;
+    setStatus("sending");
+    try {
+      const res = await fetch(`${API_URL}/field/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId: establishment.id, confirmationToken: pendingFieldConfirmation.token }),
+      });
+      if (!res.ok) throw new Error("No se pudo confirmar la acción.");
+      const data = (await res.json()) as { summary?: string };
+      setFeedback({ kind: "success", text: data.summary ?? "Acción confirmada." });
+      setChatHistory((prev) => [...prev, { role: "assistant", content: data.summary ?? "Acción confirmada." }]);
+      setPendingFieldConfirmation(null);
+      refreshRecentEvents();
+      refreshFieldData();
+    } catch (error) {
+      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "No se pudo confirmar." });
+    } finally {
+      setStatus("idle");
+    }
+  };
+
   const cancelPending = () => {
     setPendingEvent(null);
     setPendingHerdResponse(null);
     setPendingCommand(null);
+    setPendingFieldConfirmation(null);
     setFeedback(null);
   };
 
@@ -323,6 +392,8 @@ export default function CampoPage() {
     } finally {
       setPendingHerdResponse(null);
       setPendingCommand(null);
+    setPendingFieldConfirmation(null);
+      setPendingFieldConfirmation(null);
       setStatus("idle");
     }
   };
@@ -335,7 +406,7 @@ export default function CampoPage() {
   };
 
   const isBusy = status === "sending";
-  const hasPending = pendingEvent !== null || pendingHerdResponse !== null;
+  const hasPending = pendingEvent !== null || pendingHerdResponse !== null || pendingFieldConfirmation !== null;
 
   return (
     <main className="flex min-h-[calc(100vh-5rem)] flex-col bg-slate-950">
@@ -362,6 +433,22 @@ export default function CampoPage() {
           )}
         </div>
       </header>
+
+      {fieldKpis ? (
+        <section className="grid grid-cols-4 gap-2 px-4 pt-4">
+          {[
+            ["RODEO", fieldKpis.totalAnimals],
+            ["PREÑEZ", fieldKpis.pregnantFemales],
+            ["PEND.", fieldKpis.pendingTasks],
+            ["URG.", fieldKpis.urgentTasks],
+          ].map(([label, value]) => (
+            <div key={label} className={`rounded-lg p-3 ${label === "URG." && Number(value) > 0 ? "bg-red-950/70" : label === "PEND." && Number(value) > 0 ? "bg-amber-950/70" : "bg-emerald-950/40"}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{label}</p>
+              <p className="text-xl font-bold text-emerald-300">{value}</p>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {/* Recent events */}
       <section className="px-4 pt-4">
@@ -415,6 +502,35 @@ export default function CampoPage() {
               : "border border-slate-700 bg-slate-900 text-slate-200"
         }`}>
           {feedback.text}
+        </div>
+      ) : null}
+
+      {pendingFieldConfirmation ? (
+        <div className={`mx-4 mt-4 rounded-xl border-2 p-5 ${pendingFieldConfirmation.riskLevel === "HIGH" ? "border-red-700 bg-red-950/30" : "border-emerald-700 bg-slate-900"}`}>
+          <p className="text-xs uppercase tracking-widest text-emerald-400">Confirmar acción</p>
+          <p className="mt-3 text-xl font-bold text-white">{pendingFieldConfirmation.title}</p>
+          <p className="mt-2 text-sm text-slate-300">{pendingFieldConfirmation.message}</p>
+          <div className="mt-4 space-y-2">
+            {pendingFieldConfirmation.sections.map((section) => (
+              <div key={`${section.label}-${section.value}`} className={`flex justify-between rounded-lg px-3 py-2 text-sm ${section.severity === "critical" ? "bg-red-950/70 text-red-100" : section.severity === "warning" ? "bg-amber-950/70 text-amber-100" : "bg-slate-800 text-slate-200"}`}>
+                <span className="text-slate-400">{section.label}</span>
+                <span className="font-semibold">{section.value}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 flex gap-3">
+            <button
+              type="button"
+              onClick={confirmFieldAction}
+              disabled={isBusy}
+              className="flex-1 rounded-xl bg-emerald-500 py-3 text-base font-bold text-slate-950 disabled:opacity-50"
+            >
+              {isBusy ? "Confirmando..." : pendingFieldConfirmation.actionLabel}
+            </button>
+            <button type="button" onClick={cancelPending} className="rounded-xl border border-slate-600 px-5 py-3 text-base text-slate-300">
+              Cancelar
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -547,7 +663,7 @@ export default function CampoPage() {
           <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
           <ul className="mt-2 space-y-1 text-sm text-slate-300">
             {tasks.slice(0, 5).map((task) => (
-              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}</li>
+              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}{task.priority === "URGENT" ? " — urgente" : ""}</li>
             ))}
           </ul>
         </section>
