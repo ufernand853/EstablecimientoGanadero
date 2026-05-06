@@ -47,12 +47,20 @@ export default function GestionTareasPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [visibleFilter, setVisibleFilter] = useState<"PENDING" | "DONE" | "ALL">("PENDING");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeTasks = useMemo(() => tasks.filter((task) => task.status !== "DONE" && task.status !== "CANCELLED"), [tasks]);
   const doneTasks = useMemo(() => tasks.filter((task) => task.status === "DONE"), [tasks]);
+  const visibleTasks = useMemo(() => {
+    if (visibleFilter === "PENDING") return activeTasks;
+    if (visibleFilter === "DONE") return doneTasks;
+    return tasks;
+  }, [activeTasks, doneTasks, tasks, visibleFilter]);
 
   const loadTasks = async (targetEstablishmentId = establishmentId) => {
     if (!targetEstablishmentId) return;
@@ -117,6 +125,32 @@ export default function GestionTareasPage() {
     }
   };
 
+  const createTaskWithAi = async () => {
+    if (!establishmentId || !aiPrompt.trim()) return;
+    setSaving(true);
+    setError(null);
+    setAiResponse(null);
+    try {
+      const response = await fetch(`${API_URL}/field/assistant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId, prompt: aiPrompt.trim() }),
+      });
+      if (!response.ok) throw new Error("No se pudo procesar la instrucción IA.");
+      const data = (await response.json()) as { message?: string; task?: FieldTask; mode?: string };
+      setAiResponse(data.message ?? "Instrucción procesada.");
+      if (data.task) {
+        setAiPrompt("");
+        setVisibleFilter("PENDING");
+        await loadTasks(establishmentId);
+      }
+    } catch (aiError) {
+      setError(aiError instanceof Error ? aiError.message : "Error inesperado.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const completeTask = async (taskId: string) => {
     setSaving(true);
     try {
@@ -136,7 +170,7 @@ export default function GestionTareasPage() {
         <div>
           <p className="text-sm uppercase tracking-widest text-emerald-400">Modo gestión</p>
           <h2 className="text-2xl font-semibold">Tareas del establecimiento</h2>
-          <p className="mt-1 text-sm text-slate-400">Creá, priorizá y cerrá tareas operativas que también aparecen en modo campo.</p>
+          <p className="mt-1 text-sm text-slate-400">Creá, priorizá y cerrá tareas operativas que también aparecen en modo campo. Las pendientes se muestran abajo por defecto.</p>
         </div>
         <select
           className="rounded bg-slate-900 px-3 py-2 text-sm text-slate-200"
@@ -167,8 +201,31 @@ export default function GestionTareasPage() {
         </div>
       </section>
 
+      <section className="rounded-lg border border-emerald-800 bg-emerald-950/20 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-emerald-400">Interfaz IA de gestión</p>
+            <h3 className="mt-1 text-lg font-semibold">Cargar tareas por lenguaje natural</h3>
+            <p className="mt-1 text-sm text-emerald-100/80">Ejemplos: “Crear tarea urgente verificar Potrero 1 mañana 8 hs” o “Agendar chequeo veterinario cría 858204790112”.</p>
+          </div>
+          <span className="rounded bg-slate-950 px-3 py-1 text-xs text-emerald-300">También queda visible en modo campo</span>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 md:flex-row">
+          <textarea
+            value={aiPrompt}
+            onChange={(event) => setAiPrompt(event.target.value)}
+            placeholder="Escribí una instrucción para crear/cerrar tareas..."
+            className="min-h-20 flex-1 rounded bg-slate-950 px-3 py-2 text-sm text-white placeholder-slate-500"
+          />
+          <button type="button" onClick={createTaskWithAi} disabled={saving || !aiPrompt.trim()} className="rounded bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50">
+            {saving ? "Procesando..." : "Crear con IA"}
+          </button>
+        </div>
+        {aiResponse ? <p className="mt-3 whitespace-pre-wrap rounded border border-emerald-900 bg-slate-950 p-3 text-sm text-emerald-100">{aiResponse}</p> : null}
+      </section>
+
       <section className="rounded-lg bg-slate-900 p-5">
-        <h3 className="text-lg font-semibold">Crear tarea</h3>
+        <h3 className="text-lg font-semibold">Crear tarea manual</h3>
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px]">
           <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ej: Verificar Potrero 1" className="rounded bg-slate-800 px-3 py-2 text-sm text-white" />
           <select value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)} className="rounded bg-slate-800 px-3 py-2 text-sm text-white">
@@ -180,12 +237,31 @@ export default function GestionTareasPage() {
       </section>
 
       <section className="rounded-lg bg-slate-900 p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Listado operativo</h3>
-          <button type="button" onClick={() => loadTasks(establishmentId)} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300">{loading ? "Cargando..." : "Recargar"}</button>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">Tareas visibles</h3>
+            <p className="text-sm text-slate-400">Por defecto ves solo pendientes/en curso/vencidas.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["PENDING", `Pendientes (${activeTasks.length})`],
+              ["DONE", `Hechas (${doneTasks.length})`],
+              ["ALL", `Todas (${tasks.length})`],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setVisibleFilter(value as "PENDING" | "DONE" | "ALL")}
+                className={`rounded px-3 py-1 text-xs ${visibleFilter === value ? "bg-emerald-500 font-semibold text-slate-950" : "border border-slate-700 text-slate-300"}`}
+              >
+                {label}
+              </button>
+            ))}
+            <button type="button" onClick={() => loadTasks(establishmentId)} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300">{loading ? "Cargando..." : "Recargar"}</button>
+          </div>
         </div>
         <div className="space-y-2">
-          {tasks.map((task) => (
+          {visibleTasks.map((task) => (
             <article key={task.id} className={`rounded-lg border p-4 ${task.priority === "URGENT" && task.status !== "DONE" ? "border-red-800 bg-red-950/30" : "border-slate-800 bg-slate-950/60"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -197,7 +273,7 @@ export default function GestionTareasPage() {
               </div>
             </article>
           ))}
-          {!tasks.length && !loading ? <p className="text-sm text-slate-500">No hay tareas cargadas.</p> : null}
+          {!visibleTasks.length && !loading ? <p className="text-sm text-slate-500">No hay tareas para este filtro.</p> : null}
         </div>
       </section>
     </main>
