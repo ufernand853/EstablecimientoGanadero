@@ -36,6 +36,7 @@ export default function OperationsPage() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [fromPaddockId, setFromPaddockId] = useState("");
   const [toPaddockId, setToPaddockId] = useState("");
+  const [toPaddockName, setToPaddockName] = useState("");
   const [category, setCategory] = useState("TERNEROS");
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +87,14 @@ export default function OperationsPage() {
       const response = await fetch(`${API_URL}/movements`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ establishmentId, fromPaddockId, toPaddockId, category, quantity: Number(quantity) }),
+        body: JSON.stringify({
+          establishmentId,
+          fromPaddockId,
+          toPaddockId: toPaddockId || undefined,
+          toPaddockName: toPaddockName.trim() || undefined,
+          category,
+          quantity: Number(quantity),
+        }),
       });
       if (!response.ok) {
         const data = await response.json();
@@ -133,13 +141,20 @@ export default function OperationsPage() {
 
       <section className="rounded-lg bg-slate-900 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Nuevo movimiento</h3>
-        <form className="mt-3 grid gap-3 md:grid-cols-5" onSubmit={handleCreateMovement}>
+        <form className="mt-3 grid gap-3 md:grid-cols-6" onSubmit={handleCreateMovement}>
           <select className="rounded bg-slate-800 p-2 text-sm" value={fromPaddockId} onChange={(e) => setFromPaddockId(e.target.value)}>
             {paddocks.map((p) => <option key={p.id} value={p.id}>Desde: {p.name}</option>)}
           </select>
           <select className="rounded bg-slate-800 p-2 text-sm" value={toPaddockId} onChange={(e) => setToPaddockId(e.target.value)}>
+            <option value="">Hacia: (nuevo temporal)</option>
             {paddocks.map((p) => <option key={p.id} value={p.id}>Hacia: {p.name}</option>)}
           </select>
+          <input
+            className="rounded bg-slate-800 p-2 text-sm"
+            placeholder="Nombre potrero destino (si es nuevo)"
+            value={toPaddockName}
+            onChange={(e) => setToPaddockName(e.target.value)}
+          />
           <select className="rounded bg-slate-800 p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
             {categories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
           </select>
