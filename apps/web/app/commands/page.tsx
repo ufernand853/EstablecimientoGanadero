@@ -42,6 +42,19 @@ type PendingTraceabilityEvent = {
   occurredAt?: string;
 };
 
+type PendingAnimalRegistration = {
+  animal: {
+    establishmentId: string;
+    earTag: string;
+    name: string;
+    sex?: "MACHO" | "HEMBRA" | "OTRO";
+    category?: string | null;
+    status?: "ACTIVO" | "VENDIDO" | "MUERTO";
+    notes?: string | null;
+  };
+  traceabilityEvent: PendingTraceabilityEvent;
+};
+
 type CommandLog = {
   id: string;
   stage: "PARSED" | "PARSE_ERROR" | "CONFIRM_SUCCESS" | "CONFIRM_ERROR";
@@ -57,7 +70,7 @@ type SuggestedApiCall = {
   requiresConfirmation: boolean;
   isReady: boolean;
   missingOrInvalidFields: string[];
-  requestPreview?: PendingTraceabilityEvent;
+  requestPreview?: PendingTraceabilityEvent | PendingAnimalRegistration;
 };
 
 type AIBehavior = {
@@ -250,6 +263,7 @@ export default function CommandsPage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [pendingTraceabilityEvent, setPendingTraceabilityEvent] = useState<PendingTraceabilityEvent | null>(null);
+  const [pendingAnimalRegistration, setPendingAnimalRegistration] = useState<PendingAnimalRegistration | null>(null);
   const [meta, setMeta] = useState<{ paddocks: number; stockRows: number; movements: number; healthEvents: number } | null>(null);
   const [logs, setLogs] = useState<CommandLog[]>([]);
   const [showLogs, setShowLogs] = useState(false);
@@ -463,6 +477,44 @@ export default function CommandsPage() {
     };
   };
 
+  const executePendingTraceabilityEvent = async (eventPreview: PendingTraceabilityEvent) => {
+    const saveResponse = await fetch(`${API_URL}/traceability/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(eventPreview),
+    });
+    const saveBody = await saveResponse.json().catch(() => ({}));
+    return {
+      applied: saveResponse.ok,
+      summary: saveResponse.ok
+        ? `Evento guardado para caravana ${eventPreview.earTag}.`
+        : `No se pudo guardar el evento individual: ${typeof saveBody?.message === "string" ? saveBody.message : "error de validación o servidor."}`,
+    };
+  };
+
+  const executePendingAnimalRegistration = async (registration: PendingAnimalRegistration) => {
+    const animalResponse = await fetch(`${API_URL}/animals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registration.animal),
+    });
+    const animalBody = await animalResponse.json().catch(() => ({}));
+    if (!animalResponse.ok) {
+      return {
+        applied: false,
+        summary: `No se pudo dar de alta la caravana ${registration.animal.earTag}: ${typeof animalBody?.message === "string" ? animalBody.message : "error de validación o servidor."}`,
+      };
+    }
+
+    const eventResult = await executePendingTraceabilityEvent(registration.traceabilityEvent);
+    return {
+      applied: eventResult.applied,
+      summary: eventResult.applied
+        ? `Animal ${registration.animal.earTag} dado de alta y asociado al potrero ${registration.traceabilityEvent.paddockName ?? "Temporal"}.`
+        : `El animal ${registration.animal.earTag} fue dado de alta, pero ${eventResult.summary}`,
+    };
+  };
+
   const sendPrompt = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -508,21 +560,42 @@ export default function CommandsPage() {
           return;
         }
 
-        const saveResponse = await fetch(`${API_URL}/traceability/events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(pendingTraceabilityEvent),
-        });
+        const eventResult = await executePendingTraceabilityEvent(pendingTraceabilityEvent);
         setPendingTraceabilityEvent(null);
-        const saveBody = await saveResponse.json().catch(() => ({}));
         setMessages((prev) => [
           ...prev,
           {
             id: createMessageId(),
             role: "assistant",
-            content: saveResponse.ok
-              ? `✅ Evento reproductivo guardado para caravana ${pendingTraceabilityEvent.earTag}.`
-              : `⚠️ No se pudo guardar el evento individual: ${typeof saveBody?.message === "string" ? saveBody.message : "error de validación o servidor."}`,
+            content: eventResult.applied ? `✅ ${eventResult.summary}` : `⚠️ ${eventResult.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
+      if (pendingAnimalRegistration) {
+        if (!isConfirmationKeyword(prompt)) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ Hay un alta de animal pendiente. Usá el botón Confirmar (o escribí: confirmado).",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        const registrationResult = await executePendingAnimalRegistration(pendingAnimalRegistration);
+        setPendingAnimalRegistration(null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: registrationResult.applied ? `✅ ${registrationResult.summary}` : `⚠️ ${registrationResult.summary}`,
           },
         ]);
         setStatus("idle");
@@ -756,11 +829,26 @@ export default function CommandsPage() {
         }
       }
       if (
+        data.suggestedApiCall?.endpoint === "/animals + /traceability/events"
+        && data.suggestedApiCall.requestPreview
+        && data.earTag
+      ) {
+        setPendingAnimalRegistration(data.suggestedApiCall.requestPreview as PendingAnimalRegistration);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: "Para guardar el alta del animal y la asignación al potrero, usá el botón Confirmar.",
+          },
+        ]);
+      }
+      if (
         data.suggestedApiCall?.endpoint === "/traceability/events"
         && data.suggestedApiCall.requestPreview
         && data.earTag
       ) {
-        setPendingTraceabilityEvent(data.suggestedApiCall.requestPreview);
+        setPendingTraceabilityEvent(data.suggestedApiCall.requestPreview as PendingTraceabilityEvent);
         setMessages((prev) => [
           ...prev,
           {
@@ -887,7 +975,7 @@ export default function CommandsPage() {
                 ⏹ Detener voz
               </button>
             )}
-            {(pendingCommand || pendingTraceabilityEvent) && (
+            {(pendingCommand || pendingTraceabilityEvent || pendingAnimalRegistration) && (
               <button
                 type="button"
                 className="rounded bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950"
