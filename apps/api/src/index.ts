@@ -674,9 +674,11 @@ const appendActivityFeed = async (input: Omit<ActivityFeedItem, "id" | "createdA
   return item;
 };
 
-const createFieldTask = async (input: z.infer<typeof taskCreateSchema>) => {
+const createFieldTask = async (input: z.input<typeof taskCreateSchema>) => {
   const { tasks } = await getCollections();
   const now = new Date().toISOString();
+  const scheduledAt = input.scheduledAt ?? now;
+  const dueDate = input.dueDate ?? scheduledAt;
   const task: FieldTask = {
     id: randomUUID(),
     establishmentId: input.establishmentId,
@@ -685,11 +687,11 @@ const createFieldTask = async (input: z.infer<typeof taskCreateSchema>) => {
     type: input.type ?? "FIELD_CHECK",
     status: input.status ?? "PENDING",
     priority: input.priority ?? "MEDIUM",
-    dueDate: input.dueDate ?? null,
-    scheduledAt: input.scheduledAt ?? null,
+    dueDate,
+    scheduledAt,
     completedAt: null,
     assignedToUserId: input.assignedToUserId ?? null,
-    assignedRole: input.assignedRole ?? null,
+    assignedRole: input.assignedRole?.trim() || null,
     paddockId: input.paddockId ?? null,
     paddockName: input.paddockName?.trim() || null,
     animalId: input.animalId ?? null,
@@ -744,6 +746,17 @@ const completeFieldTask = async (task: FieldTask, completedAt = new Date().toISO
     paddockName: task.paddockName,
   });
   return updated;
+};
+
+const isTaskCreationPrompt = (normalized: string) => /\b(crea|crear|agendar|agenda|programar|programa|recordame|recordar|nueva|nuevo)\b/.test(normalized)
+  && /\b(tarea|actividad|recordatorio|revisar|verificar|chequeo|recorrida|tacto|pesaje)\b/.test(normalized);
+
+const extractTaskResponsibleFromText = (text: string) => {
+  const match = text.match(/(?:responsable\s*(?:es|:)?|asignad[oa]\s+a|asignar\s+a|para)\s+([a-záéíóúñ][a-záéíóúñ\s.'-]{1,80}?)(?=\s+(?:en|del|de la|de el|para el|mañana|manana|hoy|a las|urgente|alta|media|baja)\b|[,.;]|$)/i);
+  const responsible = match?.[1]
+    ?.replace(/\s+/g, " ")
+    .trim();
+  return responsible || null;
 };
 
 const parseRelativeSchedule = (text: string) => {
@@ -2257,9 +2270,11 @@ app.post("/field/assistant", async (request, reply) => {
     return reply.send({ mode: "ANSWER", message: `Listo, marqué como hecha: ${updated.title}.`, intent: "COMPLETE_TASK", confidence: 0.78, task: updated });
   }
 
-  if (/\b(crea|crear|agendar|agenda|programar|programa|recordame|recordar)\b/.test(normalized) && /\b(tarea|actividad|recordatorio|revisar|verificar|chequeo|recorrida|tacto|pesaje)\b/.test(normalized)) {
-    const scheduledAt = parseRelativeSchedule(prompt);
+  if (isTaskCreationPrompt(normalized)) {
+    const now = new Date().toISOString();
+    const scheduledAt = parseRelativeSchedule(prompt) ?? now;
     const paddockName = extractPaddockNameFromText(prompt);
+    const assignedRole = extractTaskResponsibleFromText(prompt);
     const task = await createFieldTask({
       establishmentId: body.data.establishmentId,
       title: extractTaskTitle(prompt),
@@ -2268,11 +2283,18 @@ app.post("/field/assistant", async (request, reply) => {
       priority: inferTaskPriority(prompt),
       scheduledAt,
       dueDate: scheduledAt,
+      assignedRole,
       paddockName,
       earTag: detectEarTagInText(prompt),
       source: "FIELD_COMMAND",
     });
-    return reply.send({ mode: "ANSWER", message: `Tarea creada: ${task.title}.`, intent: "CREATE_TASK", confidence: 0.86, task });
+    return reply.send({
+      mode: "ANSWER",
+      message: `Tarea creada y guardada en backend: ${task.title}. Fecha: ${task.scheduledAt}${task.assignedRole ? `. Responsable: ${task.assignedRole}` : ". Sin responsable asignado"}. Ya queda visible en modo campo para marcarla como cumplida.`,
+      intent: "CREATE_TASK",
+      confidence: 0.86,
+      task,
+    });
   }
 
   if (/\b(dar de alta|crear|alta)\b/.test(normalized) && /\bpotrero\b/.test(normalized)) {
@@ -2833,6 +2855,48 @@ app.post("/ai/chat", async (request, reply) => {
   const establishment = await findEstablishmentById(body.data.establishmentId);
   if (!establishment) {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const normalizedPrompt = normalizeFieldText(body.data.prompt);
+  if (isTaskCreationPrompt(normalizedPrompt)) {
+    const now = new Date().toISOString();
+    const scheduledAt = parseRelativeSchedule(body.data.prompt) ?? now;
+    const assignedRole = extractTaskResponsibleFromText(body.data.prompt);
+    const task = await createFieldTask({
+      establishmentId: body.data.establishmentId,
+      title: extractTaskTitle(body.data.prompt),
+      description: body.data.prompt.trim(),
+      type: inferTaskType(body.data.prompt),
+      priority: inferTaskPriority(body.data.prompt),
+      scheduledAt,
+      dueDate: scheduledAt,
+      assignedRole,
+      paddockName: extractPaddockNameFromText(body.data.prompt),
+      earTag: detectEarTagInText(body.data.prompt),
+      source: "FIELD_COMMAND",
+    });
+
+    await appendCommandLog({
+      establishmentId: body.data.establishmentId,
+      source: "AI_CHAT",
+      stage: "CONFIRM_SUCCESS",
+      intent: "CREATE_TASK",
+      message: "Tarea creada desde chat IA y guardada para modo campo.",
+      payload: { prompt: body.data.prompt, taskId: task.id },
+    });
+
+    return reply.send({
+      response: `✅ Tarea creada y guardada en backend: ${task.title}. Fecha: ${task.scheduledAt}${task.assignedRole ? `. Responsable: ${task.assignedRole}` : ". Sin responsable asignado"}. Ya queda visible en modo campo para marcarla como cumplida.`,
+      task,
+      suggestedApiCall: {
+        action: "crear_tarea_campo",
+        endpoint: "/tasks",
+        method: "POST",
+        requiresConfirmation: false,
+        isReady: true,
+        requestPreview: task,
+      },
+    });
   }
 
   // Detección de caravana individual — tiene prioridad sobre el parser de lotes
