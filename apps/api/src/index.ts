@@ -108,6 +108,58 @@ const TRACEABILITY_EVENT_TYPES = [
   "OBSERVACION",
 ] as const;
 
+const taskCreateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  title: z.string().min(3).max(200),
+  description: z.string().max(2000).optional().nullable(),
+  type: z.enum([
+    "FIELD_CHECK",
+    "HEALTH",
+    "REPRODUCTION",
+    "BIRTH_FOLLOW_UP",
+    "PADDOCK_REVIEW",
+    "WEIGHING",
+    "MOVEMENT",
+    "ADMIN",
+    "VETERINARY",
+    "INFRASTRUCTURE",
+  ]).default("FIELD_CHECK"),
+  status: z.enum(["PENDING", "IN_PROGRESS", "DONE", "CANCELLED", "OVERDUE"]).default("PENDING"),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
+  dueDate: z.string().datetime().optional().nullable(),
+  scheduledAt: z.string().datetime().optional().nullable(),
+  assignedToUserId: z.string().optional().nullable(),
+  assignedRole: z.string().optional().nullable(),
+  paddockId: z.string().uuid().optional().nullable(),
+  paddockName: z.string().max(200).optional().nullable(),
+  animalId: z.string().uuid().optional().nullable(),
+  earTag: z.string().max(50).optional().nullable(),
+  source: z.enum(["MANUAL", "FIELD_COMMAND", "SYSTEM_RULE", "HEALTH_EVENT", "REPRODUCTION_EVENT", "TRACEABILITY_EVENT"]).default("MANUAL"),
+  sourceEventId: z.string().optional().nullable(),
+  createdBy: z.string().max(200).optional().nullable(),
+});
+
+const taskUpdateSchema = taskCreateSchema.omit({ establishmentId: true }).partial();
+
+const taskCompleteSchema = z.object({
+  completedAt: z.string().datetime().optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+const fieldAssistantSchema = z.object({
+  establishmentId: z.string().uuid(),
+  prompt: z.string().min(2),
+  history: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1),
+  })).max(20).optional(),
+});
+
+const fieldConfirmSchema = z.object({
+  establishmentId: z.string().uuid(),
+  confirmationToken: z.string().min(8),
+});
+
 const traceabilityEventCreateSchema = z.object({
   establishmentId: z.string().uuid(),
   earTag: z.string().min(1).max(50),
@@ -451,6 +503,83 @@ type TraceabilityEventType =
   | "ENVIO_FRIGORIFICO"
   | "OBSERVACION";
 
+type TaskStatus = "PENDING" | "IN_PROGRESS" | "DONE" | "CANCELLED" | "OVERDUE";
+type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+type TaskType =
+  | "FIELD_CHECK"
+  | "HEALTH"
+  | "REPRODUCTION"
+  | "BIRTH_FOLLOW_UP"
+  | "PADDOCK_REVIEW"
+  | "WEIGHING"
+  | "MOVEMENT"
+  | "ADMIN"
+  | "VETERINARY"
+  | "INFRASTRUCTURE";
+
+type FieldTask = {
+  id: string;
+  establishmentId: string;
+  title: string;
+  description: string | null;
+  type: TaskType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  scheduledAt: string | null;
+  completedAt: string | null;
+  assignedToUserId: string | null;
+  assignedRole: string | null;
+  paddockId: string | null;
+  paddockName: string | null;
+  animalId: string | null;
+  earTag: string | null;
+  source: "MANUAL" | "FIELD_COMMAND" | "SYSTEM_RULE" | "HEALTH_EVENT" | "REPRODUCTION_EVENT" | "TRACEABILITY_EVENT";
+  sourceEventId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ActivityFeedItem = {
+  id: string;
+  establishmentId: string;
+  activityType:
+    | "TASK_CREATED"
+    | "TASK_UPDATED"
+    | "TASK_COMPLETED"
+    | "TRACEABILITY_EVENT_CREATED"
+    | "HEALTH_EVENT_CREATED"
+    | "REPRODUCTION_EVENT_CREATED"
+    | "MOVEMENT_CREATED"
+    | "PADDOCK_CREATED"
+    | "REPORT_GENERATED"
+    | "COMMAND_CONFIRMED";
+  title: string;
+  summary: string;
+  occurredAt: string;
+  priority: TaskPriority;
+  status: "INFO" | "PENDING" | "DONE" | "WARNING" | "CRITICAL";
+  sourceCollection: string;
+  sourceId: string;
+  earTag: string | null;
+  paddockId: string | null;
+  paddockName: string | null;
+  createdAt: string;
+};
+
+type FieldConfirmation = {
+  id: string;
+  establishmentId: string;
+  confirmationToken: string;
+  intent: string;
+  action: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+};
+
 type TraceabilityCaptureSource = "MANUAL" | "COMANDO_IA" | "RFID" | "FOTO";
 
 type TraceabilityEvent = {
@@ -514,7 +643,234 @@ const getCollections = async () => {
     billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
     billingEvents: db.collection<BillingEvent>("billing_events"),
     traceabilityEvents: db.collection<TraceabilityEvent>("traceability_events"),
+    tasks: db.collection<FieldTask>("tasks"),
+    activityFeed: db.collection<ActivityFeedItem>("activity_feed"),
+    fieldConfirmations: db.collection<FieldConfirmation>("field_confirmations"),
   };
+};
+
+const normalizeFieldText = (value: string) => value
+  .normalize("NFD")
+  .replace(/\p{Diacritic}/gu, "")
+  .toLowerCase()
+  .replace(/\s+/g, " ")
+  .trim();
+
+const priorityToActivityStatus = (priority: TaskPriority): ActivityFeedItem["status"] => {
+  if (priority === "URGENT") return "CRITICAL";
+  if (priority === "HIGH") return "WARNING";
+  return "PENDING";
+};
+
+const appendActivityFeed = async (input: Omit<ActivityFeedItem, "id" | "createdAt">) => {
+  const { activityFeed } = await getCollections();
+  const now = new Date().toISOString();
+  const item: ActivityFeedItem = {
+    id: randomUUID(),
+    createdAt: now,
+    ...input,
+  };
+  await activityFeed.insertOne(item);
+  return item;
+};
+
+const createFieldTask = async (input: z.infer<typeof taskCreateSchema>) => {
+  const { tasks } = await getCollections();
+  const now = new Date().toISOString();
+  const task: FieldTask = {
+    id: randomUUID(),
+    establishmentId: input.establishmentId,
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
+    type: input.type ?? "FIELD_CHECK",
+    status: input.status ?? "PENDING",
+    priority: input.priority ?? "MEDIUM",
+    dueDate: input.dueDate ?? null,
+    scheduledAt: input.scheduledAt ?? null,
+    completedAt: null,
+    assignedToUserId: input.assignedToUserId ?? null,
+    assignedRole: input.assignedRole ?? null,
+    paddockId: input.paddockId ?? null,
+    paddockName: input.paddockName?.trim() || null,
+    animalId: input.animalId ?? null,
+    earTag: input.earTag?.trim().toUpperCase() || null,
+    source: input.source ?? "MANUAL",
+    sourceEventId: input.sourceEventId ?? null,
+    createdBy: input.createdBy?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await tasks.insertOne(task);
+  await appendActivityFeed({
+    establishmentId: task.establishmentId,
+    activityType: "TASK_CREATED",
+    title: `Tarea creada: ${task.title}`,
+    summary: task.description ?? task.title,
+    occurredAt: task.scheduledAt ?? task.dueDate ?? task.createdAt,
+    priority: task.priority,
+    status: priorityToActivityStatus(task.priority),
+    sourceCollection: "tasks",
+    sourceId: task.id,
+    earTag: task.earTag,
+    paddockId: task.paddockId,
+    paddockName: task.paddockName,
+  });
+  return task;
+};
+
+const completeFieldTask = async (task: FieldTask, completedAt = new Date().toISOString(), notes?: string) => {
+  const { tasks } = await getCollections();
+  const description = notes ? `${task.description ?? ""}\nCierre: ${notes}`.trim() : task.description;
+  const updated: FieldTask = {
+    ...task,
+    status: "DONE",
+    completedAt,
+    description,
+    updatedAt: new Date().toISOString(),
+  };
+  await tasks.updateOne({ id: task.id }, { $set: updated });
+  await appendActivityFeed({
+    establishmentId: task.establishmentId,
+    activityType: "TASK_COMPLETED",
+    title: `Tarea hecha: ${task.title}`,
+    summary: updated.description ?? task.title,
+    occurredAt: completedAt,
+    priority: task.priority,
+    status: "DONE",
+    sourceCollection: "tasks",
+    sourceId: task.id,
+    earTag: task.earTag,
+    paddockId: task.paddockId,
+    paddockName: task.paddockName,
+  });
+  return updated;
+};
+
+const parseRelativeSchedule = (text: string) => {
+  const normalized = normalizeFieldText(text);
+  const now = new Date();
+  const target = new Date(now);
+  if (normalized.includes("manana")) {
+    target.setDate(target.getDate() + 1);
+  }
+  const timeMatch = text.match(/(?:a las|hora|\b)(\d{1,2})(?::(\d{2}))?\s*(?:hs|h|horas)?/i);
+  if (timeMatch) {
+    target.setHours(Number(timeMatch[1]), Number(timeMatch[2] ?? 0), 0, 0);
+  } else {
+    target.setHours(8, 0, 0, 0);
+  }
+  if (normalized.includes("manana") || /\b\d{1,2}(?::\d{2})?\s*(hs|h|horas)\b/i.test(text) || /a las \d{1,2}/i.test(text)) {
+    return target.toISOString();
+  }
+  return null;
+};
+
+const inferTaskPriority = (text: string): TaskPriority => {
+  const normalized = normalizeFieldText(text);
+  if (/\burgente\b|\bcritico\b|\bcrítica\b|\bcritica\b/.test(normalized)) return "URGENT";
+  if (/\balta\b|\bimportante\b|\bvigil/.test(normalized)) return "HIGH";
+  if (/\bbaja\b/.test(normalized)) return "LOW";
+  return "MEDIUM";
+};
+
+const inferTaskType = (text: string): TaskType => {
+  const normalized = normalizeFieldText(text);
+  if (/vacun|sanidad|veterin|aftosa|brucel|tubercul/.test(normalized)) return "HEALTH";
+  if (/parto|preñ|prenez|tacto|cria|cría/.test(normalized)) return "REPRODUCTION";
+  if (/potrero|alambr|agua|bebedero|aguada|pastura/.test(normalized)) return "PADDOCK_REVIEW";
+  if (/peso|pesaj/.test(normalized)) return "WEIGHING";
+  if (/mover|traslad|rotacion|rotación/.test(normalized)) return "MOVEMENT";
+  return "FIELD_CHECK";
+};
+
+const extractPaddockNameFromText = (text: string) => {
+  const match = text.match(/potrero\s+([a-záéíóúñ0-9\- ]{1,60})/i);
+  if (!match?.[1]) return null;
+  return `Potrero ${match[1].trim().replace(/[.,;].*$/, "")}`.trim();
+};
+
+const extractTaskTitle = (text: string) => {
+  const cleaned = text
+    .replace(/^(crear|crea|agendar|agenda|programar|programa|recordar|recordame)\s+(una\s+)?(tarea|actividad|recordatorio)?\s*/i, "")
+    .replace(/^(urgente|importante|alta|media|baja)\s*:?\s*/i, "")
+    .trim();
+  return cleaned ? cleaned[0].toUpperCase() + cleaned.slice(1) : "Nueva tarea de campo";
+};
+
+const buildFieldConfirmation = async (input: Omit<FieldConfirmation, "id" | "createdAt" | "expiresAt" | "confirmedAt">) => {
+  const { fieldConfirmations } = await getCollections();
+  const now = new Date();
+  const confirmation: FieldConfirmation = {
+    id: randomUUID(),
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+    confirmedAt: null,
+    ...input,
+  };
+  await fieldConfirmations.insertOne(confirmation);
+  return confirmation;
+};
+
+const buildDayStartSummary = async (establishmentId: string) => {
+  const { animals, tasks, activityFeed, traceabilityEvents } = await getCollections();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const [totalAnimals, pregnantFemales, pendingTasks, urgentTasks, recentActivities, recentEvents] = await Promise.all([
+    animals.countDocuments({ establishmentId, status: "ACTIVO" }),
+    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÑEZ_CONFIRMADA" }).then((items) => items.length),
+    tasks.countDocuments({ establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }),
+    tasks.countDocuments({ establishmentId, priority: "URGENT", status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }),
+    activityFeed.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
+    traceabilityEvents.find({ establishmentId }).sort({ occurredAt: -1 }).limit(5).toArray(),
+  ]);
+  return {
+    kpis: { totalAnimals, pregnantFemales, pendingTasks, urgentTasks },
+    recentActivities,
+    recentEvents,
+  };
+};
+
+const buildPregnantFemalesAnswer = async (establishmentId: string) => {
+  const { traceabilityEvents } = await getCollections();
+  const events = await traceabilityEvents
+    .find({ establishmentId, type: "PREÑEZ_CONFIRMADA" })
+    .sort({ occurredAt: -1 })
+    .limit(200)
+    .toArray();
+  const latestByEarTag = new Map<string, TraceabilityEvent>();
+  for (const event of events) {
+    if (!latestByEarTag.has(event.earTag)) latestByEarTag.set(event.earTag, event);
+  }
+  const grouped = Array.from(latestByEarTag.values()).reduce<Record<string, TraceabilityEvent[]>>((acc, event) => {
+    const key = event.paddockName ?? "Sin potrero";
+    acc[key] = [...(acc[key] ?? []), event];
+    return acc;
+  }, {});
+  if (!latestByEarTag.size) {
+    return "No encontré hembras con preñez confirmada para este establecimiento.";
+  }
+  return `Tenés ${latestByEarTag.size} hembras preñadas:\n${Object.entries(grouped)
+    .map(([paddock, items]) => `\n${paddock}: ${items.length} hembra${items.length === 1 ? "" : "s"}\n${items.map((item) => `• ${item.earTag}${item.notes ? ` · ${item.notes}` : ""}`).join("\n")}`)
+    .join("\n")}`;
+};
+
+const ensureSystemTaskForTraceabilityEvent = async (event: TraceabilityEvent) => {
+  if (event.type === "MUERTE") {
+    await createFieldTask({
+      establishmentId: event.establishmentId,
+      title: `Verificar ${event.paddockName ?? "potrero"} por baja`,
+      description: `Baja por muerte de ${event.earTag}. Revisar causa, agua, alambrados y otros animales del lote.`,
+      type: "PADDOCK_REVIEW",
+      priority: "URGENT",
+      paddockId: event.paddockId,
+      paddockName: event.paddockName,
+      earTag: event.earTag,
+      source: "TRACEABILITY_EVENT",
+      sourceEventId: event.id,
+    });
+  }
 };
 
 const hashPassword = (password: string) => {
@@ -1053,7 +1409,7 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
   return null;
 };
 
-const EAR_TAG_REGEX = /\b([A-Za-z]{2,3}[\-\s]?\d{4,8}|\d{4,8})\b/i;
+const EAR_TAG_REGEX = /\b(858\d{9}|[A-Za-z]{2,3}[\-\s]?\d{4,8}|\d{4,8})\b/i;
 
 const detectEarTagInText = (text: string): string | null => {
   const match = text.match(EAR_TAG_REGEX);
@@ -1590,6 +1946,425 @@ const incidentUpdateSchema = z.object({
 });
 
 app.get("/health", async () => ({ status: "ok" }));
+
+app.get("/tasks", async (request, reply) => {
+  const query = request.query as {
+    establishmentId?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    type?: TaskType;
+    earTag?: string;
+    paddockId?: string;
+    fromDate?: string;
+    toDate?: string;
+    limit?: string;
+  };
+  if (!query.establishmentId) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  }
+  const { tasks } = await getCollections();
+  const filter: Record<string, unknown> = { establishmentId: query.establishmentId };
+  if (query.status) filter.status = query.status;
+  if (query.priority) filter.priority = query.priority;
+  if (query.type) filter.type = query.type;
+  if (query.earTag) filter.earTag = query.earTag.trim().toUpperCase();
+  if (query.paddockId) filter.paddockId = query.paddockId;
+  if (query.fromDate || query.toDate) {
+    const range: Record<string, string> = {};
+    if (query.fromDate) range.$gte = query.fromDate;
+    if (query.toDate) range.$lte = query.toDate;
+    filter.$or = [{ scheduledAt: range }, { dueDate: range }, { createdAt: range }];
+  }
+  const limit = Math.min(Number(query.limit ?? 200), 500);
+  const list = await tasks.find(filter).sort({ priority: -1, scheduledAt: 1, dueDate: 1, createdAt: -1 }).limit(limit).toArray();
+  return { tasks: list };
+});
+
+app.post("/tasks", async (request, reply) => {
+  const body = taskCreateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  const task = await createFieldTask(body.data);
+  return reply.status(201).send(task);
+});
+
+app.patch("/tasks/:id", async (request, reply) => {
+  const body = taskUpdateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { tasks } = await getCollections();
+  const existing = await tasks.findOne({ id: (request.params as { id: string }).id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Tarea no encontrada." });
+  const now = new Date().toISOString();
+  const updates: Partial<FieldTask> = {
+    ...body.data,
+    title: body.data.title?.trim(),
+    description: body.data.description === undefined ? undefined : body.data.description?.trim() || null,
+    paddockName: body.data.paddockName === undefined ? undefined : body.data.paddockName?.trim() || null,
+    earTag: body.data.earTag === undefined ? undefined : body.data.earTag?.trim().toUpperCase() || null,
+    updatedAt: now,
+  };
+  await tasks.updateOne({ id: existing.id }, { $set: updates });
+  const updated = await tasks.findOne({ id: existing.id });
+  await appendActivityFeed({
+    establishmentId: existing.establishmentId,
+    activityType: "TASK_UPDATED",
+    title: `Tarea actualizada: ${updates.title ?? existing.title}`,
+    summary: updates.description ?? existing.description ?? existing.title,
+    occurredAt: now,
+    priority: (updates.priority ?? existing.priority) as TaskPriority,
+    status: priorityToActivityStatus((updates.priority ?? existing.priority) as TaskPriority),
+    sourceCollection: "tasks",
+    sourceId: existing.id,
+    earTag: updates.earTag ?? existing.earTag,
+    paddockId: updates.paddockId ?? existing.paddockId,
+    paddockName: updates.paddockName ?? existing.paddockName,
+  });
+  return reply.send(updated);
+});
+
+app.post("/tasks/:id/complete", async (request, reply) => {
+  const body = taskCompleteSchema.safeParse(request.body ?? {});
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { tasks } = await getCollections();
+  const existing = await tasks.findOne({ id: (request.params as { id: string }).id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Tarea no encontrada." });
+  const updated = await completeFieldTask(existing, body.data.completedAt ?? new Date().toISOString(), body.data.notes);
+  return reply.send(updated);
+});
+
+app.get("/activities/feed", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; fromDate?: string; toDate?: string; limit?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const { activityFeed } = await getCollections();
+  const filter: Record<string, unknown> = { establishmentId: query.establishmentId };
+  if (query.fromDate || query.toDate) {
+    const range: Record<string, string> = {};
+    if (query.fromDate) range.$gte = query.fromDate;
+    if (query.toDate) range.$lte = query.toDate;
+    filter.occurredAt = range;
+  }
+  const limit = Math.min(Number(query.limit ?? 100), 500);
+  const activities = await activityFeed.find(filter).sort({ occurredAt: -1 }).limit(limit).toArray();
+  return { activities };
+});
+
+app.get("/activities/day", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; date?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const day = query.date ? new Date(query.date) : new Date();
+  day.setHours(0, 0, 0, 0);
+  const next = new Date(day);
+  next.setDate(next.getDate() + 1);
+  const { activityFeed, tasks } = await getCollections();
+  const [activities, pendingTasks] = await Promise.all([
+    activityFeed.find({ establishmentId: query.establishmentId, occurredAt: { $gte: day.toISOString(), $lt: next.toISOString() } }).sort({ occurredAt: 1 }).toArray(),
+    tasks.find({ establishmentId: query.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, dueDate: 1, scheduledAt: 1 }).limit(100).toArray(),
+  ]);
+  return {
+    date: day.toISOString().slice(0, 10),
+    kpis: {
+      done: activities.filter((item) => item.status === "DONE").length,
+      pending: pendingTasks.length,
+      urgent: pendingTasks.filter((task) => task.priority === "URGENT").length,
+    },
+    activities,
+    pendingTasks,
+  };
+});
+
+app.get("/field/day-start", async (request, reply) => {
+  const establishmentId = (request.query as { establishmentId?: string }).establishmentId;
+  if (!establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const establishment = await findEstablishmentById(establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  return buildDayStartSummary(establishmentId);
+});
+
+app.post("/field/assistant", async (request, reply) => {
+  const body = fieldAssistantSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+
+  const prompt = body.data.prompt.trim();
+  const normalized = normalizeFieldText(prompt);
+  const { tasks, paddocks, herds } = await getCollections();
+
+  if (/\b(preñadas|prenadas|preñez|prenez)\b/.test(normalized) && /\b(donde|dónde|estan|están|tengo)\b/.test(normalized)) {
+    const message = await buildPregnantFemalesAnswer(body.data.establishmentId);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_PREGNANT_FEMALES", confidence: 0.82 });
+  }
+
+  if (/\b(resumen|dashboard|rode[oó]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen)\b/.test(normalized)) {
+    const summary = await buildDayStartSummary(body.data.establishmentId);
+    return reply.send({
+      mode: "ANSWER",
+      intent: "QUERY_HERD_SUMMARY",
+      confidence: 0.82,
+      message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preñadas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes.`,
+      dashboard: summary,
+    });
+  }
+
+  if (/\b(marcar|marca|cerrar|cerrá|completar|completa|hecha|hecho|terminada|terminado)\b/.test(normalized) && /\b(tarea|recorrida|verificar|chequeo|revision|revisión)\b/.test(normalized)) {
+    const openTasks = await tasks.find({ establishmentId: body.data.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, createdAt: -1 }).limit(50).toArray();
+    const withoutVerb = normalizeFieldText(prompt.replace(/marcar|marca|cerrar|cerrá|completar|completa|como hecha|como hecho|tarea/gi, ""));
+    const selected = openTasks.find((task) => normalizeFieldText(task.title).includes(withoutVerb) || withoutVerb.includes(normalizeFieldText(task.title))) ?? openTasks[0];
+    if (!selected) return reply.send({ mode: "MISSING_DATA", message: "No encontré tareas pendientes para cerrar.", intent: "COMPLETE_TASK", confidence: 0.45, missingFields: ["tarea"] });
+    const updated = await completeFieldTask(selected, new Date().toISOString(), `Cerrada desde modo campo: ${prompt}`);
+    return reply.send({ mode: "ANSWER", message: `Listo, marqué como hecha: ${updated.title}.`, intent: "COMPLETE_TASK", confidence: 0.78, task: updated });
+  }
+
+  if (/\b(crea|crear|agendar|agenda|programar|programa|recordame|recordar)\b/.test(normalized) && /\b(tarea|actividad|recordatorio|revisar|verificar|chequeo|recorrida|tacto|pesaje)\b/.test(normalized)) {
+    const scheduledAt = parseRelativeSchedule(prompt);
+    const paddockName = extractPaddockNameFromText(prompt);
+    const task = await createFieldTask({
+      establishmentId: body.data.establishmentId,
+      title: extractTaskTitle(prompt),
+      description: prompt,
+      type: inferTaskType(prompt),
+      priority: inferTaskPriority(prompt),
+      scheduledAt,
+      dueDate: scheduledAt,
+      paddockName,
+      earTag: detectEarTagInText(prompt),
+      source: "FIELD_COMMAND",
+    });
+    return reply.send({ mode: "ANSWER", message: `Tarea creada: ${task.title}.`, intent: "CREATE_TASK", confidence: 0.86, task });
+  }
+
+  if (/\b(dar de alta|crear|alta)\b/.test(normalized) && /\bpotrero\b/.test(normalized)) {
+    const nameMatch = prompt.match(/(?:potrero|nuevo potrero)[,\s]+([a-záéíóúñ0-9 ]{2,80}?)(?=,|\s+de\s+\d+|\s+\d+\s*(?:ha|hect)|$)/i);
+    const hectaresMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:ha|hect[aá]reas?)/i);
+    const name = nameMatch?.[1]?.trim() || "Potrero nuevo";
+    const areaHa = hectaresMatch?.[1] ? Number(hectaresMatch[1].replace(",", ".")) : null;
+    const confirmation = await buildFieldConfirmation({
+      establishmentId: body.data.establishmentId,
+      confirmationToken: `field-${randomUUID()}`,
+      intent: "CREATE_PADDOCK",
+      action: "create_paddock",
+      payload: { name, areaHa, originalPrompt: prompt },
+    });
+    return reply.send({
+      mode: "CONFIRMATION_REQUIRED",
+      intent: "CREATE_PADDOCK",
+      confidence: 0.82,
+      message: `Voy a crear el potrero ${name}${areaHa ? ` de ${areaHa} ha` : ""}. Confirmá para guardarlo.`,
+      preview: { title: "Alta de potrero", sections: [{ label: "Nombre", value: name }, { label: "Superficie", value: areaHa ? `${areaHa} ha` : "Sin informar", severity: areaHa ? "normal" : "warning" }] },
+      confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "MEDIUM" },
+    });
+  }
+
+  if (/\b(vacuna|vacunar|vacun[aá])\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
+    const paddockName = extractPaddockNameFromText(prompt);
+    const productMatch = prompt.match(/(?:vacuna|vacunar|vacun[aá])\s+([a-záéíóúñ0-9 ]{2,60}?)(?=\s+a\s+toda|\s+toda|\s+al\s+potrero|,|$)/i);
+    const product = productMatch?.[1]?.trim() || (normalized.includes("aftosa") ? "aftosa" : "vacuna");
+    const confirmation = await buildFieldConfirmation({
+      establishmentId: body.data.establishmentId,
+      confirmationToken: `field-${randomUUID()}`,
+      intent: "REGISTER_VACCINATION",
+      action: "register_vaccination_lot",
+      payload: { product, paddockName, notes: prompt },
+    });
+    return reply.send({
+      mode: "CONFIRMATION_REQUIRED",
+      intent: "REGISTER_VACCINATION",
+      confidence: 0.78,
+      message: `Voy a registrar vacunación ${product} para ${paddockName ?? "el lote indicado"}. Confirmá para guardar el evento sanitario.`,
+      preview: { title: "Vacunación por lote", sections: [{ label: "Vacuna", value: product }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
+      confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "MEDIUM" },
+    });
+  }
+
+  const detectedEarTag = detectEarTagInText(prompt);
+  if (detectedEarTag && /\b(murio|murió|muerta|muerto|muerte|baja)\b/.test(normalized)) {
+    const paddockName = extractPaddockNameFromText(prompt);
+    const confirmation = await buildFieldConfirmation({
+      establishmentId: body.data.establishmentId,
+      confirmationToken: `field-${randomUUID()}`,
+      intent: "REGISTER_DEATH",
+      action: "register_death",
+      payload: { earTag: detectedEarTag, paddockName, notes: prompt },
+    });
+    return reply.send({
+      mode: "CONFIRMATION_REQUIRED",
+      intent: "REGISTER_DEATH",
+      confidence: 0.86,
+      message: `Detecté baja por muerte de ${detectedEarTag}. Esto actualizará el animal y creará una tarea urgente de verificación.`,
+      preview: { title: "Baja por muerte", sections: [{ label: "Caravana", value: detectedEarTag, severity: "critical" }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
+      confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "HIGH" },
+    });
+  }
+
+  if (detectedEarTag && /\b(pario|parió|parto|nacimiento)\b/.test(normalized)) {
+    const calfTags = Array.from(prompt.matchAll(/858\d{9}/g)).map((match) => match[0]);
+    const calfEarTag = calfTags.find((tag) => tag !== detectedEarTag) ?? null;
+    const weightMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)/i);
+    const sex = /ternera|hembra/i.test(prompt) ? "HEMBRA" : /ternero|macho/i.test(prompt) ? "MACHO" : "OTRO";
+    if (!calfEarTag) {
+      return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_BIRTH", confidence: 0.65, message: "Detecté un parto, pero falta la caravana de la cría.", missingFields: ["caravana de la cría"] });
+    }
+    const confirmation = await buildFieldConfirmation({
+      establishmentId: body.data.establishmentId,
+      confirmationToken: `field-${randomUUID()}`,
+      intent: "REGISTER_BIRTH",
+      action: "register_birth",
+      payload: { motherEarTag: detectedEarTag, calfEarTag, calfSex: sex, calfWeightKg: weightMatch?.[1] ? Number(weightMatch[1].replace(",", ".")) : null, paddockName: extractPaddockNameFromText(prompt), notes: prompt },
+    });
+    return reply.send({
+      mode: "CONFIRMATION_REQUIRED",
+      intent: "REGISTER_BIRTH",
+      confidence: 0.86,
+      message: `Voy a registrar parto de ${detectedEarTag} y alta de cría ${calfEarTag}.`,
+      preview: { title: "Registro de parto", sections: [{ label: "Madre", value: detectedEarTag }, { label: "Cría", value: calfEarTag }, { label: "Sexo", value: sex }, { label: "Peso", value: weightMatch?.[1] ? `${weightMatch[1]} kg` : "Sin informar", severity: weightMatch?.[1] ? "normal" : "warning" }] },
+      confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "HIGH" },
+    });
+  }
+
+  const parsedCommand = parseCommand(prompt, await loadContext(body.data.establishmentId));
+  if (parsedCommand.intent !== "UNKNOWN") {
+    return reply.send({
+      mode: parsedCommand.warnings.length || parsedCommand.errors.length ? "MISSING_DATA" : "CONFIRMATION_REQUIRED",
+      message: parsedCommand.warnings.length || parsedCommand.errors.length
+        ? `Entendí ${parsedCommand.intent}, pero faltan datos: ${[...parsedCommand.errors, ...parsedCommand.warnings].join(" ")}`
+        : `Entendí ${parsedCommand.intent}. Confirmá para aplicarlo desde el flujo operativo existente.`,
+      intent: parsedCommand.intent,
+      confidence: parsedCommand.confidence,
+      parsedCommand,
+      confirmation: parsedCommand.warnings.length || parsedCommand.errors.length ? undefined : { token: parsedCommand.confirmationToken, actionLabel: "Confirmar", cancelLabel: "Cancelar", riskLevel: "MEDIUM" },
+      suggestedApiCall: parsedCommand.warnings.length || parsedCommand.errors.length ? undefined : {
+        endpoint: "/commands/confirm",
+        method: "POST",
+        requestPreview: { establishmentId: body.data.establishmentId, confirmationToken: parsedCommand.confirmationToken, edits: { parsed: parsedCommand } },
+      },
+    });
+  }
+
+  const [stockRows, pendingTasks] = await Promise.all([
+    herds.find({}).limit(5).toArray(),
+    tasks.find({ establishmentId: body.data.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, createdAt: -1 }).limit(5).toArray(),
+  ]);
+  const paddockList = await paddocks.find({ establishmentId: body.data.establishmentId }).sort({ name: 1 }).limit(8).toArray();
+  return reply.send({
+    mode: "ANSWER",
+    intent: "UNKNOWN",
+    confidence: 0.35,
+    message: `Puedo ayudarte a registrar tareas, partos, bajas, vacunaciones, movimientos o consultas. Contexto actual: ${paddockList.length} potreros visibles, ${stockRows.length} filas de stock y ${pendingTasks.length} tareas pendientes.`,
+  });
+});
+
+app.post("/field/confirm", async (request, reply) => {
+  const body = fieldConfirmSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { fieldConfirmations, traceabilityEvents, animals } = await getCollections();
+  const confirmation = await fieldConfirmations.findOne({ establishmentId: body.data.establishmentId, confirmationToken: body.data.confirmationToken });
+  if (!confirmation) return reply.status(404).send({ code: "NOT_FOUND", message: "Confirmación no encontrada." });
+  if (confirmation.confirmedAt) return reply.status(409).send({ code: "ALREADY_CONFIRMED", message: "La confirmación ya fue aplicada." });
+  if (new Date(confirmation.expiresAt).getTime() < Date.now()) return reply.status(410).send({ code: "EXPIRED", message: "La confirmación venció." });
+
+  const now = new Date().toISOString();
+  if (confirmation.intent === "CREATE_PADDOCK") {
+    const rawName = String(confirmation.payload.name ?? "Potrero nuevo").trim();
+    const existing = await findPaddockByName(confirmation.establishmentId, rawName);
+    const paddock = existing ?? {
+      id: randomUUID(),
+      establishmentId: confirmation.establishmentId,
+      name: rawName,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (!existing) await insertPaddock(paddock);
+    await appendActivityFeed({
+      establishmentId: confirmation.establishmentId,
+      activityType: "PADDOCK_CREATED",
+      title: `Potrero creado: ${paddock.name}`,
+      summary: `Alta desde modo campo${confirmation.payload.areaHa ? ` · ${confirmation.payload.areaHa} ha` : ""}`,
+      occurredAt: now,
+      priority: "MEDIUM",
+      status: "INFO",
+      sourceCollection: "paddocks",
+      sourceId: paddock.id,
+      earTag: null,
+      paddockId: paddock.id,
+      paddockName: paddock.name,
+    });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Completar ficha de ${paddock.name}`, description: "Agregar GPS, aguada, pastura y capacidad de carga sugerida.", type: "INFRASTRUCTURE", priority: "LOW", paddockId: paddock.id, paddockName: paddock.name, source: "SYSTEM_RULE" });
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Potrero ${paddock.name} registrado.`, paddock });
+  }
+
+  if (confirmation.intent === "REGISTER_VACCINATION") {
+    const { healthEvents, herds } = await getCollections();
+    const product = String(confirmation.payload.product ?? "Vacuna").trim();
+    const paddockName = typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null;
+    const paddock = paddockName ? await findPaddockByName(confirmation.establishmentId, paddockName) : null;
+    const stockRows = paddock ? await herds.find({ paddockId: paddock.id }).toArray() : [];
+    const qty = stockRows.reduce((total, row) => total + row.count, 0) || 1;
+    const event: HealthEvent = {
+      id: randomUUID(),
+      establishmentId: confirmation.establishmentId,
+      type: "VACCINATION",
+      category: paddock ? `LOTE ${paddock.name}` : "LOTE",
+      qty,
+      product,
+      dose: null,
+      route: null,
+      notes: String(confirmation.payload.notes ?? "Vacunación por lote desde modo campo"),
+      responsible: null,
+      occurredAt: now,
+      nextDueAt: null,
+      status: "COMPLETED",
+      source: "COMMAND",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await healthEvents.insertOne(event);
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "HEALTH_EVENT_CREATED", title: `Vacunación: ${product}`, summary: `${qty} cabeza${qty === 1 ? "" : "s"}${paddock ? ` · ${paddock.name}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "health_events", sourceId: event.id, earTag: null, paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Programar próxima dosis ${product}`, description: "Revisar calendario sanitario y fecha de próxima campaña.", type: "HEALTH", priority: "LOW", paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName, source: "SYSTEM_RULE", sourceEventId: event.id });
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Vacunación ${product} registrada para ${qty} cabeza${qty === 1 ? "" : "s"}.`, event });
+  }
+
+  if (confirmation.intent === "REGISTER_DEATH") {
+    const earTag = String(confirmation.payload.earTag ?? "").trim().toUpperCase();
+    const paddockName = typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null;
+    let paddockId: string | null = null;
+    let normalizedPaddockName: string | null = paddockName;
+    if (paddockName) {
+      const paddock = await findPaddockByName(confirmation.establishmentId, paddockName);
+      if (paddock) { paddockId = paddock.id; normalizedPaddockName = paddock.name; }
+    }
+    const event: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag, type: "MUERTE", paddockId, paddockName: normalizedPaddockName, product: null, dose: null, weight: null, destination: null, notes: String(confirmation.payload.notes ?? "Baja por muerte"), occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    await traceabilityEvents.insertOne(event);
+    await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag }, { $set: { status: "MUERTO", updatedAt: now } });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Baja por muerte: ${earTag}`, summary: event.notes ?? "Muerte registrada", occurredAt: now, priority: "URGENT", status: "CRITICAL", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName: normalizedPaddockName });
+    await ensureSystemTaskForTraceabilityEvent(event);
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Baja de ${earTag} registrada y tarea urgente creada.`, event });
+  }
+
+  if (confirmation.intent === "REGISTER_BIRTH") {
+    const motherEarTag = String(confirmation.payload.motherEarTag ?? "").trim().toUpperCase();
+    const calfEarTag = String(confirmation.payload.calfEarTag ?? "").trim().toUpperCase();
+    const calfSex = ["MACHO", "HEMBRA", "OTRO"].includes(String(confirmation.payload.calfSex)) ? confirmation.payload.calfSex as Animal["sex"] : "OTRO";
+    const duplicatedCalf = await animals.findOne({ establishmentId: confirmation.establishmentId, earTag: calfEarTag });
+    if (duplicatedCalf) return reply.status(409).send({ code: "EAR_TAG_ALREADY_EXISTS", message: "La caravana de la cría ya existe." });
+    const calf: Animal = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: calfEarTag, name: calfEarTag, sex: calfSex, breed: null, birthDate: now, category: calfSex === "HEMBRA" ? "TERNERAS" : calfSex === "MACHO" ? "TERNEROS" : "TERNEROS", status: "ACTIVO", notes: `Cría de ${motherEarTag}. ${String(confirmation.payload.notes ?? "")}`.trim(), createdAt: now, updatedAt: now };
+    await animals.insertOne(calf);
+    await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag: motherEarTag }, { $set: { updatedAt: now, notes: `Parió cría ${calfEarTag}` } });
+    const motherEvent: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: motherEarTag, type: "OBSERVACION", paddockId: null, paddockName: typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null, product: null, dose: null, weight: null, destination: null, notes: `Parto registrado. Cría ${calfEarTag}.`, occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    const calfEvent: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: calfEarTag, type: "OBSERVACION", paddockId: null, paddockName: typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null, product: null, dose: null, weight: typeof confirmation.payload.calfWeightKg === "number" ? confirmation.payload.calfWeightKg : null, destination: null, notes: `Nacimiento. Madre ${motherEarTag}.`, occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    await traceabilityEvents.insertMany([motherEvent, calfEvent]);
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Parto registrado: ${motherEarTag}`, summary: `Cría ${calfEarTag}${calfEvent.weight ? ` · ${calfEvent.weight} kg` : ""}`, occurredAt: now, priority: "HIGH", status: "INFO", sourceCollection: "traceability_events", sourceId: motherEvent.id, earTag: motherEarTag, paddockId: null, paddockName: motherEvent.paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Chequeo veterinario cría ${calfEarTag}`, description: `Revisar cría de ${motherEarTag}, ombligo, calostrado y estado general.`, type: "BIRTH_FOLLOW_UP", priority: "HIGH", earTag: calfEarTag, source: "SYSTEM_RULE", sourceEventId: calfEvent.id });
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Parto registrado: madre ${motherEarTag}, cría ${calfEarTag}.`, calf, events: [motherEvent, calfEvent] });
+  }
+
+  return reply.status(400).send({ code: "UNSUPPORTED_CONFIRMATION", message: "La confirmación no tiene un handler disponible." });
+});
+
 
 app.post("/commands/parse", async (request, reply) => {
   const body = parseSchema.safeParse(request.body);
@@ -3577,6 +4352,21 @@ app.post("/traceability/events", async (request, reply) => {
     createdAt: now,
   };
   await traceabilityEvents.insertOne(event);
+  await appendActivityFeed({
+    establishmentId: event.establishmentId,
+    activityType: "TRACEABILITY_EVENT_CREATED",
+    title: `${TRACEABILITY_EVENT_LABELS[event.type] ?? event.type}: ${event.earTag}`,
+    summary: event.notes ?? event.product ?? event.type,
+    occurredAt: event.occurredAt,
+    priority: event.type === "MUERTE" ? "URGENT" : event.type === "VACUNACION_PENDIENTE" ? "HIGH" : "MEDIUM",
+    status: event.type === "MUERTE" ? "CRITICAL" : "INFO",
+    sourceCollection: "traceability_events",
+    sourceId: event.id,
+    earTag: event.earTag,
+    paddockId: event.paddockId,
+    paddockName: event.paddockName,
+  });
+  await ensureSystemTaskForTraceabilityEvent(event);
   return reply.status(201).send(event);
 });
 

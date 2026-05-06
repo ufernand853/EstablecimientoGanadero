@@ -10,6 +10,7 @@ const topLevelLinks = [
   { href: withBasePath("/operations"), label: "Registrar" },
   { href: withBasePath("/animals"), label: "Consultar" },
   { href: withBasePath("/dashboard"), label: "Reportes" },
+  { href: withBasePath("/gestion/tareas"), label: "Tareas" },
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración" },

@@ -127,6 +127,19 @@ Flujo sugerido para un empleado en campo con baja fricción:
 - Usar formatos simples: `qué + animal/lote + producto + dosis + fecha/hora`.
 - Supervisión semanal de eventos recientes y pendientes para control de calidad del dato.
 
+
+## Refactor operativo: modo campo + modo gestión
+
+La aplicación incorpora una base operativa persistente para acercar el modo campo a una interacción conversacional y conectar el modo gestión con tareas auditables:
+
+- `GET /tasks`, `POST /tasks`, `PATCH /tasks/:id` y `POST /tasks/:id/complete` gestionan tareas por establecimiento.
+- `GET /activities/feed` y `GET /activities/day` exponen una bitácora unificada para actividades, tareas y eventos críticos.
+- `GET /field/day-start` alimenta los KPIs de inicio del día en modo campo.
+- `POST /field/assistant` interpreta comandos de campo para crear/cerrar tareas, consultar resumen o preñadas, registrar bajas/partos con confirmación y dar de alta potreros.
+- `POST /field/confirm` persiste acciones críticas confirmadas y genera efectos secundarios como tareas automáticas de seguimiento.
+
+El modo campo ahora consume tareas desde backend, muestra KPIs del día y usa tarjetas de confirmación para acciones sensibles. El modo gestión suma `/gestion/tareas` para crear, priorizar y cerrar tareas que luego aparecen en campo.
+
 ## Ejecutar como servicio (Linux/systemd)
 Para dejar la app levantada sin depender de una sesión SSH, usa `systemd`.
 
