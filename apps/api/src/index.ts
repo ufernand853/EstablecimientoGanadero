@@ -832,6 +832,133 @@ const buildDayStartSummary = async (establishmentId: string) => {
   };
 };
 
+const loadEstablishmentStockRows = async (establishmentId: string) => {
+  const { paddocks, herds } = await getCollections();
+  const paddockDocs = await paddocks.find({ establishmentId }).sort({ name: 1 }).toArray();
+  const paddockById = new Map(paddockDocs.map((paddock) => [paddock.id, paddock]));
+  const paddockIds = paddockDocs.map((paddock) => paddock.id);
+  const stockRows = paddockIds.length
+    ? await herds.find({ paddockId: { $in: paddockIds } }).toArray()
+    : [];
+  return { paddocks: paddockDocs, paddockById, stockRows };
+};
+
+const buildStockDetailAnswer = async (establishmentId: string) => {
+  const { paddockById, stockRows } = await loadEstablishmentStockRows(establishmentId);
+  if (!stockRows.length) {
+    return "No hay stock cargado para este establecimiento.";
+  }
+
+  const total = stockRows.reduce((sum, row) => sum + row.count, 0);
+  const byCategory = stockRows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.category] = (acc[row.category] ?? 0) + row.count;
+    return acc;
+  }, {});
+  const byPaddock = stockRows.reduce<Record<string, HerdStock[]>>((acc, row) => {
+    const paddockName = paddockById.get(row.paddockId)?.name ?? "Potrero sin nombre";
+    acc[paddockName] = [...(acc[paddockName] ?? []), row];
+    return acc;
+  }, {});
+
+  const categoryLines = Object.entries(byCategory)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, count]) => `• ${category}: ${count} cabeza${count === 1 ? "" : "s"}`)
+    .join("\n");
+
+  const paddockLines = Object.entries(byPaddock)
+    .sort(([a], [b]) => a.localeCompare(b, "es"))
+    .map(([paddock, rows]) => {
+      const subtotal = rows.reduce((sum, row) => sum + row.count, 0);
+      const detail = rows
+        .sort((a, b) => a.category.localeCompare(b.category, "es"))
+        .map((row) => `${row.category}: ${row.count}`)
+        .join(" · ");
+      return `• ${paddock}: ${subtotal} (${detail})`;
+    })
+    .join("\n");
+
+  return [
+    `Stock actual: ${total} cabeza${total === 1 ? "" : "s"}.`,
+    "",
+    "Por categoría:",
+    categoryLines,
+    "",
+    "Por potrero:",
+    paddockLines,
+  ].join("\n");
+};
+
+const buildAnimalTagsDetailAnswer = async (establishmentId: string) => {
+  const { animals, traceabilityEvents } = await getCollections();
+  const animalDocs = await animals.find({ establishmentId }).sort({ status: 1, earTag: 1 }).limit(80).toArray();
+  if (!animalDocs.length) {
+    return "No hay caravanas individuales cargadas para este establecimiento.";
+  }
+  const earTags = animalDocs.map((animal) => animal.earTag);
+  const latestEvents = await traceabilityEvents
+    .find({ establishmentId, earTag: { $in: earTags } })
+    .sort({ occurredAt: -1 })
+    .toArray();
+  const latestByEarTag = new Map<string, TraceabilityEvent>();
+  for (const event of latestEvents) {
+    if (!latestByEarTag.has(event.earTag)) latestByEarTag.set(event.earTag, event);
+  }
+  const active = animalDocs.filter((animal) => animal.status === "ACTIVO").length;
+  const sold = animalDocs.filter((animal) => animal.status === "VENDIDO").length;
+  const dead = animalDocs.filter((animal) => animal.status === "MUERTO").length;
+  const lines = animalDocs.slice(0, 40).map((animal) => {
+    const latest = latestByEarTag.get(animal.earTag);
+    const lastEvent = latest ? ` · últ.: ${TRACEABILITY_EVENT_LABELS[latest.type] ?? latest.type}${latest.paddockName ? ` en ${latest.paddockName}` : ""}` : "";
+    return `• ${animal.earTag} · ${animal.category ?? "sin categoría"} · ${animal.sex} · ${animal.status}${lastEvent}`;
+  });
+  const truncated = animalDocs.length > lines.length ? `\nMostrando ${lines.length} de ${animalDocs.length} caravanas. Usá una caravana específica para ver historial completo.` : "";
+  return [`Detalle de caravanas: ${animalDocs.length} registradas (${active} activas, ${sold} vendidas, ${dead} muertas).`, "", ...lines, truncated].filter(Boolean).join("\n");
+};
+
+const buildHerdDetailAnswer = async (establishmentId: string, establishmentName: string) => {
+  const [{ animals, tasks, traceabilityEvents }, stockDetail] = await Promise.all([
+    getCollections(),
+    buildStockDetailAnswer(establishmentId),
+  ]);
+  const [activeAnimals, animalsByCategory, pregnantEarTags, pendingTasks, recentEvents] = await Promise.all([
+    animals.countDocuments({ establishmentId, status: "ACTIVO" }),
+    animals.aggregate([
+      { $match: { establishmentId } },
+      { $group: { _id: { $ifNull: ["$category", "Sin categoría"] }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]).toArray(),
+    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÑEZ_CONFIRMADA" }),
+    tasks.find({ establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, dueDate: 1, createdAt: -1 }).limit(5).toArray(),
+    traceabilityEvents.find({ establishmentId }).sort({ occurredAt: -1 }).limit(5).toArray(),
+  ]);
+
+  const categoryLines = animalsByCategory.length
+    ? animalsByCategory.map((row) => `• ${row._id}: ${row.count}`).join("\n")
+    : "• Sin animales individuales categorizados.";
+  const taskLines = pendingTasks.length
+    ? pendingTasks.map((task) => `• ${task.priority}: ${task.title}${task.paddockName ? ` · ${task.paddockName}` : ""}`).join("\n")
+    : "• Sin tareas pendientes.";
+  const eventLines = recentEvents.length
+    ? recentEvents.map((event) => `• ${event.earTag}: ${TRACEABILITY_EVENT_LABELS[event.type] ?? event.type}${event.paddockName ? ` · ${event.paddockName}` : ""}`).join("\n")
+    : "• Sin eventos recientes.";
+
+  return [
+    `Detalle del rodeo de ${establishmentName}:`,
+    `Animales activos: ${activeAnimals}. Preñadas registradas: ${pregnantEarTags.length}.`,
+    "",
+    "Composición por categoría individual:",
+    categoryLines,
+    "",
+    stockDetail,
+    "",
+    "Tareas pendientes principales:",
+    taskLines,
+    "",
+    "Últimos eventos de trazabilidad:",
+    eventLines,
+  ].join("\n");
+};
+
 const buildPregnantFemalesAnswer = async (establishmentId: string) => {
   const { traceabilityEvents } = await getCollections();
   const events = await traceabilityEvents
@@ -2089,20 +2216,34 @@ app.post("/field/assistant", async (request, reply) => {
 
   const prompt = body.data.prompt.trim();
   const normalized = normalizeFieldText(prompt);
-  const { tasks, paddocks, herds } = await getCollections();
+  const { tasks, paddocks } = await getCollections();
 
-  if (/\b(preñadas|prenadas|preñez|prenez)\b/.test(normalized) && /\b(donde|dónde|estan|están|tengo)\b/.test(normalized)) {
+  if (/\b(preñadas|prenadas|preñez|prenez)\b/.test(normalized) && /\b(donde|dónde|estan|están|tengo|detalle|lista|listar)\b/.test(normalized)) {
     const message = await buildPregnantFemalesAnswer(body.data.establishmentId);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_PREGNANT_FEMALES", confidence: 0.82 });
   }
 
-  if (/\b(resumen|dashboard|rode[oó]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen)\b/.test(normalized)) {
+  if (/\b(stock|existencia|existencias|cabezas|categorias|categorías)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|resumen|lista|listar|como|cómo)\b/.test(normalized)) {
+    const message = await buildStockDetailAnswer(body.data.establishmentId);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
+  }
+
+  if (/\b(caravana|caravanas|animales|animal)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|lista|listar)\b/.test(normalized)) {
+    const message = await buildAnimalTagsDetailAnswer(body.data.establishmentId);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
+  }
+
+  if (/\b(resumen|dashboard|rode[oó]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen|detalle|detallame)\b/.test(normalized)) {
+    if (/\b(detalle|detallame|completo|completa)\b/.test(normalized)) {
+      const message = await buildHerdDetailAnswer(body.data.establishmentId, establishment.name);
+      return reply.send({ mode: "ANSWER", intent: "QUERY_HERD_SUMMARY", confidence: 0.86, message });
+    }
     const summary = await buildDayStartSummary(body.data.establishmentId);
     return reply.send({
       mode: "ANSWER",
       intent: "QUERY_HERD_SUMMARY",
       confidence: 0.82,
-      message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preñadas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes.`,
+      message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preñadas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes. Pedime "detalle del rodeo", "detalle de caravanas" o "stock" para verlo desglosado.`,
       dashboard: summary,
     });
   }
@@ -2242,7 +2383,7 @@ app.post("/field/assistant", async (request, reply) => {
   }
 
   const [stockRows, pendingTasks] = await Promise.all([
-    herds.find({}).limit(5).toArray(),
+    loadEstablishmentStockRows(body.data.establishmentId).then((data) => data.stockRows.slice(0, 5)),
     tasks.find({ establishmentId: body.data.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, createdAt: -1 }).limit(5).toArray(),
   ]);
   const paddockList = await paddocks.find({ establishmentId: body.data.establishmentId }).sort({ name: 1 }).limit(8).toArray();
