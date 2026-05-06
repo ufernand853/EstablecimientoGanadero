@@ -2012,11 +2012,28 @@ app.post("/ai/chat", async (request, reply) => {
 
   let parsedCommand: ReturnType<typeof parseCommand> | null = null;
   let commandContext: CommandContext | null = null;
+  const promptForParse = (() => {
+    const currentPrompt = body.data.prompt.trim();
+    const previousUserPrompt = [...(body.data.history ?? [])]
+      .reverse()
+      .find((message) => message.role === "user" && message.content.trim().length > 0)?.content?.trim();
+    if (!previousUserPrompt) return currentPrompt;
+
+    const currentHasActionVerb = /\b(mover|move|trasladar|pasar|destetar|consignar|embarcar|vacunar|desparasitar|tratar)\b/i.test(currentPrompt);
+    const currentHasQuantity = /\b\d+\b/.test(currentPrompt);
+    const currentHasSourcePaddock = /\b(del|desde)\s+potrero\b/i.test(currentPrompt);
+    if (currentHasActionVerb && currentHasQuantity && currentHasSourcePaddock) {
+      return currentPrompt;
+    }
+
+    return `${previousUserPrompt}. ${currentPrompt}`;
+  })();
+
   try {
     commandContext = await loadContext(body.data.establishmentId);
-    parsedCommand = parseCommand(body.data.prompt, commandContext);
+    parsedCommand = parseCommand(promptForParse, commandContext);
     if ((!parsedCommand || parsedCommand.intent === "UNKNOWN") && commandContext) {
-      parsedCommand = tryFallbackMoveParse(body.data.prompt, commandContext) ?? parsedCommand;
+      parsedCommand = tryFallbackMoveParse(promptForParse, commandContext) ?? parsedCommand;
     }
   } catch (parseError) {
     request.log.error(parseError, "No se pudo parsear el comando en /ai/chat. Se sigue en modo conversacional.");
