@@ -211,10 +211,13 @@ describe("parseCommand", () => {
     });
   });
 
-  it("warns when incident report misses key data", () => {
+  it("warns when incident report misses key data except optional responsible", () => {
     const result = parseCommand("Incidente: ternero lastimado", context);
     expect(result.intent).toBe("INCIDENT_REPORT");
-    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings).toEqual([
+      "No se pudo identificar el potrero del incidente.",
+      "Faltan acciones tomadas para el incidente.",
+    ]);
   });
 
 

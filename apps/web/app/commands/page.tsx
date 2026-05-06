@@ -141,6 +141,19 @@ const summarizePendingCommand = (parsed: ParsedCommand, prompt: string) => {
   return `Detecté una operación de tipo ${parsed.intent} para: \"${prompt}\".`;
 };
 
+const normalizeCommandText = (value: string) => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/\s+/g, " ")
+  .trim();
+
+const isTaskCreationPrompt = (text: string) => {
+  const normalized = normalizeCommandText(text);
+  return /\b(crea|crear|agendar|agenda|programar|programa|recordame|recordar|nueva|nuevo)\b/.test(normalized)
+    && /\b(tarea|actividad|recordatorio|revisar|verificar|chequeo|recorrida|tacto|pesaje)\b/.test(normalized);
+};
+
 const parseOperationalCommand = async (text: string, establishmentId: string) => {
   if (!establishmentId) {
     return null;
@@ -628,6 +641,28 @@ export default function CommandsPage() {
             content: confirmedExecution.applied
               ? `✅ Resultado de la ejecución: ${confirmedExecution.summary}`
               : `⚠️ Resultado de la ejecución: ${confirmedExecution.summary}`,
+          },
+        ]);
+        setStatus("idle");
+        return;
+      }
+
+      if (isTaskCreationPrompt(prompt)) {
+        const taskResponse = await fetch(`${API_URL}/field/assistant`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ establishmentId, prompt, history }),
+        });
+        const taskData = (await taskResponse.json().catch(() => ({}))) as { message?: string; task?: { id: string; title: string } };
+        if (!taskResponse.ok) {
+          throw new Error(typeof taskData.message === "string" ? taskData.message : "No se pudo crear la tarea.");
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createMessageId(),
+            role: "assistant",
+            content: taskData.message ?? "✅ Tarea creada y guardada en backend para modo campo.",
           },
         ]);
         setStatus("idle");

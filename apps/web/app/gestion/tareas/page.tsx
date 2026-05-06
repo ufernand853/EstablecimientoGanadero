@@ -22,6 +22,7 @@ type FieldTask = {
   completedAt: string | null;
   earTag: string | null;
   paddockName: string | null;
+  assignedRole: string | null;
   createdAt: string;
 };
 
@@ -267,7 +268,7 @@ export default function GestionTareasPage() {
                 <div>
                   <p className="font-semibold text-slate-100">{task.title}</p>
                   {task.description ? <p className="mt-1 text-sm text-slate-400">{task.description}</p> : null}
-                  <p className="mt-2 text-xs text-slate-500">{priorityLabels[task.priority]} · {statusLabels[task.status]}{task.paddockName ? ` · ${task.paddockName}` : ""}{task.earTag ? ` · ${task.earTag}` : ""}</p>
+                  <p className="mt-2 text-xs text-slate-500">{priorityLabels[task.priority]} · {statusLabels[task.status]}{task.scheduledAt ? ` · Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : ""}{task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}{task.paddockName ? ` · ${task.paddockName}` : ""}{task.earTag ? ` · ${task.earTag}` : ""}</p>
                 </div>
                 {task.status !== "DONE" ? <button type="button" disabled={saving} onClick={() => completeTask(task.id)} className="rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-50">Marcar hecha</button> : null}
               </div>

@@ -71,6 +71,7 @@ type FieldTask = {
   dueDate: string | null;
   earTag: string | null;
   paddockName: string | null;
+  assignedRole: string | null;
   createdAt: string;
 };
 
@@ -120,6 +121,9 @@ const getSpeechRecognition = (): SpeechRecognitionCtor | null => {
 const formatTaskOptionLabel = (task: FieldTask) => {
   const detailParts = [
     task.earTag ? `Animal ${task.earTag}` : "Para cualquier animal",
+    task.paddockName ? `Potrero: ${task.paddockName}` : null,
+    task.assignedRole ? `Responsable: ${task.assignedRole}` : "Sin responsable",
+    task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : null,
     task.description ? `Qué hacer: ${task.description}` : null,
   ].filter(Boolean);
   return `${task.title} — ${detailParts.join(" · ")}`;
@@ -298,6 +302,24 @@ export default function CampoPage() {
     }
   };
 
+  const completeTask = async (taskId: string) => {
+    setStatus("sending");
+    try {
+      const res = await fetch(`${API_URL}/tasks/${taskId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: "Cerrada desde modo campo." }),
+      });
+      if (!res.ok) throw new Error("No se pudo marcar la tarea como cumplida.");
+      setFeedback({ kind: "success", text: "Tarea marcada como cumplida." });
+      refreshFieldData();
+    } catch (completeError) {
+      setFeedback({ kind: "error", text: completeError instanceof Error ? completeError.message : "No se pudo marcar la tarea como cumplida." });
+    } finally {
+      setStatus("idle");
+    }
+  };
+
   const confirmEvent = async () => {
     if (!pendingEvent) return;
     setStatus("sending");
@@ -449,6 +471,44 @@ export default function CampoPage() {
           ))}
         </section>
       ) : null}
+
+      <section className="px-4 pt-4">
+        <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-amber-400">Tareas pendientes</p>
+              <p className="text-sm text-slate-300">Registros guardados en backend para ejecutar en campo.</p>
+            </div>
+            <button type="button" onClick={refreshFieldData} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300">Actualizar</button>
+          </div>
+          <div className="mt-3 space-y-2">
+            {tasks.length ? tasks.map((task) => (
+              <article key={task.id} className="rounded-lg bg-slate-900 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-100">{task.title}</p>
+                    {task.description ? <p className="mt-1 text-xs text-slate-400">{task.description}</p> : null}
+                    <p className="mt-2 text-xs text-slate-500">
+                      {task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : "Sin fecha"}
+                      {task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}
+                      {task.paddockName ? ` · ${task.paddockName}` : ""}
+                      {task.earTag ? ` · ${task.earTag}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => completeTask(task.id)}
+                    disabled={isBusy}
+                    className="shrink-0 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
+                  >
+                    Cumplida
+                  </button>
+                </div>
+              </article>
+            )) : <p className="text-sm text-slate-500">No hay tareas pendientes.</p>}
+          </div>
+        </div>
+      </section>
 
       {/* Recent events */}
       <section className="px-4 pt-4">

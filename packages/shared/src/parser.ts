@@ -330,7 +330,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
       : "Incidente en campo";
 
     if (!paddock) warnings.push("No se pudo identificar el potrero del incidente.");
-    if (!responsibleMatch) warnings.push("Falta responsable del incidente.");
+    // El responsable es opcional: el registro puede quedar abierto para asignarlo luego.
     if (!actionMatch && !hasVetReference) warnings.push("Faltan acciones tomadas para el incidente.");
 
     result.intent = "INCIDENT_REPORT";
