@@ -128,6 +128,32 @@ Flujo sugerido para un empleado en campo con baja fricción:
 - Supervisión semanal de eventos recientes y pendientes para control de calidad del dato.
 
 
+## Perfiles operativos y usuarios de prueba
+
+La aplicación separa la experiencia por rol:
+
+- **Operador (`OPERATOR`)**: entra directo a `/campo` y trabaja con la interfaz de campo.
+- **Supervisor (`SUPERVISOR`)**: entra a `/supervision`, donde puede usar Modo IA, asignar/cerrar tareas, ver vencimientos y notificaciones.
+- **Administrador (`ADMIN`/`OWNER`)**: conserva acceso general a todas las pantallas, carga manual, configuración y usuarios.
+
+El seed de test crea estos accesos iniciales:
+
+| Perfil | Usuario | Contraseña |
+| --- | --- | --- |
+| Administrador | `admin@test.local` | `admin` |
+| Operador | `usuario@test.local` | `usuario` |
+| Supervisor | `supervisor@test.local` | `supervisor` |
+
+## Insumos, medicamentos y vencimientos
+
+El sistema incorpora registro de insumos con catálogo, lotes y movimientos:
+
+- `/insumos` permite cargar medicamentos, vacunas, antiparasitarios y otros insumos.
+- Cada lote registra cantidad inicial/disponible, unidad, proveedor, ubicación y fecha de vencimiento.
+- `/supplies/expirations` y `/notifications` exponen alertas por vencimientos próximos, vencidos y stock bajo.
+- Los eventos sanitarios pueden asociarse a un insumo/lote y descontar stock mediante movimientos de insumos.
+- El seed agrega lotes de prueba de vacuna aftosa, ivermectina y antibiótico para validar planificación.
+
 ## Refactor operativo: modo campo + modo gestión
 
 La aplicación incorpora una base operativa persistente para acercar el modo campo a una interacción conversacional y conectar el modo gestión con tareas auditables:
