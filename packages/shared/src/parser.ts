@@ -6,6 +6,7 @@ export type ParseContext = {
   paddocks: NameEntity[];
   consignors: NameEntity[];
   slaughterhouses: NameEntity[];
+  supplies?: NameEntity[];
 };
 
 export type ProposedOperation = {
@@ -96,13 +97,18 @@ const parseDate = (raw?: string) => {
   if (normalized.includes("hoy")) {
     return new Date();
   }
-  if (/\d{4}-\d{2}-\d{2}/.test(normalized)) {
-    return new Date(normalized);
+  const isoMatch = normalized.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (isoMatch?.[1]) {
+    return new Date(`${isoMatch[1]}T00:00:00.000Z`);
   }
-  if (/\d{1,2}\/\d{1,2}/.test(normalized)) {
-    const [day, month] = normalized.split("/").map(Number);
+  const slashMatch = normalized.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (slashMatch) {
+    const day = Number(slashMatch[1]);
+    const month = Number(slashMatch[2]);
     const now = new Date();
-    return new Date(now.getFullYear(), (month ?? 1) - 1, day ?? 1);
+    const rawYear = slashMatch[3] ? Number(slashMatch[3]) : now.getFullYear();
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    return new Date(Date.UTC(year, month - 1, day));
   }
   return new Date();
 };
@@ -133,6 +139,37 @@ const extractResponsible = (text: string) => {
   return null;
 };
 
+
+const extractExpirationDate = (text: string) => {
+  const match = text.match(/(?:vence|vencimiento|fecha de vencimiento|fecha vencimiento)\s*(?:el|para|:)?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}\/[0-9]{1,2}(?:\/[0-9]{2,4})?)/i);
+  return match?.[1] ? parseDate(match[1]) : null;
+};
+
+const extractSupplyName = (rawName: string, supplies: NameEntity[] = []) => {
+  const cleaned = rawName
+    .replace(/\b(?:con|y|de)?\s*(?:fecha de vencimiento|fecha vencimiento|vencimiento|vence|lote)\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return { name: null, id: null };
+  const matchedSupply = supplies.length ? fuzzyFind(cleaned, supplies, 0.68).match : null;
+  return { name: matchedSupply?.name ?? cleaned, id: matchedSupply?.id ?? null };
+};
+
+const inferSupplyType = (text: string) => {
+  const normalized = normalize(text);
+  if (/\b(vacuna|vacunas|vacunar|aftosa|carbunclo|clostridial)\b/.test(normalized)) return "VACCINE";
+  if (/\b(ivermectina|doramectina|desparasitar|antiparasitario|antiparasitaria)\b/.test(normalized)) return "DEWORMER";
+  if (/\b(antibiotico|antibiotica|penicilina|oxitetraciclina|tratamiento)\b/.test(normalized)) return "MEDICINE";
+  return "MEDICINE";
+};
+
+const extractHealthSupplySearchTerm = (text: string) => {
+  const diseaseMatch = text.match(/\bcontra\s+(?:la|el|los|las)?\s*([a-záéíóúñ0-9][a-záéíóúñ0-9\s.-]{1,60}?)(?=\s+(?:en|el|del|de|al)\s+potrero|,|\.|$)/i);
+  if (diseaseMatch?.[1]) return diseaseMatch[1].trim();
+  const productMatch = text.match(/\bcon\s+([a-záéíóúñ0-9][a-záéíóúñ0-9\s.-]{1,80}?)(?=\s+(?:en|el|del|de|al)\s+potrero|,|\.|$)/i);
+  return productMatch?.[1]?.trim() ?? null;
+};
+
 const generateConfirmationToken = () => {
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `local-${Date.now().toString(36)}-${randomPart}`;
@@ -152,6 +189,73 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     errors,
     confirmationToken: generateConfirmationToken(),
   };
+
+  const isSupplyStockInIntent = /\b(ingresa|ingresar|agrega|agregar|carga|cargar|alta|sumar|sumale)\b/.test(normalized)
+    && /\b(stock|deposito|insumo|medicamento|vacuna|cajas?|frascos?|dosis|unidades)\b/.test(normalized);
+  if (isSupplyStockInIntent) {
+    const quantityMatch = text.match(/(\d+(?:[,.]\d+)?)\s*(cajas?|frascos?|dosis|unidades|unid\.?|ml|litros?|lts?|kg|bolsas?)/i);
+    const quantity = quantityMatch ? Number(quantityMatch[1].replace(",", ".")) : null;
+    const unit = quantityMatch?.[2]?.replace(/\.$/, "").toLowerCase() ?? null;
+    const afterQuantity = quantityMatch?.index !== undefined
+      ? text.slice(quantityMatch.index + quantityMatch[0].length)
+      : text;
+    const supplyNameMatch = afterQuantity.match(/(?:de|del|la|el)?\s*([a-záéíóúñ0-9][a-záéíóúñ0-9\s.-]{1,100})/i);
+    const supply = extractSupplyName(supplyNameMatch?.[1] ?? "", context.supplies);
+    const expirationDate = extractExpirationDate(text);
+    const batchNumber = text.match(/\blote\s+([a-z0-9-]+)/i)?.[1]?.trim() ?? null;
+
+    result.intent = "SUPPLY_STOCK_IN";
+    result.confidence = 0.78;
+    if (!quantity) warnings.push("Falta cantidad del insumo a ingresar.");
+    if (!unit) warnings.push("Falta unidad o presentación del insumo.");
+    if (!supply.name) warnings.push("Falta nombre del medicamento o vacuna.");
+    if (!expirationDate) warnings.push("Falta fecha de vencimiento del lote.");
+    result.proposedOperations.push({
+      type: "SUPPLY_STOCK_IN",
+      occurredAt: parseDate(text),
+      payload: {
+        supplyId: supply.id,
+        supplyName: supply.name,
+        supplyType: inferSupplyType(`${supply.name ?? ""} ${text}`),
+        quantityInitial: quantity,
+        quantityAvailable: quantity,
+        unit,
+        batchNumber,
+        expirationDate: expirationDate?.toISOString() ?? null,
+        source: "VOICE_COMMAND",
+      },
+    });
+  }
+
+  const isHealthSupplyCheckIntent = /\b(vamos a|hay que|queremos|planificar|preparar)\b/.test(normalized)
+    && /\b(vacunar|desparasitar|tratar)\b/.test(normalized);
+  if (isHealthSupplyCheckIntent && result.intent === "UNKNOWN") {
+    const paddock = findPaddock(text, context.paddocks);
+    const searchTerm = extractHealthSupplySearchTerm(text);
+    const action = /\bdesparasitar\b/.test(normalized)
+      ? "DEWORMING"
+      : /\btratar\b/.test(normalized)
+        ? "TREATMENT"
+        : "VACCINATION";
+
+    result.intent = "HEALTH_SUPPLY_CHECK";
+    result.confidence = 0.72;
+    if (!paddock) warnings.push("Falta o no se pudo identificar el potrero para validar stock sanitario.");
+    if (!searchTerm) warnings.push("Falta enfermedad, principio activo o producto a validar.");
+    result.proposedOperations.push({
+      type: "HEALTH_SUPPLY_CHECK",
+      occurredAt: parseDate(text),
+      payload: {
+        healthAction: action,
+        paddockId: paddock?.id ?? null,
+        paddockName: paddock?.name ?? null,
+        searchTerm,
+        requiredSupplyType: action === "VACCINATION" ? "VACCINE" : inferSupplyType(text),
+        mustBeAvailable: true,
+        mustNotBeExpired: true,
+      },
+    });
+  }
 
   const isMoveIntent = /\b(mover|move|trasladar|pasar)\b/.test(normalized);
   if (isMoveIntent) {
@@ -188,7 +292,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
   }
 
   const isVaccinationIntent = /\b(vacunar|vacunamos|vacunado|vacunados|aplicamos|aplicar)\b/.test(normalized);
-  if (isVaccinationIntent) {
+  if (isVaccinationIntent && result.intent === "UNKNOWN") {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
     const productMatch = text.match(/\bcon\s+([a-záéíóúñ0-9][a-záéíóúñ0-9\s.-]{1,80}?)(?=\s+y\s+(?:lo|los|la|las)\s+vacun|\s+por\s+[a-záéíóúñ]|,|\.|$)/i);
@@ -217,7 +321,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
 
 
   const isDewormingIntent = /\b(desparasitar|desparasitamos)\b/.test(normalized);
-  if (isDewormingIntent) {
+  if (isDewormingIntent && result.intent === "UNKNOWN") {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
     const productMatch = text.match(/desparasitar\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
@@ -238,7 +342,7 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
-  if (normalized.startsWith("tratar") || normalized.startsWith("tratamiento")) {
+  if ((normalized.startsWith("tratar") || normalized.startsWith("tratamiento")) && result.intent === "UNKNOWN") {
     const qtyMatch = text.match(/(\d+)/);
     const doseMatch = text.match(/(\d+(?:\.\d+)?\s?ml)/i);
     const productMatch = text.match(/(?:tratar|tratamiento)\s+[^,]+\s+([a-záéíóúñ\s]+)/i);
