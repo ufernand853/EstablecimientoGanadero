@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
+import { getHomePathForRole } from "../lib/roles";
 
 const API_URL = getApiUrl();
 const DEFAULT_USERNAME = "admin";
@@ -11,20 +12,14 @@ const DEFAULT_PASSWORD = "admin";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [demoEmail, setDemoEmail] = useState("");
-  const [demoName, setDemoName] = useState("");
-  const [demoCompany, setDemoCompany] = useState("");
+  const [email, setEmail] = useState("admin@test.local");
+  const [password, setPassword] = useState("admin");
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setInfo(null);
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
@@ -34,8 +29,9 @@ export default function LoginPage() {
       });
 
       if (response.ok) {
+        const data = (await response.json()) as { user?: { role?: string } };
         const params = new URLSearchParams(window.location.search);
-        const nextPath = params.get("next") || withBasePath("/dashboard");
+        const nextPath = params.get("next") || withBasePath(getHomePathForRole(data.user?.role));
         router.push(nextPath);
         router.refresh();
         return;
@@ -61,52 +57,21 @@ export default function LoginPage() {
     }
   }
 
-  async function handleDemoRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setInfo(null);
-    setDemoLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/auth/demo-request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: demoEmail,
-          fullName: demoName,
-          companyName: demoCompany,
-        }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({ message: "No se pudo crear demo." }));
-        setError(data.message ?? "No se pudo crear demo.");
-        return;
-      }
-      const demo = await response.json() as { generatedPassword?: string; referenceId: string };
-      setInfo(`Demo creada. Ref ${demo.referenceId}. Ejecutá webhook de pago exitoso para activar la cuenta.${demo.generatedPassword ? ` Clave sugerida: ${demo.generatedPassword}` : ""}`);
-      setEmail(demoEmail);
-      if (demo.generatedPassword) {
-        setPassword(demo.generatedPassword);
-      }
-    } catch {
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setDemoLoading(false);
-    }
-  }
-
   return (
-    <main className="grid gap-6 md:grid-cols-2">
-      <section className="rounded-lg bg-slate-900 p-6 shadow">
-        <h2 className="text-xl font-semibold">Iniciar sesión</h2>
-        <p className="mt-2 text-sm text-slate-300">
-          Accedé con tu correo de suscripción. También sigue disponible el acceso legacy <span className="font-semibold">admin/admin</span>.
-        </p>
-        <form className="mt-4 grid gap-3" onSubmit={handleSubmit}>
+    <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-10">
+      <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="text-center">
+          <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="mx-auto h-12 w-auto" />
+          <h1 className="mt-4 text-2xl font-semibold">Gestión Ganadera</h1>
+          <p className="mt-2 text-sm text-slate-300">Ingresá con un usuario de prueba para acceder al sistema.</p>
+        </div>
+
+        <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
           <label className="grid gap-1 text-sm">
-            Correo
+            Usuario / correo
             <input
-              className="rounded bg-slate-800 p-2"
-              placeholder="admin@empresa.com"
+              className="rounded bg-slate-800 p-3 text-sm outline-none ring-1 ring-slate-700 transition focus:ring-emerald-500"
+              placeholder="admin@test.local"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="username"
@@ -116,43 +81,25 @@ export default function LoginPage() {
             Contraseña
             <input
               type="password"
-              className="rounded bg-slate-800 p-2"
-              placeholder="••••••••"
+              className="rounded bg-slate-800 p-3 text-sm outline-none ring-1 ring-slate-700 transition focus:ring-emerald-500"
+              placeholder="admin"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
             />
           </label>
-          {error ? <p className="text-sm text-rose-400">{error}</p> : null}
-          {info ? <p className="text-sm text-emerald-300">{info}</p> : null}
-          <button className="mt-2 rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" disabled={loading}>
+          {error ? <p className="rounded border border-rose-800 bg-rose-950/40 p-2 text-sm text-rose-300">{error}</p> : null}
+          <button className="rounded bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-70" disabled={loading}>
             {loading ? "Ingresando..." : "Entrar"}
           </button>
         </form>
-      </section>
 
-      <section className="rounded-lg border border-emerald-700/50 bg-emerald-950/30 p-6 shadow">
-        <h2 className="text-xl font-semibold">Solicitar demo (5 días)</h2>
-        <p className="mt-2 text-sm text-emerald-200">
-          Crea una cuenta de prueba. La activación final se realiza mediante webhook de la pasarela.
-        </p>
-        <form className="mt-4 grid gap-3" onSubmit={handleDemoRequest}>
-          <label className="grid gap-1 text-sm">
-            Nombre completo
-            <input className="rounded bg-slate-800 p-2" value={demoName} onChange={(event) => setDemoName(event.target.value)} required />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Empresa
-            <input className="rounded bg-slate-800 p-2" value={demoCompany} onChange={(event) => setDemoCompany(event.target.value)} required />
-          </label>
-          <label className="grid gap-1 text-sm">
-            Correo
-            <input type="email" className="rounded bg-slate-800 p-2" value={demoEmail} onChange={(event) => setDemoEmail(event.target.value)} required />
-          </label>
-          <button className="mt-2 rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" disabled={demoLoading}>
-            {demoLoading ? "Creando..." : "Crear demo"}
-          </button>
-        </form>
+        <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+          <p className="font-semibold text-slate-100">Usuarios test</p>
+          <p>Admin: admin@test.local / admin</p>
+          <p>Operador: usuario@test.local / usuario</p>
+          <p>Supervisor: supervisor@test.local / supervisor</p>
+        </div>
       </section>
     </main>
   );

@@ -3,6 +3,27 @@ import { NextResponse } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/api"];
 const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
+const SUPERVISOR_ALLOWED_PREFIXES = [
+  "/",
+  "/supervision",
+  "/commands",
+  "/gestion/tareas",
+  "/dashboard",
+  "/traceability",
+  "/insumos",
+  "/health",
+  "/api",
+  "/_next",
+  "/favicon",
+  "/robots.txt",
+  "/sitemap.xml",
+];
+
+function getHomePathForRole(role: string | null) {
+  if (role === "OPERATOR") return "/campo";
+  if (role === "SUPERVISOR") return "/supervision";
+  return "/dashboard";
+}
 
 function getSessionRoleFromToken(token: string | undefined): string | null {
   if (!token) return null;
@@ -16,11 +37,9 @@ function getSessionRoleFromToken(token: string | undefined): string | null {
   }
 }
 
-function isOperatorAllowedPath(pathname: string) {
-  return OPERATOR_ALLOWED_PREFIXES.some((prefix) => {
-    if (prefix === "/") {
-      return pathname === "/";
-    }
+function isAllowedPath(pathname: string, prefixes: string[]) {
+  return prefixes.some((prefix) => {
+    if (prefix === "/") return pathname === "/";
     return pathname === prefix || pathname.startsWith(`${prefix}/`);
   });
 }
@@ -29,30 +48,15 @@ const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() ?? "";
 const BASE_PATH = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}` : "";
 
 function stripBasePath(pathname: string): string {
-  if (!BASE_PATH) {
-    return pathname;
-  }
-
-  if (pathname === BASE_PATH) {
-    return "/";
-  }
-
-  if (pathname.startsWith(`${BASE_PATH}/`)) {
-    return pathname.slice(BASE_PATH.length);
-  }
-
+  if (!BASE_PATH) return pathname;
+  if (pathname === BASE_PATH) return "/";
+  if (pathname.startsWith(`${BASE_PATH}/`)) return pathname.slice(BASE_PATH.length);
   return pathname;
 }
 
 function withBasePath(pathname: string): string {
-  if (!BASE_PATH) {
-    return pathname;
-  }
-
-  if (pathname === "/") {
-    return BASE_PATH;
-  }
-
+  if (!BASE_PATH) return pathname;
+  if (pathname === "/") return BASE_PATH;
   return `${BASE_PATH}${pathname}`;
 }
 
@@ -74,7 +78,8 @@ export function middleware(request: NextRequest) {
   }
 
   const hasLegacyAuth = request.cookies.get("eg_auth")?.value === "1";
-  const hasSessionAuth = Boolean(request.cookies.get("eg_session")?.value);
+  const sessionToken = request.cookies.get("eg_session")?.value;
+  const hasSessionAuth = Boolean(sessionToken);
   const isAuthenticated = hasLegacyAuth || hasSessionAuth;
 
   if (!isAuthenticated && !isPublicRoute(pathname)) {
@@ -84,19 +89,34 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  const sessionRole = getSessionRoleFromToken(sessionToken);
+
   if (isAuthenticated && pathname === "/login") {
     const dashboardUrl = request.nextUrl.clone();
-    dashboardUrl.pathname = withBasePath("/dashboard");
+    dashboardUrl.pathname = withBasePath(getHomePathForRole(sessionRole));
     dashboardUrl.search = "";
     return NextResponse.redirect(dashboardUrl);
   }
 
-  const sessionRole = getSessionRoleFromToken(request.cookies.get("eg_session")?.value);
-  if (sessionRole === "OPERATOR" && !isOperatorAllowedPath(pathname)) {
+  if (sessionRole === "OPERATOR" && !isAllowedPath(pathname, OPERATOR_ALLOWED_PREFIXES)) {
     const campoUrl = request.nextUrl.clone();
     campoUrl.pathname = withBasePath("/campo");
     campoUrl.search = "";
     return NextResponse.redirect(campoUrl);
+  }
+
+  if (sessionRole === "SUPERVISOR" && !isAllowedPath(pathname, SUPERVISOR_ALLOWED_PREFIXES)) {
+    const supervisionUrl = request.nextUrl.clone();
+    supervisionUrl.pathname = withBasePath("/supervision");
+    supervisionUrl.search = "";
+    return NextResponse.redirect(supervisionUrl);
+  }
+
+  if (pathname === "/" && (sessionRole === "OPERATOR" || sessionRole === "SUPERVISOR")) {
+    const roleHomeUrl = request.nextUrl.clone();
+    roleHomeUrl.pathname = withBasePath(getHomePathForRole(sessionRole));
+    roleHomeUrl.search = "";
+    return NextResponse.redirect(roleHomeUrl);
   }
 
   return NextResponse.next();

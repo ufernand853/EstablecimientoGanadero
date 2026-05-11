@@ -5,7 +5,7 @@ import { getApiUrl } from "../../lib/api-url";
 
 const API_URL = getApiUrl();
 
-type Role = "OWNER" | "ADMIN" | "OPERATOR" | "READONLY";
+type Role = "OWNER" | "ADMIN" | "SUPERVISOR" | "OPERATOR" | "READONLY";
 type Status = "ACTIVE" | "INACTIVE";
 
 type UserRow = {
@@ -110,6 +110,7 @@ export default function AdminUsersPage() {
           />
           <select className="rounded bg-slate-800 p-2 text-sm" value={role} onChange={(event) => setRole(event.target.value as Role)}>
             <option value="ADMIN">ADMIN</option>
+            <option value="SUPERVISOR">SUPERVISOR</option>
             <option value="OPERATOR">OPERATOR</option>
             <option value="READONLY">READONLY</option>
           </select>
@@ -139,6 +140,7 @@ export default function AdminUsersPage() {
                   onChange={(event) => updateUser(user.id, { role: event.target.value as Role })}
                 >
                   <option value="ADMIN">ADMIN</option>
+                  <option value="SUPERVISOR">SUPERVISOR</option>
                   <option value="OPERATOR">OPERATOR</option>
                   <option value="READONLY">READONLY</option>
                 </select>

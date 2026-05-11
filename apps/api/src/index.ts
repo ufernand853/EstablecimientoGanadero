@@ -68,13 +68,13 @@ const adminUserCreateSchema = z.object({
   email: z.string().email(),
   fullName: z.string().min(2),
   password: z.string().min(8),
-  role: z.enum(["ADMIN", "OPERATOR", "READONLY"]).default("OPERATOR"),
+  role: z.enum(["ADMIN", "SUPERVISOR", "OPERATOR", "READONLY"]).default("OPERATOR"),
 });
 
 const adminUserUpdateSchema = z.object({
   fullName: z.string().min(2).optional(),
   password: z.string().min(8).optional(),
-  role: z.enum(["OWNER", "ADMIN", "OPERATOR", "READONLY"]).optional(),
+  role: z.enum(["OWNER", "ADMIN", "SUPERVISOR", "OPERATOR", "READONLY"]).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
@@ -176,6 +176,54 @@ const traceabilityEventCreateSchema = z.object({
   createdBy: z.string().max(200).optional().nullable(),
 });
 
+const supplyCreateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  type: z.enum(["MEDICINE", "VACCINE", "DEWORMER", "FEED", "OTHER"]).default("MEDICINE"),
+  name: z.string().min(2).max(200),
+  activeIngredient: z.string().max(200).optional().nullable(),
+  presentation: z.string().max(200).optional().nullable(),
+  unit: z.string().min(1).max(30).default("dosis"),
+  defaultDose: z.string().max(100).optional().nullable(),
+  withdrawalPeriodDays: z.number().int().nonnegative().optional().nullable(),
+  storageNotes: z.string().max(1000).optional().nullable(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
+});
+
+const supplyUpdateSchema = supplyCreateSchema.omit({ establishmentId: true }).partial();
+
+const supplyBatchCreateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  supplyId: z.string().uuid(),
+  batchNumber: z.string().min(1).max(100),
+  quantityInitial: z.number().positive(),
+  quantityAvailable: z.number().nonnegative().optional(),
+  unit: z.string().min(1).max(30).optional(),
+  expirationDate: z.string().datetime(),
+  purchaseDate: z.string().datetime().optional().nullable(),
+  supplier: z.string().max(200).optional().nullable(),
+  invoiceNumber: z.string().max(100).optional().nullable(),
+  location: z.string().max(200).optional().nullable(),
+  status: z.enum(["AVAILABLE", "LOW_STOCK", "EXPIRED", "CONSUMED", "DISCARDED"]).optional(),
+  notes: z.string().max(1000).optional().nullable(),
+});
+
+const supplyBatchUpdateSchema = supplyBatchCreateSchema.omit({ establishmentId: true, supplyId: true }).partial();
+
+const supplyMovementCreateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  supplyId: z.string().uuid(),
+  batchId: z.string().uuid(),
+  type: z.enum(["IN", "OUT", "ADJUSTMENT", "DISCARD", "RESERVED"]),
+  quantity: z.number().positive(),
+  unit: z.string().min(1).max(30).optional(),
+  reason: z.string().min(2).max(500),
+  relatedTaskId: z.string().optional().nullable(),
+  relatedHealthEventId: z.string().optional().nullable(),
+  relatedTraceabilityEventId: z.string().optional().nullable(),
+  occurredAt: z.string().datetime().optional(),
+  createdBy: z.string().max(200).optional().nullable(),
+});
+
 type AIMessage = {
   role: "user" | "assistant";
   content: string;
@@ -253,6 +301,10 @@ type HealthEvent = {
   dose: string | null;
   route: string | null;
   notes: string | null;
+  supplyId: string | null;
+  supplyBatchId: string | null;
+  quantityUsed: number | null;
+  unit: string | null;
   responsible: string | null;
   occurredAt: string;
   nextDueAt: string | null;
@@ -432,7 +484,7 @@ type Membership = {
   id: string;
   tenantId: string;
   userId: string;
-  role: "OWNER" | "ADMIN" | "OPERATOR" | "READONLY";
+  role: "OWNER" | "ADMIN" | "SUPERVISOR" | "OPERATOR" | "READONLY";
   createdAt: string;
 };
 
@@ -488,6 +540,63 @@ type BillingEvent = {
   status: "PROCESSED" | "IGNORED" | "FAILED";
   payload: Record<string, unknown>;
   processedAt: string;
+};
+
+type SupplyType = "MEDICINE" | "VACCINE" | "DEWORMER" | "FEED" | "OTHER";
+type SupplyStatus = "ACTIVE" | "INACTIVE";
+type SupplyBatchStatus = "AVAILABLE" | "LOW_STOCK" | "EXPIRED" | "CONSUMED" | "DISCARDED";
+type SupplyMovementType = "IN" | "OUT" | "ADJUSTMENT" | "DISCARD" | "RESERVED";
+
+type Supply = {
+  id: string;
+  establishmentId: string;
+  type: SupplyType;
+  name: string;
+  activeIngredient: string | null;
+  presentation: string | null;
+  unit: string;
+  defaultDose: string | null;
+  withdrawalPeriodDays: number | null;
+  storageNotes: string | null;
+  status: SupplyStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SupplyBatch = {
+  id: string;
+  establishmentId: string;
+  supplyId: string;
+  batchNumber: string;
+  quantityInitial: number;
+  quantityAvailable: number;
+  unit: string;
+  expirationDate: string;
+  purchaseDate: string | null;
+  supplier: string | null;
+  invoiceNumber: string | null;
+  location: string | null;
+  status: SupplyBatchStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SupplyMovement = {
+  id: string;
+  establishmentId: string;
+  supplyId: string;
+  batchId: string;
+  type: SupplyMovementType;
+  quantity: number;
+  unit: string;
+  reason: string;
+  relatedTaskId: string | null;
+  relatedHealthEventId: string | null;
+  relatedTraceabilityEventId: string | null;
+  occurredAt: string;
+  createdBy: string | null;
+  createdAt: string;
 };
 
 type TraceabilityEventType =
@@ -643,6 +752,9 @@ const getCollections = async () => {
     billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
     billingEvents: db.collection<BillingEvent>("billing_events"),
     traceabilityEvents: db.collection<TraceabilityEvent>("traceability_events"),
+    supplies: db.collection<Supply>("supplies"),
+    supplyBatches: db.collection<SupplyBatch>("supply_batches"),
+    supplyMovements: db.collection<SupplyMovement>("supply_movements"),
     tasks: db.collection<FieldTask>("tasks"),
     activityFeed: db.collection<ActivityFeedItem>("activity_feed"),
     fieldConfirmations: db.collection<FieldConfirmation>("field_confirmations"),
@@ -746,6 +858,83 @@ const completeFieldTask = async (task: FieldTask, completedAt = new Date().toISO
     paddockName: task.paddockName,
   });
   return updated;
+};
+
+const resolveSupplyBatchStatus = (batch: Pick<SupplyBatch, "quantityAvailable" | "quantityInitial" | "expirationDate" | "status">): SupplyBatchStatus => {
+  if (batch.status === "DISCARDED") return "DISCARDED";
+  if (new Date(batch.expirationDate).getTime() < Date.now()) return "EXPIRED";
+  if (batch.quantityAvailable <= 0) return "CONSUMED";
+  if (batch.quantityAvailable <= Math.max(1, batch.quantityInitial * 0.15)) return "LOW_STOCK";
+  return "AVAILABLE";
+};
+
+const buildSupplyNotifications = (batches: Array<SupplyBatch & { supplyName?: string }>) => {
+  const now = Date.now();
+  const dayMs = 86400000;
+  return batches
+    .filter((batch) => batch.status !== "CONSUMED" && batch.status !== "DISCARDED" && batch.quantityAvailable > 0)
+    .map((batch) => {
+      const daysToExpire = Math.ceil((new Date(batch.expirationDate).getTime() - now) / dayMs);
+      const isLowStock = batch.quantityAvailable <= Math.max(1, batch.quantityInitial * 0.15);
+      if (daysToExpire < 0) {
+        return { id: `expired-${batch.id}`, type: "SUPPLY_EXPIRED", severity: "CRITICAL", title: `${batch.supplyName ?? "Insumo"} vencido`, message: `Lote ${batch.batchNumber} vencido con ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
+      }
+      if (daysToExpire <= 7) {
+        return { id: `expires-7-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "CRITICAL", title: `${batch.supplyName ?? "Insumo"} vence en ${daysToExpire} día(s)`, message: `Lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
+      }
+      if (daysToExpire <= 15) {
+        return { id: `expires-15-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "WARNING", title: `${batch.supplyName ?? "Insumo"} vence pronto`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} día(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
+      }
+      if (daysToExpire <= 30) {
+        return { id: `expires-30-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "INFO", title: `${batch.supplyName ?? "Insumo"} vence este mes`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} día(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
+      }
+      if (isLowStock) {
+        return { id: `low-${batch.id}`, type: "SUPPLY_LOW_STOCK", severity: "WARNING", title: `${batch.supplyName ?? "Insumo"} con stock bajo`, message: `Lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
+      }
+      return null;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+};
+
+const registerSupplyMovement = async (input: z.input<typeof supplyMovementCreateSchema>, relatedHealthEventId?: string) => {
+  const { supplyBatches, supplyMovements } = await getCollections();
+  const batch = await supplyBatches.findOne({ id: input.batchId, supplyId: input.supplyId, establishmentId: input.establishmentId });
+  if (!batch) throw new Error("SUPPLY_BATCH_NOT_FOUND");
+  if (batch.status === "EXPIRED" || new Date(batch.expirationDate).getTime() < Date.now()) throw new Error("SUPPLY_BATCH_EXPIRED");
+
+  const quantity = input.quantity;
+  let nextQuantity = batch.quantityAvailable;
+  if (input.type === "OUT" || input.type === "RESERVED" || input.type === "DISCARD") {
+    if (batch.quantityAvailable < quantity) throw new Error("INSUFFICIENT_SUPPLY_STOCK");
+    nextQuantity = batch.quantityAvailable - quantity;
+  } else if (input.type === "IN") {
+    nextQuantity = batch.quantityAvailable + quantity;
+  } else if (input.type === "ADJUSTMENT") {
+    nextQuantity = quantity;
+  }
+
+  const now = new Date().toISOString();
+  const nextStatus = resolveSupplyBatchStatus({ ...batch, quantityAvailable: nextQuantity });
+  const movement: SupplyMovement = {
+    id: randomUUID(),
+    establishmentId: input.establishmentId,
+    supplyId: input.supplyId,
+    batchId: input.batchId,
+    type: input.type,
+    quantity,
+    unit: input.unit ?? batch.unit,
+    reason: input.reason.trim(),
+    relatedTaskId: input.relatedTaskId ?? null,
+    relatedHealthEventId: relatedHealthEventId ?? input.relatedHealthEventId ?? null,
+    relatedTraceabilityEventId: input.relatedTraceabilityEventId ?? null,
+    occurredAt: input.occurredAt ?? now,
+    createdBy: input.createdBy?.trim() || null,
+    createdAt: now,
+  };
+  await supplyMovements.insertOne(movement);
+  await supplyBatches.updateOne({ id: batch.id }, { $set: { quantityAvailable: nextQuantity, status: nextStatus, updatedAt: now } });
+  return movement;
 };
 
 const isTaskCreationPrompt = (normalized: string) => /\b(crea|crear|agendar|agenda|programar|programa|recordame|recordar|nueva|nuevo)\b/.test(normalized)
@@ -1116,6 +1305,88 @@ const ensureDefaultPlans = async () => {
       active: true,
     },
   ]);
+};
+
+const TEST_TENANT_ID = "test-tenant";
+const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
+  { email: "admin@test.local", fullName: "Administrador", password: "admin", role: "ADMIN" },
+  { email: "usuario@test.local", fullName: "Operador", password: "usuario", role: "OPERATOR" },
+  { email: "supervisor@test.local", fullName: "Supervisor", password: "supervisor", role: "SUPERVISOR" },
+];
+
+const ensureTestLoginData = async (requestedEmail?: string) => {
+  const normalizedEmail = requestedEmail?.toLowerCase();
+  if (normalizedEmail && !TEST_USERS.some((testUser) => testUser.email === normalizedEmail)) return;
+
+  const { tenants, subscriptions, establishments, users, memberships } = await getCollections();
+  const now = new Date().toISOString();
+
+  await tenants.updateOne(
+    { id: TEST_TENANT_ID },
+    {
+      $set: { name: "Estancia La Esperanza", status: "ACTIVE", updatedAt: now },
+      $setOnInsert: { id: TEST_TENANT_ID, createdAt: now },
+    },
+    { upsert: true },
+  );
+
+  await subscriptions.updateOne(
+    { tenantId: TEST_TENANT_ID, planCode: "PRO" },
+    {
+      $set: {
+        status: "ACTIVE",
+        provider: "test",
+        providerCustomerId: null,
+        providerSubscriptionId: null,
+        currentPeriodStart: now,
+        currentPeriodEnd: new Date(Date.now() + 365 * 86400000).toISOString(),
+        graceUntil: null,
+        cancelAt: null,
+        updatedAt: now,
+      },
+      $setOnInsert: { id: randomUUID(), tenantId: TEST_TENANT_ID, planCode: "PRO", createdAt: now },
+    },
+    { upsert: true },
+  );
+
+  if (await establishments.countDocuments() === 0) {
+    await establishments.insertOne({
+      id: randomUUID(),
+      name: "Estancia La Esperanza",
+      timezone: "UTC-3",
+      mapImageUrl: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  for (const testUser of TEST_USERS) {
+    const existingUser = await users.findOne({ email: testUser.email });
+    const userId = existingUser?.id ?? randomUUID();
+    await users.updateOne(
+      { email: testUser.email },
+      {
+        $set: {
+          id: userId,
+          email: testUser.email,
+          fullName: testUser.fullName,
+          passwordHash: hashPassword(testUser.password),
+          status: "ACTIVE",
+          updatedAt: now,
+        },
+        $setOnInsert: { createdAt: now, lastLoginAt: null },
+      },
+      { upsert: true },
+    );
+    await memberships.updateOne(
+      { tenantId: TEST_TENANT_ID, userId },
+      {
+        $set: { role: testUser.role },
+        $setOnInsert: { id: randomUUID(), tenantId: TEST_TENANT_ID, userId, createdAt: now },
+      },
+      { upsert: true },
+    );
+  }
 };
 
 const setSessionCookie = (reply: { header: (name: string, value: string) => unknown }, token: string) => {
@@ -1978,6 +2249,10 @@ const healthEventSchema = z.object({
   dose: z.string().min(1).optional().nullable(),
   route: z.string().min(1).optional().nullable(),
   notes: z.string().min(1).optional().nullable(),
+  supplyId: z.string().uuid().optional().nullable(),
+  supplyBatchId: z.string().uuid().optional().nullable(),
+  quantityUsed: z.number().positive().optional().nullable(),
+  unit: z.string().min(1).max(30).optional().nullable(),
   responsible: z.string().min(2).optional().nullable(),
   occurredAt: z.string().datetime().optional(),
   nextDueAt: z.string().datetime().optional().nullable(),
@@ -1994,6 +2269,10 @@ const healthEventUpdateSchema = z.object({
   dose: z.string().min(1).nullable().optional(),
   route: z.string().min(1).nullable().optional(),
   notes: z.string().min(1).nullable().optional(),
+  supplyId: z.string().uuid().nullable().optional(),
+  supplyBatchId: z.string().uuid().nullable().optional(),
+  quantityUsed: z.number().positive().nullable().optional(),
+  unit: z.string().min(1).max(30).nullable().optional(),
   responsible: z.string().min(2).nullable().optional(),
   occurredAt: z.string().datetime().optional(),
   nextDueAt: z.string().datetime().nullable().optional(),
@@ -2236,6 +2515,17 @@ app.post("/field/assistant", async (request, reply) => {
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_PREGNANT_FEMALES", confidence: 0.82 });
   }
 
+  if (/\b(insumo|insumos|medicamento|medicamentos|vacuna|vacunas|vencen|vence|vencimiento|vencimientos)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|lista|listar|que|qué|cuales|cu[aá]les)\b/.test(normalized)) {
+    const { supplies, supplyBatches } = await getCollections();
+    const [supplyList, batchList] = await Promise.all([
+      supplies.find({ establishmentId: body.data.establishmentId }).toArray(),
+      supplyBatches.find({ establishmentId: body.data.establishmentId, quantityAvailable: { $gt: 0 } }).sort({ expirationDate: 1 }).limit(8).toArray(),
+    ]);
+    const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
+    const lines = batchList.map((batch) => `${names.get(batch.supplyId) ?? "Insumo"} lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit}, vence ${new Date(batch.expirationDate).toLocaleDateString("es-UY")}`);
+    return reply.send({ mode: "ANSWER", intent: "QUERY_SUPPLIES", confidence: 0.84, message: lines.length ? `Insumos próximos: ${lines.join("; ")}.` : "No encontré insumos con stock disponible." });
+  }
+
   if (/\b(stock|existencia|existencias|cabezas|categorias|categorías)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|resumen|lista|listar|como|cómo)\b/.test(normalized)) {
     const message = await buildStockDetailAnswer(body.data.establishmentId);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
@@ -2474,6 +2764,10 @@ app.post("/field/confirm", async (request, reply) => {
       dose: null,
       route: null,
       notes: String(confirmation.payload.notes ?? "Vacunación por lote desde modo campo"),
+      supplyId: null,
+      supplyBatchId: null,
+      quantityUsed: null,
+      unit: null,
       responsible: null,
       occurredAt: now,
       nextDueAt: null,
@@ -2670,6 +2964,10 @@ app.post("/commands/confirm", async (request, reply) => {
       dose,
       route: null,
       notes: null,
+      supplyId: null,
+      supplyBatchId: null,
+      quantityUsed: null,
+      unit: null,
       responsible,
       occurredAt: occurredAt ?? now,
       nextDueAt: null,
@@ -3172,6 +3470,214 @@ app.post("/ai/behaviors", async (request, reply) => {
   return reply.status(201).send(behavior);
 });
 
+app.get("/supplies", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; type?: SupplyType; status?: SupplyStatus; search?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const { supplies } = await getCollections();
+  const filter: Record<string, unknown> = { establishmentId: query.establishmentId };
+  if (query.type) filter.type = query.type;
+  if (query.status) filter.status = query.status;
+  if (query.search) filter.name = { $regex: query.search, $options: "i" };
+  const list = await supplies.find(filter).sort({ name: 1 }).toArray();
+  return { supplies: list };
+});
+
+app.post("/supplies", async (request, reply) => {
+  const body = supplyCreateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  const { supplies } = await getCollections();
+  const now = new Date().toISOString();
+  const supply: Supply = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    type: body.data.type,
+    name: body.data.name.trim(),
+    activeIngredient: body.data.activeIngredient?.trim() || null,
+    presentation: body.data.presentation?.trim() || null,
+    unit: body.data.unit.trim(),
+    defaultDose: body.data.defaultDose?.trim() || null,
+    withdrawalPeriodDays: body.data.withdrawalPeriodDays ?? null,
+    storageNotes: body.data.storageNotes?.trim() || null,
+    status: body.data.status,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await supplies.insertOne(supply);
+  return reply.status(201).send(supply);
+});
+
+app.patch("/supplies/:id", async (request, reply) => {
+  const body = supplyUpdateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { supplies } = await getCollections();
+  const existing = await supplies.findOne({ id: (request.params as { id: string }).id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Insumo no encontrado." });
+  const updates = { ...body.data, updatedAt: new Date().toISOString() };
+  await supplies.updateOne({ id: existing.id }, { $set: updates });
+  return reply.send(await supplies.findOne({ id: existing.id }));
+});
+
+app.get("/supply-batches", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; supplyId?: string; status?: SupplyBatchStatus; expiringDays?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const { supplyBatches, supplies } = await getCollections();
+  const filter: Record<string, unknown> = { establishmentId: query.establishmentId };
+  if (query.supplyId) filter.supplyId = query.supplyId;
+  if (query.status) filter.status = query.status;
+  if (query.expiringDays) {
+    const until = new Date(Date.now() + Number(query.expiringDays) * 86400000).toISOString();
+    filter.expirationDate = { $lte: until };
+  }
+  const [batches, supplyList] = await Promise.all([
+    supplyBatches.find(filter).sort({ expirationDate: 1, createdAt: -1 }).toArray(),
+    supplies.find({ establishmentId: query.establishmentId }).toArray(),
+  ]);
+  const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
+  return { batches: batches.map((batch) => ({ ...batch, supplyName: names.get(batch.supplyId) ?? "Insumo" })) };
+});
+
+app.post("/supply-batches", async (request, reply) => {
+  const body = supplyBatchCreateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { supplies, supplyBatches, supplyMovements } = await getCollections();
+  const supply = await supplies.findOne({ id: body.data.supplyId, establishmentId: body.data.establishmentId });
+  if (!supply) return reply.status(404).send({ code: "NOT_FOUND", message: "Insumo no encontrado." });
+  const now = new Date().toISOString();
+  const quantityAvailable = body.data.quantityAvailable ?? body.data.quantityInitial;
+  const status = body.data.status ?? resolveSupplyBatchStatus({ quantityAvailable, quantityInitial: body.data.quantityInitial, expirationDate: body.data.expirationDate, status: "AVAILABLE" });
+  const batch: SupplyBatch = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    supplyId: body.data.supplyId,
+    batchNumber: body.data.batchNumber.trim(),
+    quantityInitial: body.data.quantityInitial,
+    quantityAvailable,
+    unit: body.data.unit?.trim() || supply.unit,
+    expirationDate: body.data.expirationDate,
+    purchaseDate: body.data.purchaseDate ?? null,
+    supplier: body.data.supplier?.trim() || null,
+    invoiceNumber: body.data.invoiceNumber?.trim() || null,
+    location: body.data.location?.trim() || null,
+    status,
+    notes: body.data.notes?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await supplyBatches.insertOne(batch);
+  await supplyMovements.insertOne({
+    id: randomUUID(),
+    establishmentId: batch.establishmentId,
+    supplyId: batch.supplyId,
+    batchId: batch.id,
+    type: "IN",
+    quantity: batch.quantityAvailable,
+    unit: batch.unit,
+    reason: "Alta inicial de lote",
+    relatedTaskId: null,
+    relatedHealthEventId: null,
+    relatedTraceabilityEventId: null,
+    occurredAt: now,
+    createdBy: null,
+    createdAt: now,
+  });
+  return reply.status(201).send(batch);
+});
+
+app.patch("/supply-batches/:id", async (request, reply) => {
+  const body = supplyBatchUpdateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { supplyBatches } = await getCollections();
+  const existing = await supplyBatches.findOne({ id: (request.params as { id: string }).id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Lote de insumo no encontrado." });
+  const updates: Partial<SupplyBatch> = { ...body.data, updatedAt: new Date().toISOString() };
+  const quantityAvailable = updates.quantityAvailable ?? existing.quantityAvailable;
+  const quantityInitial = updates.quantityInitial ?? existing.quantityInitial;
+  const expirationDate = updates.expirationDate ?? existing.expirationDate;
+  updates.status = updates.status ?? resolveSupplyBatchStatus({ ...existing, quantityAvailable, quantityInitial, expirationDate });
+  await supplyBatches.updateOne({ id: existing.id }, { $set: updates });
+  return reply.send(await supplyBatches.findOne({ id: existing.id }));
+});
+
+app.get("/supply-movements", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; supplyId?: string; batchId?: string; limit?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const filter: Record<string, unknown> = { establishmentId: query.establishmentId };
+  if (query.supplyId) filter.supplyId = query.supplyId;
+  if (query.batchId) filter.batchId = query.batchId;
+  const { supplyMovements } = await getCollections();
+  const movements = await supplyMovements.find(filter).sort({ occurredAt: -1 }).limit(Math.min(Number(query.limit ?? 100), 500)).toArray();
+  return { movements };
+});
+
+app.post("/supply-movements", async (request, reply) => {
+  const body = supplyMovementCreateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  try {
+    const movement = await registerSupplyMovement(body.data);
+    return reply.status(201).send(movement);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "SUPPLY_MOVEMENT_ERROR";
+    const status = code === "INSUFFICIENT_SUPPLY_STOCK" ? 409 : code === "SUPPLY_BATCH_EXPIRED" ? 422 : 404;
+    return reply.status(status).send({ code, message: "No se pudo registrar el movimiento de insumo." });
+  }
+});
+
+app.get("/supplies/expirations", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; days?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const days = Number(query.days ?? 30);
+  const until = new Date(Date.now() + days * 86400000).toISOString();
+  const { supplies, supplyBatches } = await getCollections();
+  const [supplyList, batchList] = await Promise.all([
+    supplies.find({ establishmentId: query.establishmentId }).toArray(),
+    supplyBatches.find({ establishmentId: query.establishmentId, quantityAvailable: { $gt: 0 }, expirationDate: { $lte: until } }).sort({ expirationDate: 1 }).toArray(),
+  ]);
+  const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
+  const batches = batchList.map((batch) => ({ ...batch, supplyName: names.get(batch.supplyId) ?? "Insumo", status: resolveSupplyBatchStatus(batch) }));
+  return { batches, notifications: buildSupplyNotifications(batches) };
+});
+
+app.get("/notifications", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; days?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const days = Number(query.days ?? 30);
+  const until = new Date(Date.now() + days * 86400000).toISOString();
+  const { supplies, supplyBatches, tasks } = await getCollections();
+  const [supplyList, batchList, overdueTasks] = await Promise.all([
+    supplies.find({ establishmentId: query.establishmentId }).toArray(),
+    supplyBatches.find({ establishmentId: query.establishmentId, quantityAvailable: { $gt: 0 }, expirationDate: { $lte: until } }).sort({ expirationDate: 1 }).toArray(),
+    tasks.find({ establishmentId: query.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] }, dueDate: { $lte: new Date().toISOString() } }).sort({ dueDate: 1 }).limit(50).toArray(),
+  ]);
+  const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
+  const supplyNotifications = buildSupplyNotifications(batchList.map((batch) => ({ ...batch, supplyName: names.get(batch.supplyId) ?? "Insumo" })));
+  const taskNotifications = overdueTasks.map((task) => ({ id: `task-${task.id}`, type: "TASK_OVERDUE", severity: task.priority === "URGENT" ? "CRITICAL" : "WARNING", title: `Tarea vencida: ${task.title}`, message: task.description ?? "Pendiente de resolución.", dueDate: task.dueDate ?? task.scheduledAt ?? task.createdAt, sourceId: task.id }));
+  return { notifications: [...supplyNotifications, ...taskNotifications].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()) };
+});
+
+app.post("/tasks/from-supply-expiration", async (request, reply) => {
+  const body = z.object({ establishmentId: z.string().uuid(), batchId: z.string().uuid(), assignedRole: z.string().optional().nullable() }).safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { supplies, supplyBatches } = await getCollections();
+  const batch = await supplyBatches.findOne({ id: body.data.batchId, establishmentId: body.data.establishmentId });
+  if (!batch) return reply.status(404).send({ code: "NOT_FOUND", message: "Lote no encontrado." });
+  const supply = await supplies.findOne({ id: batch.supplyId });
+  const task = await createFieldTask({
+    establishmentId: body.data.establishmentId,
+    title: `Planificar uso: ${supply?.name ?? "insumo"} lote ${batch.batchNumber}`,
+    description: `Quedan ${batch.quantityAvailable} ${batch.unit}. Vence el ${new Date(batch.expirationDate).toLocaleDateString("es-UY")}. Revisar animales/lotes destino antes del vencimiento.`,
+    type: "HEALTH",
+    priority: new Date(batch.expirationDate).getTime() - Date.now() <= 7 * 86400000 ? "URGENT" : "HIGH",
+    dueDate: batch.expirationDate,
+    scheduledAt: new Date().toISOString(),
+    assignedRole: body.data.assignedRole ?? "OPERATOR",
+    source: "SYSTEM_RULE",
+    sourceEventId: batch.id,
+  });
+  return reply.status(201).send(task);
+});
+
 app.get("/health-events", async (request) => {
   const { establishmentId, status, type } = request.query as {
     establishmentId?: string;
@@ -3214,6 +3720,10 @@ app.post("/health-events", async (request, reply) => {
     dose: body.data.dose ?? null,
     route: body.data.route ?? null,
     notes: body.data.notes ?? null,
+    supplyId: body.data.supplyId ?? null,
+    supplyBatchId: body.data.supplyBatchId ?? null,
+    quantityUsed: body.data.quantityUsed ?? null,
+    unit: body.data.unit ?? null,
     responsible: body.data.responsible ?? null,
     occurredAt,
     nextDueAt,
@@ -3223,6 +3733,24 @@ app.post("/health-events", async (request, reply) => {
     updatedAt: now,
   };
   await insertHealthEvent(healthEvent);
+  if (healthEvent.supplyId && healthEvent.supplyBatchId && healthEvent.quantityUsed) {
+    try {
+      await registerSupplyMovement({
+        establishmentId: healthEvent.establishmentId,
+        supplyId: healthEvent.supplyId,
+        batchId: healthEvent.supplyBatchId,
+        type: "OUT",
+        quantity: healthEvent.quantityUsed,
+        unit: healthEvent.unit ?? undefined,
+        reason: `Uso sanitario: ${healthEvent.product}`,
+        relatedHealthEventId: healthEvent.id,
+        occurredAt,
+        createdBy: healthEvent.responsible,
+      }, healthEvent.id);
+    } catch (error) {
+      return reply.status(409).send({ code: error instanceof Error ? error.message : "SUPPLY_MOVEMENT_ERROR", message: "Evento sanitario guardado, pero no se pudo descontar el insumo." });
+    }
+  }
   return reply.status(201).send(healthEvent);
 });
 
@@ -5018,6 +5546,7 @@ app.post("/auth/login", async (request, reply) => {
   if (!body.success) {
     return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
   }
+  await ensureTestLoginData(body.data.email);
   const { users, memberships, subscriptions } = await getCollections();
   const user = await users.findOne({ email: body.data.email.toLowerCase(), status: "ACTIVE" });
   if (!user || !verifyPassword(body.data.password, user.passwordHash)) {
