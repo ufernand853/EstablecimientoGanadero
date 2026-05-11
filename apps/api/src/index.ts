@@ -1117,6 +1117,30 @@ const buildAnimalTagsDetailAnswer = async (establishmentId: string) => {
   return [`Detalle de caravanas: ${animalDocs.length} registradas (${active} activas, ${sold} vendidas, ${dead} muertas).`, "", ...lines, truncated].filter(Boolean).join("\n");
 };
 
+const buildAnimalTagsCountAnswer = async (establishmentId: string) => {
+  const { animals } = await getCollections();
+  const [total, active, sold, dead] = await Promise.all([
+    animals.countDocuments({ establishmentId }),
+    animals.countDocuments({ establishmentId, status: "ACTIVO" }),
+    animals.countDocuments({ establishmentId, status: "VENDIDO" }),
+    animals.countDocuments({ establishmentId, status: "MUERTO" }),
+  ]);
+
+  if (total === 0) {
+    return "Tenés 0 caravanas individuales registradas para este establecimiento.";
+  }
+
+  return `Tenés ${total} caravana${total === 1 ? "" : "s"} registrada${total === 1 ? "" : "s"}: ${active} activa${active === 1 ? "" : "s"}, ${sold} vendida${sold === 1 ? "" : "s"} y ${dead} muerta${dead === 1 ? "" : "s"}.`;
+};
+
+const isAnimalTagsQuery = (normalized: string) =>
+  /\b(caravana|caravanas|animal|animales)\b/.test(normalized)
+  && /\b(cuant[oa]s?|cantidad|total|tengo|registrad[oa]s?|dame|mostrar|mostrame|ver|detalle|detallame|lista|listar)\b/.test(normalized);
+
+const isAnimalTagsCountQuery = (normalized: string) =>
+  /\b(cuant[oa]s?|cantidad|total|tengo)\b/.test(normalized)
+  && /\b(caravana|caravanas|animal|animales)\b/.test(normalized);
+
 const buildHerdDetailAnswer = async (establishmentId: string, establishmentName: string) => {
   const [{ animals, tasks, traceabilityEvents }, stockDetail] = await Promise.all([
     getCollections(),
@@ -2531,9 +2555,11 @@ app.post("/field/assistant", async (request, reply) => {
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
   }
 
-  if (/\b(caravana|caravanas|animales|animal)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|lista|listar)\b/.test(normalized)) {
-    const message = await buildAnimalTagsDetailAnswer(body.data.establishmentId);
-    return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
+  if (isAnimalTagsQuery(normalized)) {
+    const message = isAnimalTagsCountQuery(normalized)
+      ? await buildAnimalTagsCountAnswer(body.data.establishmentId)
+      : await buildAnimalTagsDetailAnswer(body.data.establishmentId);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_ANIMAL_TAGS", confidence: 0.9 });
   }
 
   if (/\b(resumen|dashboard|rode[oó]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen|detalle|detallame)\b/.test(normalized)) {
@@ -3156,6 +3182,13 @@ app.post("/ai/chat", async (request, reply) => {
   }
 
   const normalizedPrompt = normalizeFieldText(body.data.prompt);
+  if (isAnimalTagsQuery(normalizedPrompt)) {
+    const response = isAnimalTagsCountQuery(normalizedPrompt)
+      ? await buildAnimalTagsCountAnswer(body.data.establishmentId)
+      : await buildAnimalTagsDetailAnswer(body.data.establishmentId);
+    return reply.send({ response, intent: "QUERY_ANIMAL_TAGS" });
+  }
+
   if (isTaskCreationPrompt(normalizedPrompt)) {
     const now = new Date().toISOString();
     const scheduledAt = parseRelativeSchedule(body.data.prompt) ?? now;
