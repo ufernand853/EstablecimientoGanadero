@@ -250,6 +250,7 @@ type CommandContext = {
   paddocks: { id: string; name: string }[];
   consignors: { id: string; name: string }[];
   slaughterhouses: { id: string; name: string }[];
+  supplies?: { id: string; name: string }[];
 };
 
 type HerdStock = {
@@ -868,6 +869,8 @@ const resolveSupplyBatchStatus = (batch: Pick<SupplyBatch, "quantityAvailable" |
   return "AVAILABLE";
 };
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const buildSupplyNotifications = (batches: Array<SupplyBatch & { supplyName?: string }>) => {
   const now = Date.now();
   const dayMs = 86400000;
@@ -1440,21 +1443,24 @@ const upsertAISettings = async (openAiApiKey: string, openAiModel: string) => {
 };
 
 const loadContext = async (establishmentId?: string) => {
-  const { commandContext, consignors, slaughterhouses } = await getCollections();
+  const { commandContext, consignors, slaughterhouses, supplies } = await getCollections();
   const baseContext = await commandContext.findOne({ _id: "default" });
   const establishmentFilter = establishmentId ? { establishmentId } : {};
   const consignorDocs = await consignors.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
   const slaughterhouseDocs = await slaughterhouses.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
+  const supplyDocs = await supplies.find({ status: "ACTIVE", ...establishmentFilter }).toArray();
   const safeBaseContext: CommandContext = baseContext
     ? {
         paddocks: baseContext.paddocks,
         consignors: baseContext.consignors,
         slaughterhouses: baseContext.slaughterhouses,
+        supplies: baseContext.supplies ?? [],
       }
     : {
         paddocks: [],
         consignors: [],
         slaughterhouses: [],
+        supplies: [],
       };
   const paddocks = establishmentId
     ? await loadPaddocksByEstablishment(establishmentId)
@@ -1474,11 +1480,17 @@ const loadContext = async (establishmentId?: string) => {
     : (slaughterhouseDocs.length
       ? slaughterhouseDocs.map((slaughterhouse) => ({ id: slaughterhouse.id, name: slaughterhouse.name }))
       : safeBaseContext.slaughterhouses);
+  const scopedSupplies = establishmentId
+    ? supplyDocs.map((supply) => ({ id: supply.id, name: supply.name }))
+    : (supplyDocs.length
+      ? supplyDocs.map((supply) => ({ id: supply.id, name: supply.name }))
+      : safeBaseContext.supplies);
   return {
     ...safeBaseContext,
     paddocks: scopedPaddocks,
     consignors: scopedConsignors,
     slaughterhouses: scopedSlaughterhouses,
+    supplies: scopedSupplies,
   };
 };
 
@@ -2956,6 +2968,123 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds.push(movement.id);
   }
 
+
+  if (parsed?.intent === "SUPPLY_STOCK_IN") {
+    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const supplyName = typeof payload.supplyName === "string" ? payload.supplyName.trim() : "";
+    const supplyTypeRaw = typeof payload.supplyType === "string" ? payload.supplyType : "MEDICINE";
+    const supplyType: SupplyType = ["MEDICINE", "VACCINE", "DEWORMER", "FEED", "OTHER"].includes(supplyTypeRaw) ? supplyTypeRaw as SupplyType : "MEDICINE";
+    const quantityInitial = Number(payload.quantityInitial);
+    const unit = typeof payload.unit === "string" ? payload.unit.trim() : "";
+    const expirationDate = typeof payload.expirationDate === "string" ? payload.expirationDate : "";
+    const batchNumber = typeof payload.batchNumber === "string" && payload.batchNumber.trim()
+      ? payload.batchNumber.trim()
+      : `VOZ-${new Date().toISOString().slice(0, 10)}`;
+
+    if (!supplyName || !quantityInitial || !unit || !expirationDate) {
+      return failConfirm(400, "INVALID_SUPPLY_STOCK_PAYLOAD", "No se pudo confirmar el ingreso de stock porque faltan medicamento, cantidad, unidad o vencimiento.");
+    }
+
+    const { supplies, supplyBatches, supplyMovements } = await getCollections();
+    const now = new Date().toISOString();
+    const existingSupply = await supplies.findOne({
+      establishmentId: body.data.establishmentId,
+      name: { $regex: `^${escapeRegex(supplyName)}$`, $options: "i" },
+    });
+    const supply: Supply = existingSupply ?? {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      type: supplyType,
+      name: supplyName,
+      activeIngredient: null,
+      presentation: unit,
+      unit,
+      defaultDose: null,
+      withdrawalPeriodDays: null,
+      storageNotes: null,
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (!existingSupply) {
+      await supplies.insertOne(supply);
+    }
+
+    const batch: SupplyBatch = {
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      supplyId: supply.id,
+      batchNumber,
+      quantityInitial,
+      quantityAvailable: Number(payload.quantityAvailable) || quantityInitial,
+      unit,
+      expirationDate,
+      purchaseDate: null,
+      supplier: null,
+      invoiceNumber: null,
+      location: null,
+      status: resolveSupplyBatchStatus({ quantityAvailable: quantityInitial, quantityInitial, expirationDate, status: "AVAILABLE" }),
+      notes: "Ingresado por comando de voz del supervisor.",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await supplyBatches.insertOne(batch);
+    await supplyMovements.insertOne({
+      id: randomUUID(),
+      establishmentId: body.data.establishmentId,
+      supplyId: supply.id,
+      batchId: batch.id,
+      type: "IN",
+      quantity: batch.quantityAvailable,
+      unit: batch.unit,
+      reason: "Alta por comando de voz",
+      relatedTaskId: null,
+      relatedHealthEventId: null,
+      relatedTraceabilityEventId: null,
+      occurredAt: now,
+      createdBy: null,
+      createdAt: now,
+    });
+    createdEventIds.push(batch.id);
+  }
+
+  if (parsed?.intent === "HEALTH_SUPPLY_CHECK") {
+    const payload = parsed.proposedOperations?.[0]?.payload ?? {};
+    const searchTerm = typeof payload.searchTerm === "string" ? payload.searchTerm.trim() : "";
+    const requiredSupplyTypeRaw = typeof payload.requiredSupplyType === "string" ? payload.requiredSupplyType : undefined;
+    const requiredSupplyType = requiredSupplyTypeRaw && ["MEDICINE", "VACCINE", "DEWORMER", "FEED", "OTHER"].includes(requiredSupplyTypeRaw)
+      ? requiredSupplyTypeRaw as SupplyType
+      : undefined;
+    if (!searchTerm) {
+      return failConfirm(400, "INVALID_SUPPLY_CHECK_PAYLOAD", "No se pudo consultar disponibilidad porque falta producto, principio activo o enfermedad.");
+    }
+
+    const { supplies, supplyBatches } = await getCollections();
+    const supplyFilter: Record<string, unknown> = {
+      establishmentId: body.data.establishmentId,
+      status: "ACTIVE",
+      $or: [
+        { name: { $regex: escapeRegex(searchTerm), $options: "i" } },
+        { activeIngredient: { $regex: escapeRegex(searchTerm), $options: "i" } },
+        { storageNotes: { $regex: escapeRegex(searchTerm), $options: "i" } },
+      ],
+    };
+    if (requiredSupplyType) supplyFilter.type = requiredSupplyType;
+    const matchedSupplies = await supplies.find(supplyFilter).toArray();
+    const batches = matchedSupplies.length
+      ? await supplyBatches.find({
+          establishmentId: body.data.establishmentId,
+          supplyId: { $in: matchedSupplies.map((supply) => supply.id) },
+          quantityAvailable: { $gt: 0 },
+          expirationDate: { $gt: new Date().toISOString() },
+          status: { $nin: ["EXPIRED", "CONSUMED", "DISCARDED"] },
+        }).sort({ expirationDate: 1 }).toArray()
+      : [];
+    if (!batches.length) {
+      return failConfirm(409, "SUPPLY_NOT_AVAILABLE", `No hay stock disponible y no vencido para ${searchTerm}.`);
+    }
+  }
+
   if (parsed && ["VACCINATION", "DEWORMING", "TREATMENT"].includes(parsed.intent)) {
     const payload = parsed.proposedOperations?.[0]?.payload ?? {};
     const qty = Number(payload.qty);
@@ -3373,7 +3502,11 @@ app.post("/ai/chat", async (request, reply) => {
               ? "registrar_desparasitacion"
               : parsedCommand.intent === "TREATMENT"
                 ? "registrar_tratamiento"
-                : "registrar_evento_operativo";
+                : parsedCommand.intent === "SUPPLY_STOCK_IN"
+                  ? "ingresar_stock_insumo"
+                  : parsedCommand.intent === "HEALTH_SUPPLY_CHECK"
+                    ? "consultar_disponibilidad_sanitaria"
+                    : "registrar_evento_operativo";
 
     await appendCommandLog({
       establishmentId: body.data.establishmentId,
@@ -3513,6 +3646,67 @@ app.get("/supplies", async (request, reply) => {
   if (query.search) filter.name = { $regex: query.search, $options: "i" };
   const list = await supplies.find(filter).sort({ name: 1 }).toArray();
   return { supplies: list };
+});
+
+
+app.get("/supplies/availability", async (request, reply) => {
+  const query = request.query as { establishmentId?: string; query?: string; type?: SupplyType; quantityRequired?: string; unit?: string };
+  if (!query.establishmentId) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta establishmentId." });
+  const search = query.query?.trim();
+  if (!search) return reply.status(400).send({ code: "VALIDATION_ERROR", message: "Falta query de producto, principio activo o enfermedad." });
+
+  const { supplies, supplyBatches } = await getCollections();
+  const supplyFilter: Record<string, unknown> = {
+    establishmentId: query.establishmentId,
+    status: "ACTIVE",
+    $or: [
+      { name: { $regex: escapeRegex(search), $options: "i" } },
+      { activeIngredient: { $regex: escapeRegex(search), $options: "i" } },
+      { storageNotes: { $regex: escapeRegex(search), $options: "i" } },
+    ],
+  };
+  if (query.type) supplyFilter.type = query.type;
+
+  const matchedSupplies = await supplies.find(supplyFilter).sort({ name: 1 }).toArray();
+  const supplyIds = matchedSupplies.map((supply) => supply.id);
+  const now = new Date().toISOString();
+  const batches = supplyIds.length
+    ? await supplyBatches.find({
+        establishmentId: query.establishmentId,
+        supplyId: { $in: supplyIds },
+        quantityAvailable: { $gt: 0 },
+        expirationDate: { $gt: now },
+        status: { $nin: ["EXPIRED", "CONSUMED", "DISCARDED"] },
+      }).sort({ expirationDate: 1 }).toArray()
+    : [];
+  const supplyById = new Map(matchedSupplies.map((supply) => [supply.id, supply]));
+  const availableBatches = batches.map((batch) => {
+    const supply = supplyById.get(batch.supplyId);
+    return {
+      ...batch,
+      supplyName: supply?.name ?? "Insumo",
+      supplyType: supply?.type ?? null,
+      activeIngredient: supply?.activeIngredient ?? null,
+      status: resolveSupplyBatchStatus(batch),
+    };
+  });
+  const totalAvailable = availableBatches.reduce((sum, batch) => sum + batch.quantityAvailable, 0);
+  const quantityRequired = query.quantityRequired ? Number(query.quantityRequired) : null;
+  const hasEnough = quantityRequired ? totalAvailable >= quantityRequired : totalAvailable > 0;
+
+  return {
+    query: search,
+    type: query.type ?? null,
+    unit: query.unit ?? availableBatches[0]?.unit ?? null,
+    quantityRequired,
+    totalAvailable,
+    hasAvailableStock: availableBatches.length > 0,
+    hasEnough,
+    batches: availableBatches,
+    message: availableBatches.length
+      ? `Hay ${totalAvailable} ${query.unit ?? availableBatches[0]?.unit ?? "unidades"} disponibles no vencidas para ${search}.`
+      : `No hay stock disponible y no vencido para ${search}.`,
+  };
 });
 
 app.post("/supplies", async (request, reply) => {

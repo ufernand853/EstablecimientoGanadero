@@ -17,6 +17,10 @@ const context = {
     { id: "66666666-6666-6666-6666-666666666666", name: "Las Moras" },
     { id: "77777777-7777-7777-7777-777777777777", name: "Frigo Sur" },
   ],
+  supplies: [
+    { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Ivermectina" },
+    { id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Vacuna aftosa" },
+  ],
 };
 
 describe("parseCommand", () => {
@@ -65,6 +69,38 @@ describe("parseCommand", () => {
     expect(result.intent).toBe("MOVE");
     expect(result.warnings).not.toContain("No se pudo identificar el potrero de origen.");
     expect(result.warnings).not.toContain("No se pudo identificar el potrero de destino.");
+  });
+
+
+  it("parses veterinary supply stock intake commands", () => {
+    const result = parseCommand("Ingresa al stock 10 cajas de ivermectina con fecha de vencimiento 2027-08-31 lote IV-77", context);
+    expect(result.intent).toBe("SUPPLY_STOCK_IN");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      supplyId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      supplyName: "Ivermectina",
+      supplyType: "DEWORMER",
+      quantityInitial: 10,
+      quantityAvailable: 10,
+      unit: "cajas",
+      batchNumber: "IV-77",
+      expirationDate: "2027-08-31T00:00:00.000Z",
+    });
+  });
+
+  it("parses health supply availability checks before vaccination", () => {
+    const result = parseCommand("Vamos a vacunar contra la aftosa el Potrero 3", context);
+    expect(result.intent).toBe("HEALTH_SUPPLY_CHECK");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      healthAction: "VACCINATION",
+      paddockId: "11111111-1111-1111-1111-111111111111",
+      paddockName: "Potrero 3",
+      searchTerm: "aftosa",
+      requiredSupplyType: "VACCINE",
+      mustBeAvailable: true,
+      mustNotBeExpired: true,
+    });
   });
 
   it("parses VACCINATION commands", () => {

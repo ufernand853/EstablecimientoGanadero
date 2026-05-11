@@ -54,6 +54,8 @@ export const operationTypes = [
   "BRANDING",
   "SHIPMENT",
   "SLAUGHTER_SHIPMENT",
+  "SUPPLY_STOCK_IN",
+  "HEALTH_SUPPLY_CHECK",
 ] as const;
 
 export type OperationType = (typeof operationTypes)[number];
