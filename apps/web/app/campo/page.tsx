@@ -309,8 +309,10 @@ export default function CampoPage() {
         setPendingCommand((data.suggestedApiCall.requestPreview as PendingCommand | undefined) ?? null);
       } else {
         setChatHistory((prev) => [...prev, { role: "assistant", content: assistantMessage }]);
-        setFeedback({ kind: data.task ? "success" : "info", text: assistantMessage });
-        if (data.task) refreshFieldData();
+        if (data.task) {
+          setFeedback({ kind: "success", text: assistantMessage });
+          refreshFieldData();
+        }
       }
     } catch {
       setFeedback({ kind: "error", text: "No se pudo conectar con el servidor." });

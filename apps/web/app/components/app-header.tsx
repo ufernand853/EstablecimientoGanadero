@@ -4,23 +4,27 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getApiUrl } from "../lib/api-url";
+import { canSeeLink } from "../lib/roles";
 
 const topLevelLinks = [
   { href: withBasePath("/"), label: "Inicio" },
   { href: withBasePath("/operations"), label: "Registrar" },
   { href: withBasePath("/animals"), label: "Consultar" },
   { href: withBasePath("/dashboard"), label: "Reportes" },
+  { href: withBasePath("/supervision"), label: "Supervisión" },
   { href: withBasePath("/gestion/tareas"), label: "Tareas" },
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
+  { href: withBasePath("/insumos"), label: "Insumos" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
   { href: withBasePath("/admin/users"), label: "Usuarios" },
 ];
 
-const operatorAllowedLinks = new Set([
-  withBasePath("/"),
-  withBasePath("/campo"),
-]);
+const stripBasePath = (href: string) => {
+  if (!BASE_PATH) return href;
+  if (href === BASE_PATH) return "/";
+  return href.startsWith(`${BASE_PATH}/`) ? href.slice(BASE_PATH.length) : href;
+};
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -31,6 +35,7 @@ export function AppHeader() {
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
   const isCampo = normalizedPath === withBasePath("/campo");
+  const isLogin = normalizedPath === withBasePath("/login");
   const API_URL = getApiUrl();
   const handleLogout = async () => {
     try {
@@ -64,6 +69,8 @@ export function AppHeader() {
     };
     loadSession();
   }, [API_URL]);
+
+  if (isLogin) return null;
 
   return (
     <header className="mb-8 flex flex-col gap-4">
@@ -130,7 +137,7 @@ export function AppHeader() {
       ) : null}
       {isCampo ? null : <nav className="flex flex-wrap gap-2">
         {topLevelLinks
-          .filter((link) => sessionRole !== "OPERATOR" || operatorAllowedLinks.has(link.href))
+          .filter((link) => canSeeLink(sessionRole, stripBasePath(link.href)))
           .map((link) => (
           <a
             key={link.href}
