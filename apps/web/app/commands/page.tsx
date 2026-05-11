@@ -28,6 +28,7 @@ type ParsedCommand = {
 
 type PendingCommand = {
   parsed: ParsedCommand;
+  sourcePrompt: string;
 };
 
 type PendingTraceabilityEvent = {
@@ -82,6 +83,7 @@ type AIBehavior = {
 };
 
 const CONFIRMATION_KEYWORDS = ["hazlo", "confirmado", "hacelo", "ejecutalo"];
+const CANCEL_PENDING_KEYWORDS = ["cancelar", "cancela", "anular", "anula", "descartar", "descarta", "olvidalo"];
 
 const normalizeText = (value: string) => value
   .toLowerCase()
@@ -101,6 +103,21 @@ const isConfirmationKeyword = (value: string) => {
 
   const tokens = normalized.split(" ");
   return CONFIRMATION_KEYWORDS.some((keyword) => tokens.includes(keyword) || normalized === keyword);
+};
+
+
+const isCancelPendingKeyword = (value: string) => {
+  const normalized = normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const tokens = normalized.split(" ");
+  return CANCEL_PENDING_KEYWORDS.some((keyword) => tokens.includes(keyword) || normalized === keyword);
 };
 
 const findLatestOperationalPrompts = (messages: ChatMessage[], limit = 5) => {
@@ -184,6 +201,30 @@ const parseOperationalCommand = async (text: string, establishmentId: string) =>
 
   const parsed = (await response.json()) as ParsedCommand;
   return parsed?.intent && parsed.intent !== "UNKNOWN" ? parsed : null;
+};
+
+const parsePendingCommandRevision = async (params: {
+  revision: string;
+  pending: PendingCommand;
+  establishmentId: string;
+}) => {
+  const trimmedRevision = params.revision.trim();
+  if (!trimmedRevision) {
+    return null;
+  }
+
+  const combinedPrompt = `${params.pending.sourcePrompt}. ${trimmedRevision}`;
+  const revisedCommand = await parseOperationalCommand(combinedPrompt, params.establishmentId);
+  if (revisedCommand) {
+    return { parsed: revisedCommand, sourcePrompt: combinedPrompt };
+  }
+
+  const standaloneCommand = await parseOperationalCommand(trimmedRevision, params.establishmentId);
+  if (standaloneCommand) {
+    return { parsed: standaloneCommand, sourcePrompt: trimmedRevision };
+  }
+
+  return null;
 };
 
 type SpeechRecognitionLike = {
@@ -603,13 +644,64 @@ export default function CommandsPage() {
       }
 
       if (pendingCommand) {
-        if (!isConfirmationKeyword(prompt)) {
+        if (isCancelPendingKeyword(prompt)) {
+          setPendingCommand(null);
           setMessages((prev) => [
             ...prev,
             {
               id: createMessageId(),
               role: "assistant",
-              content: "⚠️ Hay una acción pendiente. Usá el botón Confirmar (o escribí: confirmado).",
+              content: "✅ Acción pendiente cancelada. Podemos seguir la conversación sin ejecutar nada.",
+            },
+          ]);
+          setStatus("idle");
+          return;
+        }
+
+        if (!isConfirmationKeyword(prompt)) {
+          const revisedPendingCommand = await parsePendingCommandRevision({
+            revision: prompt,
+            pending: pendingCommand,
+            establishmentId,
+          });
+
+          if (revisedPendingCommand) {
+            const hasBlockingIssues = (revisedPendingCommand.parsed.errors?.length ?? 0) > 0 || (revisedPendingCommand.parsed.warnings?.length ?? 0) > 0;
+            if (hasBlockingIssues) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: createMessageId(),
+                  role: "assistant",
+                  content: `⚠️ Tomé tu corrección, pero todavía faltan datos: ${[
+                    ...(revisedPendingCommand.parsed.errors ?? []),
+                    ...(revisedPendingCommand.parsed.warnings ?? []),
+                  ].join(" ")}`,
+                },
+              ]);
+              setStatus("idle");
+              return;
+            }
+
+            setPendingCommand(revisedPendingCommand);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: createMessageId(),
+                role: "assistant",
+                content: `✅ Actualicé la acción pendiente: ${summarizePendingCommand(revisedPendingCommand.parsed, revisedPendingCommand.sourcePrompt)}\n\nSi está correcto, usá Confirmar. Si querés descartarla, escribí "cancelar".`,
+              },
+            ]);
+            setStatus("idle");
+            return;
+          }
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createMessageId(),
+              role: "assistant",
+              content: "⚠️ Hay una acción pendiente. Podés confirmar, escribir una corrección concreta (ej: 'mejor al Potrero 3') o cancelar para seguir conversando sin ejecutar nada.",
             },
           ]);
           setStatus("idle");
@@ -761,7 +853,7 @@ export default function CommandsPage() {
           return;
         }
 
-        setPendingCommand({ parsed: parsedCommand });
+        setPendingCommand({ parsed: parsedCommand, sourcePrompt: prompt });
         setMessages((prev) => [
           ...prev,
           {
@@ -808,7 +900,7 @@ export default function CommandsPage() {
       if (data.parsedCommand && data.suggestedApiCall) {
         await loadCommandLogs(establishmentId);
         if (data.suggestedApiCall.isReady) {
-          setPendingCommand({ parsed: data.parsedCommand });
+          setPendingCommand({ parsed: data.parsedCommand, sourcePrompt: prompt });
           setMessages((prev) => [
             ...prev,
             {
