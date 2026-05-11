@@ -4,7 +4,7 @@ const menuGroups = [
   {
     title: "Inicio",
     description: "Resumen y seguimiento general de la operación.",
-    links: [{ href: withBasePath("/dashboard"), label: "Panel de control" }],
+    links: [{ href: withBasePath("/dashboard"), label: "Panel de control" }, { href: withBasePath("/supervision"), label: "Supervisión" }],
   },
   {
     title: "Registrar",
@@ -27,6 +27,7 @@ const menuGroups = [
       { href: withBasePath("/herds"), label: "Stock" },
       { href: withBasePath("/animals"), label: "Animales" },
       { href: withBasePath("/health"), label: "Gestión sanitaria" },
+      { href: withBasePath("/insumos"), label: "Insumos" },
     ],
   },
   {

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
+import { getHomePathForRole } from "../lib/roles";
 
 const API_URL = getApiUrl();
 const DEFAULT_USERNAME = "admin";
@@ -34,8 +35,9 @@ export default function LoginPage() {
       });
 
       if (response.ok) {
+        const data = (await response.json()) as { user?: { role?: string } };
         const params = new URLSearchParams(window.location.search);
-        const nextPath = params.get("next") || withBasePath("/dashboard");
+        const nextPath = params.get("next") || withBasePath(getHomePathForRole(data.user?.role));
         router.push(nextPath);
         router.refresh();
         return;
