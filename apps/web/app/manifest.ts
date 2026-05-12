@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() ?? "";
+const basePath = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}` : "";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {

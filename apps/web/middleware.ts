@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/api"];
+const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|avif|svg|txt|xml|webmanifest)$/i;
 const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
 const SUPERVISOR_ALLOWED_PREFIXES = [
   "/",
@@ -72,7 +73,8 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/robots.txt") ||
-    pathname.startsWith("/sitemap.xml")
+    pathname.startsWith("/sitemap.xml") ||
+    PUBLIC_FILE.test(pathname)
   ) {
     return NextResponse.next();
   }

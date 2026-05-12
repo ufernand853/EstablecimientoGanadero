@@ -3,18 +3,22 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppHeader } from "./components/app-header";
 
+const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() ?? "";
+const metadataBasePath = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, "")}` : "";
+const withMetadataBasePath = (pathname: string) => `${metadataBasePath}${pathname}`;
+
 export const metadata: Metadata = {
   title: "Gestión Ganadera",
   description: "Gestión multi-establecimiento para ganadería extensiva",
-  manifest: "/manifest.webmanifest",
+  manifest: withMetadataBasePath("/manifest.webmanifest"),
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Gestión Ganadera",
   },
   icons: {
-    icon: "/linsse-logo.svg",
-    apple: "/linsse-logo.svg",
+    icon: withMetadataBasePath("/linsse-logo.svg"),
+    apple: withMetadataBasePath("/linsse-logo.svg"),
   },
 };
 export const viewport: Viewport = {
