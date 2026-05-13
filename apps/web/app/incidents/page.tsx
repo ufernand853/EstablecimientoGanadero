@@ -21,7 +21,7 @@ type Incident = {
   resolvedAt: string | null;
   mapX: number | null;
   mapY: number | null;
-  source: "MANUAL" | "INSPECTION";
+  source: "MANUAL" | "INSPECTION" | "COMMAND";
 };
 
 const severityLabel: Record<Incident["severity"], string> = {

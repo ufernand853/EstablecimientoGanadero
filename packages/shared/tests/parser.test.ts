@@ -247,13 +247,24 @@ describe("parseCommand", () => {
     });
   });
 
-  it("warns when incident report misses key data except optional responsible", () => {
+  it("warns when incident report misses paddock but not optional action or responsible", () => {
     const result = parseCommand("Incidente: ternero lastimado", context);
     expect(result.intent).toBe("INCIDENT_REPORT");
-    expect(result.warnings).toEqual([
-      "No se pudo identificar el potrero del incidente.",
-      "Faltan acciones tomadas para el incidente.",
-    ]);
+    expect(result.warnings).toEqual(["No se pudo identificar el potrero del incidente."]);
+  });
+
+  it("parses operator incident reports without action or responsible", () => {
+    const result = parseCommand("Encontré dos novillos abichados en el potrero 1", context);
+    expect(result.intent).toBe("INCIDENT_REPORT");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      paddockId: "88888888-8888-8888-8888-888888888888",
+      title: "2 novillos abichados",
+      qty: 2,
+      category: "NOVILLOS",
+      responsible: null,
+      severity: "HIGH",
+    });
   });
 
 
