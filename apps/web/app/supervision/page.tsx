@@ -9,6 +9,7 @@ const API_URL = getApiUrl();
 type Establishment = { id: string; name: string };
 type FieldTask = { id: string; title: string; description: string | null; priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT"; status: string; dueDate: string | null; scheduledAt: string | null; assignedRole: string | null; paddockName: string | null; earTag: string | null };
 type Notification = { id: string; severity: "INFO" | "WARNING" | "CRITICAL" | string; title: string; message: string; dueDate: string; sourceId: string; type: string };
+type Incident = { id: string; title: string; description: string; severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED"; observedAt: string; paddockId: string | null; source: "MANUAL" | "INSPECTION" | "COMMAND" };
 type Kpis = { totalAnimals: number; pregnantFemales: number; pendingTasks: number; urgentTasks: number };
 
 const priorityClass = (priority: string) => {
@@ -29,6 +30,7 @@ export default function SupervisionPage() {
   const [establishmentId, setEstablishmentId] = useState("");
   const [tasks, setTasks] = useState<FieldTask[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiResponse, setAiResponse] = useState<string | null>(null);
@@ -37,22 +39,27 @@ export default function SupervisionPage() {
 
   const overdueTasks = useMemo(() => tasks.filter((task) => task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== "DONE"), [tasks]);
   const urgentTasks = useMemo(() => tasks.filter((task) => task.priority === "URGENT" || task.priority === "HIGH"), [tasks]);
+  const openIncidents = useMemo(() => incidents.filter((incident) => incident.status === "OPEN" || incident.status === "IN_PROGRESS"), [incidents]);
+  const operatorIncidents = useMemo(() => openIncidents.filter((incident) => incident.source === "COMMAND"), [openIncidents]);
 
   const loadData = async (targetEstablishmentId = establishmentId) => {
     if (!targetEstablishmentId) return;
     setError(null);
     const query = `establishmentId=${encodeURIComponent(targetEstablishmentId)}`;
-    const [tasksRes, notificationsRes, kpisRes] = await Promise.all([
+    const [tasksRes, notificationsRes, kpisRes, incidentsRes] = await Promise.all([
       fetch(`${API_URL}/tasks?${query}&limit=50`, { cache: "no-store" }),
       fetch(`${API_URL}/notifications?${query}&days=30`, { cache: "no-store" }),
       fetch(`${API_URL}/field/day-start?${query}`, { cache: "no-store" }),
+      fetch(`${API_URL}/incidents?${query}`, { cache: "no-store" }),
     ]);
-    if (!tasksRes.ok || !notificationsRes.ok || !kpisRes.ok) throw new Error("No se pudo cargar supervisión.");
+    if (!tasksRes.ok || !notificationsRes.ok || !kpisRes.ok || !incidentsRes.ok) throw new Error("No se pudo cargar supervisión.");
     const taskData = (await tasksRes.json()) as { tasks: FieldTask[] };
     const notificationData = (await notificationsRes.json()) as { notifications: Notification[] };
     const kpiData = (await kpisRes.json()) as { kpis?: Kpis };
+    const incidentData = (await incidentsRes.json()) as { incidents: Incident[] };
     setTasks((taskData.tasks ?? []).filter((task) => task.status !== "DONE" && task.status !== "CANCELLED"));
     setNotifications(notificationData.notifications ?? []);
+    setIncidents(incidentData.incidents ?? []);
     setKpis(kpiData.kpis ?? null);
   };
 
@@ -122,11 +129,12 @@ export default function SupervisionPage() {
 
       {error ? <p className="rounded border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p> : null}
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-5">
         <article className="rounded-lg bg-slate-900 p-4"><p className="text-xs text-slate-400">Animales</p><p className="text-2xl font-semibold">{kpis?.totalAnimals ?? "—"}</p></article>
         <article className="rounded-lg bg-slate-900 p-4"><p className="text-xs text-slate-400">Preñadas</p><p className="text-2xl font-semibold">{kpis?.pregnantFemales ?? "—"}</p></article>
         <article className="rounded-lg bg-slate-900 p-4"><p className="text-xs text-slate-400">Tareas pendientes</p><p className="text-2xl font-semibold">{kpis?.pendingTasks ?? tasks.length}</p></article>
         <article className="rounded-lg bg-slate-900 p-4"><p className="text-xs text-slate-400">Urgentes</p><p className="text-2xl font-semibold">{kpis?.urgentTasks ?? urgentTasks.length}</p></article>
+        <article className="rounded-lg bg-slate-900 p-4"><p className="text-xs text-slate-400">Incidentes abiertos</p><p className="text-2xl font-semibold">{openIncidents.length}</p></article>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -157,6 +165,23 @@ export default function SupervisionPage() {
         </article>
       </section>
 
+
+      <section className="rounded-lg bg-slate-900 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-semibold text-emerald-300">Novedades de operarios</h3>
+            <p className="text-xs text-slate-400">Incidentes abiertos generados desde mensajes de campo o cargados manualmente.</p>
+          </div>
+          <a className="rounded border border-slate-700 px-3 py-1 text-xs" href={withBasePath("/incidents")}>Ver tablero de incidentes</a>
+        </div>
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {openIncidents.length === 0 ? <p className="text-sm text-slate-400">No hay incidentes abiertos.</p> : null}
+          {(operatorIncidents.length ? operatorIncidents : openIncidents).slice(0, 6).map((incident) => (
+            <IncidentCard key={incident.id} incident={incident} />
+          ))}
+        </div>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-2">
         <article className="rounded-lg bg-slate-900 p-4">
           <h3 className="font-semibold text-emerald-300">Vencidas</h3>
@@ -173,6 +198,21 @@ export default function SupervisionPage() {
         </article>
       </section>
     </main>
+  );
+}
+
+function IncidentCard({ incident }: { incident: Incident }) {
+  return (
+    <div className={`rounded border p-3 text-sm ${severityClass(incident.severity === "CRITICAL" ? "CRITICAL" : "WARNING")}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold">{incident.title}</p>
+          <p className="text-slate-300">{incident.description}</p>
+          <p className="text-xs text-slate-500">{new Date(incident.observedAt).toLocaleString("es-UY")}{incident.source === "COMMAND" ? " · Reportado por operario" : ""}</p>
+        </div>
+        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${priorityClass(incident.severity === "CRITICAL" ? "URGENT" : incident.severity === "HIGH" ? "HIGH" : "MEDIUM")}`}>{incident.severity}</span>
+      </div>
+    </div>
   );
 }
 

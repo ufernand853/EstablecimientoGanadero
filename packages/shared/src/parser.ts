@@ -131,6 +131,45 @@ const findPaddock = (text: string, paddocks: NameEntity[]) => {
   return fuzzyFind(match[0], paddocks).match;
 };
 
+
+const spanishNumberWords: Record<string, number> = {
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+};
+
+const extractIncidentQty = (text: string) => {
+  const wordMatch = normalize(text).match(/\b(un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/);
+  if (wordMatch?.[1]) return spanishNumberWords[wordMatch[1]];
+
+  const numericMatches = Array.from(text.matchAll(/\b(\d+)\b/g));
+  const animalQtyMatch = numericMatches.find((match) => {
+    const prefix = text.slice(Math.max(0, (match.index ?? 0) - 12), match.index).toLowerCase();
+    return !/potrero\s*$/.test(prefix);
+  });
+  return animalQtyMatch?.[1] ? Number(animalQtyMatch[1]) : null;
+};
+
+const buildIncidentTitle = (text: string, category: HerdCategory | null, qty: number | null) => {
+  const normalized = normalize(text);
+  const categoryText = category ? category.toLowerCase().replace(/_/g, " ") : "animales";
+  const prefix = qty ? `${qty} ${categoryText}` : categoryText;
+  if (/\babichad/.test(normalized)) return `${prefix} abichado${qty === 1 ? "" : "s"}`;
+  if (/\bmuert/.test(normalized)) return `${prefix} muerto${qty === 1 ? "" : "s"}`;
+  if (/\b(herid|lastimad|lesionad)/.test(normalized)) return `${prefix} herido${qty === 1 ? "" : "s"}`;
+  if (/\b(caid|manc)/.test(normalized)) return `${prefix} con problema en campo`;
+  return "Incidente en campo";
+};
+
 const extractResponsible = (text: string) => {
   const byVaccinatedMatch = text.match(/(?:vacun[oó]|vacuno|vacunó)\s+([a-záéíóúñ][a-záéíóúñ\s.'-]{1,60})/i);
   if (byVaccinatedMatch?.[1]) return byVaccinatedMatch[1].trim();
@@ -422,20 +461,19 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     });
   }
 
-  const isIncidentIntent = /\b(incidente|incidencia|alerta|lastimad|herid|lesionad|caid|abichad|manc|muert)\b/.test(normalized)
+  const isIncidentIntent = /\b(incidente|incidencia|alerta|lastimad\w*|herid\w*|lesionad\w*|caid\w*|abichad\w*|manc\w*|muert\w*)\b/.test(normalized)
     && !result.proposedOperations.length;
   if (isIncidentIntent) {
     const paddock = findPaddock(text, context.paddocks);
     const responsibleMatch = text.match(/responsable\s*(?:es|:)?\s*([a-záéíóúñ][a-záéíóúñ\s.'-]+)/i);
     const actionMatch = text.match(/(?:acciones?\s*tomadas?|hay que|accion)\s*(?:es|:)?\s*([a-záéíóúñ0-9,\s.'-]+)/i);
     const hasVetReference = /\b(veterinari[oa]|vet)\b/.test(normalized);
-    const title = /\bterner[oa]s?\b/.test(normalized)
-      ? "Ternero lastimado"
-      : "Incidente en campo";
+    const category = findCategory(text);
+    const qty = extractIncidentQty(text);
+    const title = buildIncidentTitle(text, category, qty);
 
     if (!paddock) warnings.push("No se pudo identificar el potrero del incidente.");
-    // El responsable es opcional: el registro puede quedar abierto para asignarlo luego.
-    if (!actionMatch && !hasVetReference) warnings.push("Faltan acciones tomadas para el incidente.");
+    // Responsable y acciones son opcionales: la novedad queda abierta para asignarla y resolverla luego.
 
     result.intent = "INCIDENT_REPORT";
     result.confidence = 0.65;
@@ -446,6 +484,8 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
         paddockId: paddock?.id ?? null,
         title,
         description: text.trim(),
+        qty,
+        category,
         responsible: responsibleMatch?.[1]?.trim() ?? null,
         actionTaken: hasVetReference
           ? "Llamar al veterinario."

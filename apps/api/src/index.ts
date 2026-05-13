@@ -427,7 +427,7 @@ type FieldIncident = {
   resolvedAt: string | null;
   mapX: number | null;
   mapY: number | null;
-  source: "MANUAL" | "INSPECTION";
+  source: "MANUAL" | "INSPECTION" | "COMMAND";
   createdAt: string;
   updatedAt: string;
 };
@@ -831,6 +831,86 @@ const createFieldTask = async (input: z.input<typeof taskCreateSchema>) => {
     paddockName: task.paddockName,
   });
   return task;
+};
+
+
+const incidentPriority = (severity: IncidentSeverity): TaskPriority => {
+  if (severity === "CRITICAL") return "URGENT";
+  if (severity === "HIGH") return "HIGH";
+  if (severity === "MEDIUM") return "MEDIUM";
+  return "LOW";
+};
+
+const registerFieldIncident = async (input: {
+  establishmentId: string;
+  paddockId: string | null;
+  title: string;
+  description: string;
+  severity: IncidentSeverity;
+  observedAt?: string | Date | null;
+  source?: FieldIncident["source"];
+}) => {
+  const now = new Date().toISOString();
+  let paddockName: string | null = null;
+  if (input.paddockId) {
+    const paddock = await findPaddockById(input.paddockId);
+    if (!paddock || paddock.establishmentId !== input.establishmentId) {
+      throw new Error("PADDOCK_MISMATCH");
+    }
+    paddockName = paddock.name;
+  }
+
+  const observedAt = input.observedAt instanceof Date
+    ? input.observedAt.toISOString()
+    : input.observedAt ?? now;
+  const incident: FieldIncident = {
+    id: randomUUID(),
+    establishmentId: input.establishmentId,
+    paddockId: input.paddockId,
+    title: input.title.trim(),
+    description: input.description.trim(),
+    severity: input.severity,
+    status: "OPEN",
+    observedAt,
+    resolvedAt: null,
+    mapX: null,
+    mapY: null,
+    source: input.source ?? "COMMAND",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const { incidents } = await getCollections();
+  await incidents.insertOne(incident);
+
+  await appendActivityFeed({
+    establishmentId: input.establishmentId,
+    activityType: "REPORT_GENERATED",
+    title: `Incidente registrado: ${incident.title}`,
+    summary: incident.description,
+    occurredAt: incident.observedAt,
+    priority: incidentPriority(incident.severity),
+    status: incident.severity === "CRITICAL" ? "CRITICAL" : "WARNING",
+    sourceCollection: "field_incidents",
+    sourceId: incident.id,
+    earTag: null,
+    paddockId: incident.paddockId,
+    paddockName,
+  });
+
+  const task = await createFieldTask({
+    establishmentId: input.establishmentId,
+    title: `Revisar incidente: ${incident.title}`,
+    description: incident.description,
+    type: "VETERINARY",
+    priority: incidentPriority(incident.severity),
+    paddockId: incident.paddockId,
+    paddockName,
+    source: "FIELD_COMMAND",
+    sourceEventId: incident.id,
+  });
+
+  return { incident, task };
 };
 
 const completeFieldTask = async (task: FieldTask, completedAt = new Date().toISOString(), notes?: string) => {
@@ -2384,7 +2464,7 @@ const incidentSchema = z.object({
   resolvedAt: z.string().datetime().nullable().optional(),
   mapX: z.number().min(0).max(100).nullable().optional(),
   mapY: z.number().min(0).max(100).nullable().optional(),
-  source: z.enum(["MANUAL", "INSPECTION"]).default("MANUAL"),
+  source: z.enum(["MANUAL", "INSPECTION", "COMMAND"]).default("MANUAL"),
 });
 
 const incidentUpdateSchema = z.object({
@@ -2714,6 +2794,41 @@ app.post("/field/assistant", async (request, reply) => {
   }
 
   const parsedCommand = parseCommand(prompt, await loadContext(body.data.establishmentId));
+  if (parsedCommand.intent === "INCIDENT_REPORT" && !parsedCommand.errors.length && !parsedCommand.warnings.length) {
+    const payload = parsedCommand.proposedOperations[0]?.payload ?? {};
+    const paddockId = typeof payload.paddockId === "string" ? payload.paddockId : null;
+    const title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "Incidente en campo";
+    const description = typeof payload.description === "string" && payload.description.trim() ? payload.description.trim() : prompt;
+    const responsible = typeof payload.responsible === "string" && payload.responsible.trim() ? payload.responsible.trim() : null;
+    const actionTaken = typeof payload.actionTaken === "string" && payload.actionTaken.trim() ? payload.actionTaken.trim() : null;
+    const severityRaw = typeof payload.severity === "string" ? payload.severity : "HIGH";
+    const severity: IncidentSeverity = ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(severityRaw)
+      ? severityRaw as IncidentSeverity
+      : "HIGH";
+    const incidentDescription = [
+      description,
+      actionTaken ? `Acción tomada: ${actionTaken}` : null,
+      responsible ? `Responsable informado: ${responsible}` : null,
+    ].filter(Boolean).join("\n");
+    const registered = await registerFieldIncident({
+      establishmentId: body.data.establishmentId,
+      paddockId,
+      title,
+      description: incidentDescription,
+      severity,
+      observedAt: parsedCommand.proposedOperations[0]?.occurredAt,
+      source: "COMMAND",
+    });
+    return reply.send({
+      mode: "ANSWER",
+      intent: "INCIDENT_REPORT",
+      confidence: parsedCommand.confidence,
+      message: `Incidente registrado: ${registered.incident.title}. Se creó la tarea de seguimiento: ${registered.task.title}.`,
+      incident: registered.incident,
+      task: registered.task,
+      parsedCommand,
+    });
+  }
   if (parsedCommand.intent !== "UNKNOWN") {
     return reply.send({
       mode: parsedCommand.warnings.length || parsedCommand.errors.length ? "MISSING_DATA" : "CONFIRMATION_REQUIRED",
@@ -3148,43 +3263,31 @@ app.post("/commands/confirm", async (request, reply) => {
       : "HIGH";
     const observedAt = parsed.proposedOperations?.[0]?.occurredAt;
 
-    if (!paddockId || !title || !description || !responsible) {
-      return failConfirm(400, "INVALID_INCIDENT_PAYLOAD", "No se pudo confirmar el incidente porque faltan potrero, título, descripción o responsable.");
+    if (!paddockId || !title || !description) {
+      return failConfirm(400, "INVALID_INCIDENT_PAYLOAD", "No se pudo confirmar el incidente porque faltan potrero, título o descripción.");
     }
 
-    const paddock = await findPaddockById(paddockId);
-    if (!paddock) {
-      return failConfirm(404, "NOT_FOUND", "Potrero no encontrado.");
+    try {
+      const registered = await registerFieldIncident({
+        establishmentId: body.data.establishmentId,
+        paddockId,
+        title,
+        description: [
+          description,
+          actionTaken ? `Acción tomada: ${actionTaken}` : null,
+          responsible ? `Responsable: ${responsible}` : null,
+        ].filter(Boolean).join("\n"),
+        severity,
+        observedAt,
+        source: "COMMAND",
+      });
+      createdEventIds.push(registered.incident.id, registered.task.id);
+    } catch (incidentError) {
+      if (incidentError instanceof Error && incidentError.message === "PADDOCK_MISMATCH") {
+        return failConfirm(400, "ESTABLISHMENT_MISMATCH", "El potrero del incidente no pertenece al establecimiento indicado.");
+      }
+      throw incidentError;
     }
-    if (paddock.establishmentId !== body.data.establishmentId) {
-      return failConfirm(400, "ESTABLISHMENT_MISMATCH", "El potrero del incidente no pertenece al establecimiento indicado.");
-    }
-
-    const now = new Date().toISOString();
-    const incident: FieldIncident = {
-      id: randomUUID(),
-      establishmentId: body.data.establishmentId,
-      paddockId,
-      title,
-      description: [
-        description,
-        actionTaken ? `Acción tomada: ${actionTaken}` : null,
-        responsible ? `Responsable: ${responsible}` : null,
-      ].filter(Boolean).join("\n"),
-      severity,
-      status: "OPEN",
-      observedAt: observedAt ? observedAt.toISOString() : now,
-      resolvedAt: null,
-      mapX: null,
-      mapY: null,
-      source: "MANUAL",
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const { incidents } = await getCollections();
-    await incidents.insertOne(incident);
-    createdEventIds.push(incident.id);
   }
 
   if (parsed && ["BREEDING_START", "WEANING", "BRANDING", "SLAUGHTER_SHIPMENT"].includes(parsed.intent)) {
