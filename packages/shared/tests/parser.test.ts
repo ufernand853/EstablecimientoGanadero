@@ -88,6 +88,52 @@ describe("parseCommand", () => {
     });
   });
 
+  it("parses veterinary supply stock intake commands with Uruguay date format", () => {
+    const result = parseCommand("Agregar al stock 250 dosis de vacuna aftosa con vencimiento 20/05/2027 lote AFT-250", context);
+    expect(result.intent).toBe("SUPPLY_STOCK_IN");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      supplyId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      supplyName: "Vacuna aftosa",
+      supplyType: "VACCINE",
+      quantityInitial: 250,
+      quantityAvailable: 250,
+      unit: "dosis",
+      batchNumber: "AFT-250",
+      expirationDate: "2027-05-20T00:00:00.000Z",
+    });
+  });
+
+  it("parses local receiving phrases for supply stock intake", () => {
+    const result = parseCommand("Recibí 12 frascos de oxitetraciclina vto 15/12/2026 lote OXI-12", context);
+    expect(result.intent).toBe("SUPPLY_STOCK_IN");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      supplyName: "oxitetraciclina",
+      supplyType: "MEDICINE",
+      quantityInitial: 12,
+      quantityAvailable: 12,
+      unit: "frascos",
+      batchNumber: "OXI-12",
+      expirationDate: "2026-12-15T00:00:00.000Z",
+    });
+  });
+
+  it("parses purchased supply stock intake with decimal comma and local date", () => {
+    const result = parseCommand("Compré 2,5 litros de doramectina venc. 01/03/2028 lote DORA-5", context);
+    expect(result.intent).toBe("SUPPLY_STOCK_IN");
+    expect(result.warnings).toHaveLength(0);
+    expect(result.proposedOperations[0]?.payload).toMatchObject({
+      supplyName: "doramectina",
+      supplyType: "DEWORMER",
+      quantityInitial: 2.5,
+      quantityAvailable: 2.5,
+      unit: "litros",
+      batchNumber: "DORA-5",
+      expirationDate: "2028-03-01T00:00:00.000Z",
+    });
+  });
+
   it("parses health supply availability checks before vaccination", () => {
     const result = parseCommand("Vamos a vacunar contra la aftosa el Potrero 3", context);
     expect(result.intent).toBe("HEALTH_SUPPLY_CHECK");
