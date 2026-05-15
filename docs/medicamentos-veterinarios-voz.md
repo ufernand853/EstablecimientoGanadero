@@ -39,9 +39,15 @@ Todo ingreso, egreso, descarte, reserva o ajuste queda auditado con cantidad, mo
 
 Ejemplo:
 
-> Ingresa al stock 10 cajas de ivermectina con fecha de vencimiento 2027-08-31 lote IV-77
+> Ingresa al stock 10 cajas de ivermectina con fecha de vencimiento 31/08/2027 lote IV-77
 
-El parser devuelve la intención `SUPPLY_STOCK_IN`, detecta cantidad, unidad, medicamento, tipo sanitario, lote y vencimiento. Al confirmar, se crea la ficha maestra si no existía, se crea el lote y se registra un movimiento `IN`.
+El parser devuelve la intención `SUPPLY_STOCK_IN`, detecta cantidad, unidad, medicamento, tipo sanitario, lote y vencimiento. Para Uruguay se prioriza el formato de fecha `dd/mm/yyyy` en los comandos de voz, aunque también se mantiene compatibilidad con fecha ISO. Al confirmar, se crea la ficha maestra si no existía, se crea el lote y se registra un movimiento `IN`.
+
+También se aceptan frases operativas locales como:
+
+- `Recibí 12 frascos de oxitetraciclina vto 15/12/2026 lote OXI-12`.
+- `Compré 2,5 litros de doramectina venc. 01/03/2028 lote DORA-5`.
+- `Agregar al stock 250 dosis de vacuna aftosa con vencimiento 20/05/2027 lote AFT-250`.
 
 ### Validación previa de vacunación/tratamiento
 

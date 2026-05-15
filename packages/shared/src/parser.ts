@@ -180,13 +180,14 @@ const extractResponsible = (text: string) => {
 
 
 const extractExpirationDate = (text: string) => {
-  const match = text.match(/(?:vence|vencimiento|fecha de vencimiento|fecha vencimiento)\s*(?:el|para|:)?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}\/[0-9]{1,2}(?:\/[0-9]{2,4})?)/i);
+  const match = text.match(/(?:vence|vencimiento|venc\.?|vto\.?|fecha de vencimiento|fecha vencimiento|fecha de vto\.?|caduca|caducidad)\s*(?:el|para|:)?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}\/[0-9]{1,2}(?:\/[0-9]{2,4})?)/i);
   return match?.[1] ? parseDate(match[1]) : null;
 };
 
 const extractSupplyName = (rawName: string, supplies: NameEntity[] = []) => {
   const cleaned = rawName
-    .replace(/\b(?:con|y|de)?\s*(?:fecha de vencimiento|fecha vencimiento|vencimiento|vence|lote)\b[\s\S]*$/i, "")
+    .replace(/^\s*(?:de|del|la|el)\s+/i, "")
+    .replace(/\b(?:con|y|de)?\s*(?:fecha de vencimiento|fecha vencimiento|fecha de vto\.?|vencimiento|vence|venc\.?|vto\.?|caduca|caducidad|lote)\b[\s\S]*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return { name: null, id: null };
@@ -229,10 +230,10 @@ export const parseCommand = (text: string, context: ParseContext): ParseResult =
     confirmationToken: generateConfirmationToken(),
   };
 
-  const isSupplyStockInIntent = /\b(ingresa|ingresar|agrega|agregar|carga|cargar|alta|sumar|sumale)\b/.test(normalized)
-    && /\b(stock|deposito|insumo|medicamento|vacuna|cajas?|frascos?|dosis|unidades)\b/.test(normalized);
+  const isSupplyStockInIntent = /\b(ingresa|ingresar|ingreso|ingresaron|entra|entrar|entraron|agrega|agregar|carga|cargar|alta|sumar|sumale|recibi|recibir|recibimos|llegaron|compre|compramos|comprar)\b/.test(normalized)
+    && /\b(stock|deposito|insumo|insumos|medicamento|medicamentos|vacuna|vacunas|antibiotico|antibioticos|antiparasitario|antiparasitarios|cajas?|frascos?|dosis|unidades|unid|ml|cc|cm3|litros?|lts?|kg|kilos?|bolsas?)\b/.test(normalized);
   if (isSupplyStockInIntent) {
-    const quantityMatch = text.match(/(\d+(?:[,.]\d+)?)\s*(cajas?|frascos?|dosis|unidades|unid\.?|ml|litros?|lts?|kg|bolsas?)/i);
+    const quantityMatch = text.match(/(\d+(?:[,.]\d+)?)\s*(cajas?|frascos?|dosis|unidades|unid\.?|ml|cc|cm3|litros?|lts?|lt|kg|kilos?|bolsas?)/i);
     const quantity = quantityMatch ? Number(quantityMatch[1].replace(",", ".")) : null;
     const unit = quantityMatch?.[2]?.replace(/\.$/, "").toLowerCase() ?? null;
     const afterQuantity = quantityMatch?.index !== undefined
