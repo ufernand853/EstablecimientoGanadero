@@ -219,7 +219,40 @@ function classifyPrompt(prompt: string): PromptResult {
     };
   }
 
-  // 12. Fallback
+  // 12. Tratamiento individual
+  if (detectedEarTag && /\b(tratamiento|tratar|medicar|medicacion|antibiotico|antibiótico|medicamento|ivermectina|desparasitar|desparasitacion|inyect[aeo]r?|inyeccion|inyección)\b/.test(normalized) && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
+    const paddockName = extractPaddockNameFromText(prompt);
+    const productMatch =
+      prompt.match(/\b(?:con|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i)
+      ?? prompt.match(/(?:tratamiento|medicamento|antibiotico|inyeccion)\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i);
+    const product = productMatch?.[1]?.trim() || null;
+    const doseMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:mg|ml|cc|cm3|dosis)/i);
+    const dose = doseMatch ? doseMatch[0].trim() : null;
+    return {
+      prompt, normalized, mode: "CONFIRMATION_REQUIRED", intent: "REGISTER_TREATMENT", confidence: 0.82,
+      details: { earTag: detectedEarTag, product, dose, paddockName },
+      message: `Pediría confirmación para registrar tratamiento${product ? ` con ${product}` : ""}${dose ? ` (${dose})` : ""} para ${detectedEarTag}${paddockName ? ` en ${paddockName}` : ""}. Crearía tarea de seguimiento HIGH.`,
+    };
+  }
+
+  // 13. Registro de peso
+  if (detectedEarTag && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
+    const weightMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)/i);
+    if (weightMatch || /\b(peso|pesa|pesó|pesaje|pesar)\b/.test(normalized)) {
+      const weight = weightMatch ? Number(weightMatch[1].replace(",", ".")) : null;
+      if (!weight) {
+        return { prompt, normalized, mode: "MISSING_DATA", intent: "REGISTER_WEIGHT", confidence: 0.7, details: { earTag: detectedEarTag }, message: `Detecté pesaje para ${detectedEarTag}, pero falta el valor en kg.` };
+      }
+      const paddockName = extractPaddockNameFromText(prompt);
+      return {
+        prompt, normalized, mode: "CONFIRMATION_REQUIRED", intent: "REGISTER_WEIGHT", confidence: 0.88,
+        details: { earTag: detectedEarTag, weight, paddockName },
+        message: `Pediría confirmación para registrar ${weight} kg para ${detectedEarTag}${paddockName ? ` en ${paddockName}` : ""}.`,
+      };
+    }
+  }
+
+  // 14. Fallback
   return {
     prompt, normalized, mode: "UNKNOWN", intent: "UNKNOWN", confidence: 0.35,
     details: {},
