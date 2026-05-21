@@ -39,7 +39,10 @@ const isAnimalTagsCountQuery = (normalized: string) =>
 const extractPaddockNameFromText = (text: string) => {
   const match = text.match(/potrero\s+([a-záéíóúñ0-9\- ]{1,60})/i);
   if (!match?.[1]) return null;
-  return `Potrero ${match[1].trim().replace(/[.,;].*$/, "")}`.trim();
+  const name = match[1].trim()
+    .replace(/\s+(?:con(?:tra)?|para|de|y|o|sin|que)\b.*/i, "")
+    .replace(/[.,;].*$/, "");
+  return `Potrero ${name}`.trim();
 };
 
 const extractTaskTitle = (text: string) => {
@@ -176,10 +179,12 @@ function classifyPrompt(prompt: string): PromptResult {
   }
 
   // 9. Vacunación por lote
-  if (/\b(vacun[aeoéó]r?|vacuné|vacunó|vacunamos|vacunaron|vacunaste)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
+  if (/\b(vacun[aeoéó]r?|vacuné|vacunó|vacunamos|vacunaron|vacunaste|vacunacion)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
-    const productMatch = prompt.match(/(?:con|para|de)\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote)\b|,|$)/i)
-      ?? prompt.match(/(?:vacun\w+)\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
+    const productMatch =
+      prompt.match(/\bcontra\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      ?? prompt.match(/\b(?:con|para|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      ?? prompt.match(/vacun\S+\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
     const product = productMatch?.[1]?.trim() || (normalized.includes("aftosa") ? "aftosa" : "vacuna");
     return {
       prompt, normalized, mode: "CONFIRMATION_REQUIRED", intent: "REGISTER_VACCINATION", confidence: 0.78,
