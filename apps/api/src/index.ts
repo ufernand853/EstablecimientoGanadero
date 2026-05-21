@@ -608,6 +608,7 @@ type TraceabilityEventType =
   | "VACUNACION_REALIZADA"
   | "DESPARASITACION"
   | "TRATAMIENTO"
+  | "PESAJE"
   | "TRASLADO"
   | "MUERTE"
   | "ENVIO_FRIGORIFICO"
@@ -1071,7 +1072,10 @@ const inferTaskType = (text: string): TaskType => {
 const extractPaddockNameFromText = (text: string) => {
   const match = text.match(/potrero\s+([a-záéíóúñ0-9\- ]{1,60})/i);
   if (!match?.[1]) return null;
-  return `Potrero ${match[1].trim().replace(/[.,;].*$/, "")}`.trim();
+  const name = match[1].trim()
+    .replace(/\s+(?:con(?:tra)?|para|de|y|o|sin|que)\b.*/i, "")
+    .replace(/[.,;].*$/, "");
+  return `Potrero ${name}`.trim();
 };
 
 const extractTaskTitle = (text: string) => {
@@ -1987,6 +1991,7 @@ const TRACEABILITY_EVENT_LABELS: Record<TraceabilityEventType, string> = {
   VACUNACION_REALIZADA: "vacunación realizada",
   DESPARASITACION: "desparasitación",
   TRATAMIENTO: "tratamiento",
+  PESAJE: "pesaje",
   TRASLADO: "traslado",
   MUERTE: "muerte",
   ENVIO_FRIGORIFICO: "envío a frigorífico",
@@ -2727,9 +2732,14 @@ app.post("/field/assistant", async (request, reply) => {
     });
   }
 
-  if (/\b(vacuna|vacunar|vacun[aá])\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
+  if (/\b(vacun[aeoéó]r?|vacuné|vacunó|vacunamos|vacunaron|vacunaste|vacunacion)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
-    const productMatch = prompt.match(/(?:vacuna|vacunar|vacun[aá])\s+([a-záéíóúñ0-9 ]{2,60}?)(?=\s+a\s+toda|\s+toda|\s+al\s+potrero|,|$)/i);
+    const productMatch =
+      // "contra brucelosis", "con aftosa", "para carbunclo"
+      prompt.match(/\bcontra\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      ?? prompt.match(/\b(?:con|para|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      // verb + product before paddock/lot reference
+      ?? prompt.match(/vacun\S+\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
     const product = productMatch?.[1]?.trim() || (normalized.includes("aftosa") ? "aftosa" : "vacuna");
     const confirmation = await buildFieldConfirmation({
       establishmentId: body.data.establishmentId,
@@ -2791,6 +2801,57 @@ app.post("/field/assistant", async (request, reply) => {
       preview: { title: "Registro de parto", sections: [{ label: "Madre", value: detectedEarTag }, { label: "Cría", value: calfEarTag }, { label: "Sexo", value: sex }, { label: "Peso", value: weightMatch?.[1] ? `${weightMatch[1]} kg` : "Sin informar", severity: weightMatch?.[1] ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "HIGH" },
     });
+  }
+
+  if (detectedEarTag && /\b(tratamiento|tratar|medicar|medicacion|antibiotico|antibiótico|medicamento|ivermectina|desparasitar|desparasitacion|inyect[aeo]r?|inyeccion|inyección)\b/.test(normalized) && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
+    const paddockName = extractPaddockNameFromText(prompt);
+    const productMatch =
+      prompt.match(/\b(?:con|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i)
+      ?? prompt.match(/(?:tratamiento|medicamento|antibiotico|inyeccion)\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i);
+    const product = productMatch?.[1]?.trim() || null;
+    const doseMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:mg|ml|cc|cm3|dosis)/i);
+    const dose = doseMatch ? doseMatch[0].trim() : null;
+    const confirmation = await buildFieldConfirmation({
+      establishmentId: body.data.establishmentId,
+      confirmationToken: `field-${randomUUID()}`,
+      intent: "REGISTER_TREATMENT",
+      action: "register_treatment",
+      payload: { earTag: detectedEarTag, product, dose, paddockName, notes: prompt },
+    });
+    return reply.send({
+      mode: "CONFIRMATION_REQUIRED",
+      intent: "REGISTER_TREATMENT",
+      confidence: 0.82,
+      message: `Voy a registrar tratamiento${product ? ` con ${product}` : ""} para ${detectedEarTag}. Confirmá para guardar el evento sanitario.`,
+      preview: { title: "Tratamiento individual", sections: [{ label: "Caravana", value: detectedEarTag }, { label: "Producto", value: product ?? "Sin especificar", severity: product ? "normal" : "warning" }, { label: "Dosis", value: dose ?? "Sin informar", severity: dose ? "normal" : "warning" }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
+      confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "LOW" },
+    });
+  }
+
+  if (detectedEarTag && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
+    const weightMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)/i);
+    if (weightMatch || /\b(peso|pesa|pesó|pesaje|pesar)\b/.test(normalized)) {
+      const weight = weightMatch ? Number(weightMatch[1].replace(",", ".")) : null;
+      if (!weight) {
+        return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_WEIGHT", confidence: 0.7, message: `Detecté un pesaje para ${detectedEarTag}, pero falta el valor en kg.`, missingFields: ["peso en kg"] });
+      }
+      const paddockName = extractPaddockNameFromText(prompt);
+      const confirmation = await buildFieldConfirmation({
+        establishmentId: body.data.establishmentId,
+        confirmationToken: `field-${randomUUID()}`,
+        intent: "REGISTER_WEIGHT",
+        action: "register_weight",
+        payload: { earTag: detectedEarTag, weight, paddockName, notes: prompt },
+      });
+      return reply.send({
+        mode: "CONFIRMATION_REQUIRED",
+        intent: "REGISTER_WEIGHT",
+        confidence: 0.88,
+        message: `Voy a registrar ${weight} kg para ${detectedEarTag}. Confirmá para guardar el pesaje.`,
+        preview: { title: "Registro de peso", sections: [{ label: "Caravana", value: detectedEarTag }, { label: "Peso", value: `${weight} kg` }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
+        confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "LOW" },
+      });
+    }
   }
 
   const parsedCommand = parseCommand(prompt, await loadContext(body.data.establishmentId));
@@ -2856,7 +2917,7 @@ app.post("/field/assistant", async (request, reply) => {
     mode: "ANSWER",
     intent: "UNKNOWN",
     confidence: 0.35,
-    message: `Puedo ayudarte a registrar tareas, partos, bajas, vacunaciones, movimientos o consultas. Contexto actual: ${paddockList.length} potreros visibles, ${stockRows.length} filas de stock y ${pendingTasks.length} tareas pendientes.`,
+    message: `Puedo ayudarte a registrar tareas, partos, bajas, vacunaciones, tratamientos, pesajes, movimientos o consultas. Contexto actual: ${paddockList.length} potreros visibles, ${stockRows.length} filas de stock y ${pendingTasks.length} tareas pendientes.`,
   });
 });
 
@@ -2970,6 +3031,41 @@ app.post("/field/confirm", async (request, reply) => {
     await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Chequeo veterinario cría ${calfEarTag}`, description: `Revisar cría de ${motherEarTag}, ombligo, calostrado y estado general.`, type: "BIRTH_FOLLOW_UP", priority: "HIGH", earTag: calfEarTag, source: "SYSTEM_RULE", sourceEventId: calfEvent.id });
     await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
     return reply.send({ summary: `Parto registrado: madre ${motherEarTag}, cría ${calfEarTag}.`, calf, events: [motherEvent, calfEvent] });
+  }
+
+  if (confirmation.intent === "REGISTER_TREATMENT") {
+    const earTag = String(confirmation.payload.earTag ?? "").trim().toUpperCase();
+    const product = typeof confirmation.payload.product === "string" ? confirmation.payload.product.trim() : null;
+    const dose = typeof confirmation.payload.dose === "string" ? confirmation.payload.dose.trim() : null;
+    const paddockName = typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null;
+    let paddockId: string | null = null;
+    if (paddockName) {
+      const paddock = await findPaddockByName(confirmation.establishmentId, paddockName);
+      if (paddock) paddockId = paddock.id;
+    }
+    const event: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag, type: "TRATAMIENTO", paddockId, paddockName, product, dose, weight: null, destination: null, notes: String(confirmation.payload.notes ?? "Tratamiento individual desde modo campo"), occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    await traceabilityEvents.insertOne(event);
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Tratamiento: ${earTag}`, summary: `${product ?? "Producto sin especificar"}${dose ? ` · ${dose}` : ""}${paddockName ? ` · ${paddockName}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Seguimiento tratamiento ${earTag}`, description: `Verificar respuesta al tratamiento${product ? ` con ${product}` : ""} y evolución del animal.`, type: "HEALTH", priority: "HIGH", earTag, paddockId: paddockId ?? null, paddockName: paddockName ?? null, source: "SYSTEM_RULE", sourceEventId: event.id });
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Tratamiento${product ? ` con ${product}` : ""} registrado para ${earTag}.`, event });
+  }
+
+  if (confirmation.intent === "REGISTER_WEIGHT") {
+    const earTag = String(confirmation.payload.earTag ?? "").trim().toUpperCase();
+    const weight = typeof confirmation.payload.weight === "number" ? confirmation.payload.weight : null;
+    const paddockName = typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null;
+    let paddockId: string | null = null;
+    if (paddockName) {
+      const paddock = await findPaddockByName(confirmation.establishmentId, paddockName);
+      if (paddock) paddockId = paddock.id;
+    }
+    const event: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag, type: "PESAJE", paddockId, paddockName, product: null, dose: null, weight, destination: null, notes: String(confirmation.payload.notes ?? "Pesaje desde modo campo"), occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    await traceabilityEvents.insertOne(event);
+    await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag }, { $set: { updatedAt: now } });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Pesaje: ${earTag}`, summary: `${weight} kg${paddockName ? ` · ${paddockName}` : ""}`, occurredAt: now, priority: "LOW", status: "INFO", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
+    await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
+    return reply.send({ summary: `Pesaje registrado: ${earTag} = ${weight} kg.`, event });
   }
 
   return reply.status(400).send({ code: "UNSUPPORTED_CONFIRMATION", message: "La confirmación no tiene un handler disponible." });
