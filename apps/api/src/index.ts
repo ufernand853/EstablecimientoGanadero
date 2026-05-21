@@ -2727,9 +2727,10 @@ app.post("/field/assistant", async (request, reply) => {
     });
   }
 
-  if (/\b(vacuna|vacunar|vacun[aá])\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
+  if (/\b(vacun[aeoéó]r?|vacuné|vacunó|vacunamos|vacunaron|vacunaste)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
-    const productMatch = prompt.match(/(?:vacuna|vacunar|vacun[aá])\s+([a-záéíóúñ0-9 ]{2,60}?)(?=\s+a\s+toda|\s+toda|\s+al\s+potrero|,|$)/i);
+    const productMatch = prompt.match(/(?:con|para|de)\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote)\b|,|$)/i)
+      ?? prompt.match(/(?:vacun\w+)\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
     const product = productMatch?.[1]?.trim() || (normalized.includes("aftosa") ? "aftosa" : "vacuna");
     const confirmation = await buildFieldConfirmation({
       establishmentId: body.data.establishmentId,
