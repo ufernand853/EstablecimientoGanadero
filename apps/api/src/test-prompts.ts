@@ -128,7 +128,16 @@ function classifyPrompt(prompt: string): PromptResult {
     return { prompt, normalized, mode: "ANSWER", intent: "QUERY_HERD_SUMMARY", confidence: 0.84, details: {}, message: "[Requiere DB] Respondería con stock detallado por categoría y potrero." };
   }
 
-  // 4. Consulta de caravanas/animales
+  // 4. Estadísticas de muertes/bajas (va ANTES de animal tags para evitar conflictos)
+  if (
+    /\b(muertes?|bajas?|muertos?|fallecidos?|mortandad|murieron|murio|murió)\b/.test(normalized) &&
+    /\b(cuant[oa]s?|total|habido|hubo|tuvimos|hay|registrad[oa]s?|dame|mostrame|ver|lista|listar|este|mes|ano|año|semana)\b/.test(normalized)
+  ) {
+    const period = /este\s*a[nñ]o|a[nñ]o\s*actual/.test(normalized) ? "este año" : /esta\s*semana|ultimos?\s*7/.test(normalized) ? "últimos 7 días" : "este mes";
+    return { prompt, normalized, mode: "ANSWER", intent: "QUERY_DEATH_STATS", confidence: 0.85, details: { period }, message: `[Requiere DB] Respondería con conteo y detalle de bajas por muerte de ${period} agrupado por potrero.` };
+  }
+
+  // 4b. Consulta de caravanas/animales
   if (isAnimalTagsQuery(normalized)) {
     const isCount = isAnimalTagsCountQuery(normalized);
     return { prompt, normalized, mode: "ANSWER", intent: "QUERY_ANIMAL_TAGS", confidence: 0.9, details: { isCount }, message: isCount ? "[Requiere DB] Respondería con el conteo total de animales registrados." : "[Requiere DB] Respondería con detalle de caravanas por potrero." };
@@ -143,7 +152,12 @@ function classifyPrompt(prompt: string): PromptResult {
     return { prompt, normalized, mode: "ANSWER", intent: "QUERY_HERD_SUMMARY", confidence: 0.82, details: { isDetailed }, message: isDetailed ? "[Requiere DB] Respondería con resumen detallado del rodeo." : "[Requiere DB] Respondería con KPIs: animales, preñadas, tareas." };
   }
 
-  // 6. Completar tarea
+  // 6. Historial de animal individual
+  if (detectedEarTag && /\b(historial|historia|eventos|que\s+paso|que\s+pasó|movimientos|registro|ficha|datos|antecedentes)\b/.test(normalized)) {
+    return { prompt, normalized, mode: "ANSWER", intent: "QUERY_ANIMAL_HISTORY", confidence: 0.88, details: { earTag: detectedEarTag }, message: `[Requiere DB] Respondería con ficha y últimos 10 eventos de trazabilidad de ${detectedEarTag}.` };
+  }
+
+  // 7. Completar tarea
   if (
     /\b(marcar|marca|cerrar|cerrá|completar|completa|hecha|hecho|terminada|terminado)\b/.test(normalized) &&
     /\b(tarea|recorrida|verificar|chequeo|revision|revisión)\b/.test(normalized)
