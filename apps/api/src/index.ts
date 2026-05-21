@@ -1296,6 +1296,47 @@ const buildPregnantFemalesAnswer = async (establishmentId: string) => {
     .join("\n")}`;
 };
 
+const buildDeathStatsAnswer = async (establishmentId: string, normalized: string) => {
+  const { traceabilityEvents } = await getCollections();
+  const now = new Date();
+  let since: Date;
+  let periodLabel: string;
+  if (/este\s*a[nñ]o|a[nñ]o\s*actual/.test(normalized)) {
+    since = new Date(now.getFullYear(), 0, 1);
+    periodLabel = `este año (${now.getFullYear()})`;
+  } else if (/esta\s*semana|ultimos?\s*7/.test(normalized)) {
+    since = new Date(now);
+    since.setDate(since.getDate() - 7);
+    periodLabel = "los últimos 7 días";
+  } else {
+    since = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthName = now.toLocaleString("es-UY", { month: "long" });
+    periodLabel = `este mes (${monthName})`;
+  }
+  const events = await traceabilityEvents.find({ establishmentId, type: "MUERTE", occurredAt: { $gte: since.toISOString() } }).sort({ occurredAt: -1 }).toArray();
+  if (!events.length) return `No registré ninguna baja por muerte en ${periodLabel}.`;
+  const byPaddock = events.reduce<Record<string, typeof events>>((acc, e) => {
+    const key = e.paddockName ?? "Sin potrero";
+    acc[key] = [...(acc[key] ?? []), e];
+    return acc;
+  }, {});
+  const detail = Object.entries(byPaddock).map(([paddock, items]) => `${paddock}: ${items.length} baja${items.length === 1 ? "" : "s"} (${items.map((e) => e.earTag).join(", ")})`).join("; ");
+  return `${events.length} baja${events.length === 1 ? "" : "s"} por muerte en ${periodLabel}. ${detail}.`;
+};
+
+const buildAnimalHistoryAnswer = async (establishmentId: string, earTag: string) => {
+  const { traceabilityEvents, animals } = await getCollections();
+  const [animal, events] = await Promise.all([
+    animals.findOne({ establishmentId, earTag }),
+    traceabilityEvents.find({ establishmentId, earTag }).sort({ occurredAt: -1 }).limit(10).toArray(),
+  ]);
+  if (!events.length && !animal) return `No encontré registros para la caravana ${earTag}.`;
+  const statusLine = animal ? `Animal ${earTag}: estado ${animal.status}, categoría ${animal.category ?? "sin categoría"}${animal.birthDate ? `, nacido ${new Date(animal.birthDate).toLocaleDateString("es-UY")}` : ""}.` : `Caravana ${earTag} sin ficha de animal registrada.`;
+  if (!events.length) return `${statusLine} Sin eventos de trazabilidad registrados.`;
+  const eventLines = events.map((e) => `• ${new Date(e.occurredAt).toLocaleDateString("es-UY")} — ${TRACEABILITY_EVENT_LABELS[e.type] ?? e.type}${e.product ? ` (${e.product})` : ""}${e.weight ? ` ${e.weight} kg` : ""}${e.paddockName ? ` · ${e.paddockName}` : ""}`).join("\n");
+  return `${statusLine}\nÚltimos ${events.length} eventos:\n${eventLines}`;
+};
+
 const ensureSystemTaskForTraceabilityEvent = async (event: TraceabilityEvent) => {
   if (event.type === "MUERTE") {
     await createFieldTask({
@@ -2672,6 +2713,16 @@ app.post("/field/assistant", async (request, reply) => {
       message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preñadas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes. Pedime "detalle del rodeo", "detalle de caravanas" o "stock" para verlo desglosado.`,
       dashboard: summary,
     });
+  }
+
+  if (/\b(muertes?|bajas?|muertos?|fallecidos?|mortandad|murieron|murio|murió)\b/.test(normalized) && /\b(cuant[oa]s?|total|habido|hubo|tuvimos|hay|registrad[oa]s?|dame|mostrame|ver|lista|listar|este|mes|ano|año|semana)\b/.test(normalized)) {
+    const message = await buildDeathStatsAnswer(body.data.establishmentId, normalized);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_DEATH_STATS", confidence: 0.85 });
+  }
+
+  if (detectedEarTag && /\b(historial|historia|eventos|que\s+paso|que\s+pasó|movimientos|registro|ficha|datos|antecedentes)\b/.test(normalized)) {
+    const message = await buildAnimalHistoryAnswer(body.data.establishmentId, detectedEarTag);
+    return reply.send({ mode: "ANSWER", message, intent: "QUERY_ANIMAL_HISTORY", confidence: 0.88 });
   }
 
   if (/\b(marcar|marca|cerrar|cerrá|completar|completa|hecha|hecho|terminada|terminado)\b/.test(normalized) && /\b(tarea|recorrida|verificar|chequeo|revision|revisión)\b/.test(normalized)) {
