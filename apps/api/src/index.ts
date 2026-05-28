@@ -102,6 +102,7 @@ const TRACEABILITY_EVENT_TYPES = [
   "VACUNACION_REALIZADA",
   "DESPARASITACION",
   "TRATAMIENTO",
+  "PESAJE",
   "TRASLADO",
   "MUERTE",
   "ENVIO_FRIGORIFICO",
@@ -158,6 +159,18 @@ const fieldAssistantSchema = z.object({
 const fieldConfirmSchema = z.object({
   establishmentId: z.string().uuid(),
   confirmationToken: z.string().min(8),
+});
+
+const scanAssistSchema = z.object({
+  establishmentId: z.string().uuid(),
+  rawCode: z.string().min(1).max(50),
+  source: z.enum(["RFID_SCANNER", "MANUAL_ENTRY"]).default("RFID_SCANNER"),
+});
+
+const animalStatusUpdateSchema = z.object({
+  establishmentId: z.string().uuid(),
+  earTag: z.string().min(1).max(50),
+  status: z.enum(["ACTIVO", "VENDIDO", "MUERTO"]),
 });
 
 const traceabilityEventCreateSchema = z.object({
@@ -6086,6 +6099,102 @@ app.get("/auth/session", async (request, reply) => {
 app.post("/auth/logout", async (_request, reply) => {
   reply.header("Set-Cookie", `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
   return reply.send({ ok: true });
+});
+
+const SNIG_STRICT_REGEX = /^858\d{9}$/;
+
+app.post("/field/scans/assist", async (request, reply) => {
+  const body = scanAssistSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const { establishmentId, rawCode, source } = body.data;
+
+  const establishment = await findEstablishmentById(establishmentId);
+  if (!establishment) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  }
+
+  const normalized = rawCode.trim().toUpperCase().replace(/\s+/g, "");
+  const isSnig = SNIG_STRICT_REGEX.test(normalized);
+  const countryCode = isSnig ? normalized.slice(0, 3) : null;
+  const animalIdentifier = isSnig ? normalized.slice(3) : null;
+
+  const { animals, traceabilityEvents } = await getCollections();
+  const animal = await animals.findOne({ establishmentId, earTag: normalized });
+
+  let lastKnownPaddock: string | null = null;
+  let lastEvent: { type: string; occurredAt: string } | null = null;
+
+  if (animal) {
+    const recentEvents = await traceabilityEvents
+      .find({ establishmentId, earTag: normalized })
+      .sort({ occurredAt: -1 })
+      .limit(10)
+      .toArray();
+
+    const paddockEvent = recentEvents.find(
+      (e) => e.type === "ASIGNACION_POTRERO" || e.type === "TRASLADO",
+    );
+    lastKnownPaddock = paddockEvent?.paddockName ?? null;
+
+    if (recentEvents[0]) {
+      lastEvent = { type: recentEvents[0].type, occurredAt: recentEvents[0].occurredAt };
+    }
+  }
+
+  const suggestedActions = animal
+    ? ["VACCINATION", "TREATMENT", "DEWORMING", "WEIGHING", "TRANSFER", "INCIDENT", "INSEMINATION", "PREGNANCY", "SLAUGHTERHOUSE", "DEATH", "OBSERVATION"]
+    : ["REGISTER", "INCIDENT", "OBSERVATION"];
+
+  return reply.send({
+    mode: "SCAN_ASSIST",
+    earTag: normalized,
+    isSnig,
+    countryCode,
+    animalIdentifier,
+    source,
+    animal: {
+      exists: !!animal,
+      ...(animal
+        ? {
+            id: animal.id,
+            status: animal.status,
+            category: animal.category,
+            sex: animal.sex,
+            lastKnownPaddock,
+            lastEvent,
+          }
+        : {}),
+    },
+    suggestedActions,
+  });
+});
+
+app.patch("/animals/status", async (request, reply) => {
+  const body = animalStatusUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const { establishmentId, earTag, status } = body.data;
+  const normalizedEarTag = earTag.trim().toUpperCase();
+
+  const { animals } = await getCollections();
+  const existing = await animals.findOne({ establishmentId, earTag: normalizedEarTag });
+
+  if (!existing) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Animal no encontrado." });
+  }
+
+  const now = new Date().toISOString();
+  await animals.updateOne(
+    { establishmentId, earTag: normalizedEarTag },
+    { $set: { status, updatedAt: now } },
+  );
+
+  return reply.send({ ok: true, earTag: normalizedEarTag, status });
 });
 
 const start = async () => {

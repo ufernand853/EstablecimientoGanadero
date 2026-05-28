@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { ScanWizard, type ScanContext, type Paddock } from "./ScanWizard";
 
 const API_URL = getApiUrl();
 
@@ -15,6 +16,7 @@ type TraceabilityEventType =
   | "VACUNACION_REALIZADA"
   | "DESPARASITACION"
   | "TRATAMIENTO"
+  | "PESAJE"
   | "TRASLADO"
   | "MUERTE"
   | "ENVIO_FRIGORIFICO"
@@ -28,6 +30,7 @@ const EVENT_LABELS: Record<TraceabilityEventType, string> = {
   VACUNACION_REALIZADA: "Vacunación realizada",
   DESPARASITACION: "Desparasitación",
   TRATAMIENTO: "Tratamiento",
+  PESAJE: "Pesaje",
   TRASLADO: "Traslado",
   MUERTE: "Muerte",
   ENVIO_FRIGORIFICO: "Envío a frigorífico",
@@ -160,9 +163,15 @@ export default function CampoPage() {
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
+  const [scanInput, setScanInput] = useState("");
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanContext, setScanContext] = useState<ScanContext | null>(null);
+  const [scanWizardOpen, setScanWizardOpen] = useState(false);
+  const [paddocks, setPaddocks] = useState<Paddock[]>([]);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
 
   // Load establishments
   useEffect(() => {
@@ -192,12 +201,14 @@ export default function CampoPage() {
     Promise.all([
       fetch(`${API_URL}/field/day-start?${query}`, { cache: "no-store" }).then((r) => r.json()),
       fetch(`${API_URL}/tasks?${query}&limit=5`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`${API_URL}/paddocks?${query}`, { cache: "no-store" }).then((r) => r.json()),
     ])
-      .then(([dashboard, taskData]) => {
+      .then(([dashboard, taskData, paddockData]) => {
         if (dashboard?.kpis) setFieldKpis(dashboard.kpis);
         if (Array.isArray(taskData.tasks)) {
           setTasks(taskData.tasks.filter((task: FieldTask) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE"));
         }
+        if (Array.isArray(paddockData.paddocks)) setPaddocks(paddockData.paddocks);
       })
       .catch(() => {});
   };
@@ -452,6 +463,39 @@ export default function CampoPage() {
     setFeedback(null);
   };
 
+  const handleScan = async () => {
+    const code = scanInput.trim();
+    if (!code || !establishment || scanLoading) return;
+    setScanLoading(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`${API_URL}/field/scans/assist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishmentId: establishment.id,
+          rawCode: code,
+          source: "RFID_SCANNER",
+        }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(d?.message ?? "No se pudo consultar la caravana.");
+      }
+      const data = (await res.json()) as {
+        earTag: string;
+        animal: ScanContext["animal"];
+      };
+      setScanContext({ earTag: data.earTag, animal: data.animal });
+      setScanWizardOpen(true);
+      setScanInput("");
+    } catch (e) {
+      setFeedback({ kind: "error", text: e instanceof Error ? e.message : "Error al consultar caravana." });
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
 
   const confirmHerdOperation = async () => {
     if (!pendingCommand) return;
@@ -530,6 +574,65 @@ export default function CampoPage() {
           ))}
         </section>
       ) : null}
+
+      {/* Scanner section */}
+      <section className="px-4 pt-4">
+        <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Bastón / Escáner RFID</p>
+          <div className="flex gap-2">
+            <input
+              ref={scanInputRef}
+              type="text"
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleScan(); } }}
+              placeholder="Pegá o escribí la caravana..."
+              disabled={!establishment || scanLoading}
+              className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+              autoComplete="off"
+              autoCapitalize="off"
+            />
+            <button
+              type="button"
+              onClick={handleScan}
+              disabled={!establishment || scanLoading || !scanInput.trim()}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              {scanLoading ? "..." : "Leer"}
+            </button>
+          </div>
+          {scanContext && !scanWizardOpen ? (
+            <div className="mt-2 flex items-center justify-between rounded-lg bg-emerald-950/40 px-3 py-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-emerald-400">Última lectura</p>
+                <p className="text-sm font-bold text-white">{scanContext.earTag}</p>
+                {scanContext.animal.category ? (
+                  <p className="text-xs capitalize text-slate-400">
+                    {scanContext.animal.category}
+                    {scanContext.animal.lastKnownPaddock ? ` — ${scanContext.animal.lastKnownPaddock}` : ""}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScanWizardOpen(true)}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Registrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScanContext(null)}
+                  className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-400"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <section className="px-4 pt-4">
         <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4">
@@ -823,6 +926,22 @@ export default function CampoPage() {
             ))}
           </ul>
         </section>
+      ) : null}
+
+      {scanContext && scanWizardOpen ? (
+        <ScanWizard
+          context={scanContext}
+          establishmentId={establishment?.id ?? ""}
+          paddocks={paddocks}
+          onDone={(summary) => {
+            setScanWizardOpen(false);
+            setScanContext(null);
+            setFeedback({ kind: "success", text: summary });
+            refreshRecentEvents();
+            refreshFieldData();
+          }}
+          onCancel={() => setScanWizardOpen(false)}
+        />
       ) : null}
     </main>
   );
