@@ -168,6 +168,8 @@ export default function CampoPage() {
   const [scanContext, setScanContext] = useState<ScanContext | null>(null);
   const [scanWizardOpen, setScanWizardOpen] = useState(false);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -634,65 +636,92 @@ export default function CampoPage() {
         </div>
       </section>
 
+      {/* Tareas pendientes — colapsable */}
       <section className="px-4 pt-4">
-        <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-amber-400">Tareas pendientes</p>
-              <p className="text-sm text-slate-300">Registros guardados en backend para ejecutar en campo.</p>
-            </div>
-            <button type="button" onClick={refreshFieldData} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300">Actualizar</button>
+        <div className="rounded-xl border border-amber-800 bg-amber-950/20">
+          <div className="flex items-center gap-2 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setTasksOpen((o) => !o)}
+              className="flex flex-1 items-center gap-2 text-left"
+            >
+              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">Tareas pendientes</span>
+              {tasks.length > 0 ? (
+                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-slate-950">{tasks.length}</span>
+              ) : null}
+              <span className="ml-auto text-xs text-amber-500">{tasksOpen ? "▲" : "▼"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={refreshFieldData}
+              className="shrink-0 rounded border border-slate-700 px-2 py-1 text-xs text-slate-400"
+              title="Actualizar"
+            >
+              ↺
+            </button>
           </div>
-          <div className="mt-3 space-y-2">
-            {tasks.length ? tasks.map((task) => (
-              <article key={task.id} className="rounded-lg bg-slate-900 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-100">{task.title}</p>
-                    {task.description ? <p className="mt-1 text-xs text-slate-400">{task.description}</p> : null}
-                    <p className="mt-2 text-xs text-slate-500">
-                      {task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : "Sin fecha"}
-                      {task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}
-                      {task.paddockName ? ` · ${task.paddockName}` : ""}
-                      {task.earTag ? ` · ${task.earTag}` : ""}
-                    </p>
+          {tasksOpen ? (
+            <div className="space-y-2 px-4 pb-4">
+              {tasks.length ? tasks.map((task) => (
+                <article key={task.id} className="rounded-lg bg-slate-900 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">{task.title}</p>
+                      {task.description ? <p className="mt-1 text-xs text-slate-400">{task.description}</p> : null}
+                      <p className="mt-2 text-xs text-slate-500">
+                        {task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : "Sin fecha"}
+                        {task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}
+                        {task.paddockName ? ` · ${task.paddockName}` : ""}
+                        {task.earTag ? ` · ${task.earTag}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => completeTask(task.id)}
+                      disabled={isBusy}
+                      className="shrink-0 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
+                    >
+                      Cumplida
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => completeTask(task.id)}
-                    disabled={isBusy}
-                    className="shrink-0 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
-                  >
-                    Cumplida
-                  </button>
-                </div>
-              </article>
-            )) : <p className="text-sm text-slate-500">No hay tareas pendientes.</p>}
-          </div>
+                </article>
+              )) : <p className="text-sm text-slate-500">No hay tareas pendientes.</p>}
+            </div>
+          ) : null}
         </div>
       </section>
 
-      {/* Recent events */}
+      {/* Últimas acciones — colapsable */}
       <section className="px-4 pt-4">
-        {recentEvents.length > 0 ? (
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-widest text-slate-500">Últimas acciones</p>
-            {recentEvents.map((ev) => (
-              <div key={ev.id} className="flex items-baseline justify-between rounded-lg bg-slate-900 px-3 py-2">
-                <div>
-                  <span className="text-sm font-semibold text-emerald-300">{ev.earTag}</span>
-                  <span className="ml-2 text-sm text-slate-200">{EVENT_LABELS[ev.type]}</span>
-                  {ev.notes ? <span className="ml-2 text-xs text-slate-400">{ev.notes}</span> : null}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50">
+          <button
+            type="button"
+            onClick={() => setEventsOpen((o) => !o)}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left"
+          >
+            <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Últimas acciones</span>
+            {recentEvents.length > 0 ? (
+              <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-200">{recentEvents.length}</span>
+            ) : null}
+            <span className="ml-auto text-xs text-slate-500">{eventsOpen ? "▲" : "▼"}</span>
+          </button>
+          {eventsOpen ? (
+            <div className="space-y-2 px-4 pb-4">
+              {recentEvents.length > 0 ? recentEvents.map((ev) => (
+                <div key={ev.id} className="flex items-baseline justify-between rounded-lg bg-slate-800 px-3 py-2">
+                  <div>
+                    <span className="text-sm font-semibold text-emerald-300">{ev.earTag}</span>
+                    <span className="ml-2 text-sm text-slate-200">{EVENT_LABELS[ev.type]}</span>
+                    {ev.notes ? <span className="ml-2 text-xs text-slate-400">{ev.notes}</span> : null}
+                  </div>
+                  <time className="ml-4 shrink-0 text-xs text-slate-500">
+                    {new Date(ev.occurredAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                  </time>
                 </div>
-                <time className="ml-4 shrink-0 text-xs text-slate-500">
-                  {new Date(ev.occurredAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
-                </time>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-600">Sin acciones recientes.</p>
-        )}
+              )) : <p className="text-xs text-slate-600">Sin acciones recientes.</p>}
+            </div>
+          ) : null}
+        </div>
       </section>
 
       {chatHistory.length > 0 ? (
@@ -916,17 +945,6 @@ export default function CampoPage() {
           </>
         )}
       </div>
-
-      {tasks.length > 0 ? (
-        <section className="mx-4 mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-          <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
-            {tasks.slice(0, 5).map((task) => (
-              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}{task.priority === "URGENT" ? " — urgente" : ""}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {scanContext && scanWizardOpen ? (
         <ScanWizard
