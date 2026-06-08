@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getApiUrl } from "../lib/api-url";
 import { ScanWizard, type ScanContext, type Paddock } from "./ScanWizard";
+import { offlineFetch, processQueue, getPendingCount } from "./offline-queue";
 
 const API_URL = getApiUrl();
 
@@ -170,35 +171,71 @@ export default function CampoPage() {
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "done">("idle");
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load establishments
+  // Load establishments — try cache first, then network
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("eg_establishments");
+      if (cached) {
+        const data = JSON.parse(cached) as Establishment[];
+        if (Array.isArray(data) && data.length > 0) {
+          setEstablishments(data);
+          setEstablishment(data[0]);
+        }
+      }
+    } catch {}
+
     fetch(`${API_URL}/establishments`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data.establishments) && data.establishments.length > 0) {
           setEstablishments(data.establishments);
           setEstablishment(data.establishments[0]);
+          try { localStorage.setItem("eg_establishments", JSON.stringify(data.establishments)); } catch {}
         }
       })
       .catch(() => {});
   }, []);
 
-  // Load recent events when establishment changes
+  // Load recent events when establishment changes — try cache first
   useEffect(() => {
     if (!establishment) return;
+    try {
+      const cached = localStorage.getItem(`eg_events_${establishment.id}`);
+      if (cached) setRecentEvents(JSON.parse(cached) as RecentEvent[]);
+    } catch {}
+
     fetch(`${API_URL}/traceability/events?establishmentId=${establishment.id}&limit=5`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.events)) setRecentEvents(data.events); })
+      .then((data) => {
+        if (Array.isArray(data.events)) {
+          setRecentEvents(data.events as RecentEvent[]);
+          try { localStorage.setItem(`eg_events_${establishment.id}`, JSON.stringify(data.events)); } catch {}
+        }
+      })
       .catch(() => {});
   }, [establishment]);
 
-  const refreshFieldData = () => {
+  const refreshFieldData = useCallback(() => {
     if (!establishment) return;
+
+    // Seed from cache so UI is usable offline immediately
+    try {
+      const cachedKpis = localStorage.getItem(`eg_kpis_${establishment.id}`);
+      if (cachedKpis) setFieldKpis(JSON.parse(cachedKpis) as FieldKpis);
+      const cachedTasks = localStorage.getItem(`eg_tasks_${establishment.id}`);
+      if (cachedTasks) setTasks(JSON.parse(cachedTasks) as FieldTask[]);
+      const cachedPaddocks = localStorage.getItem(`eg_paddocks_${establishment.id}`);
+      if (cachedPaddocks) setPaddocks(JSON.parse(cachedPaddocks) as Paddock[]);
+    } catch {}
+
     const query = `establishmentId=${encodeURIComponent(establishment.id)}`;
     Promise.all([
       fetch(`${API_URL}/field/day-start?${query}`, { cache: "no-store" }).then((r) => r.json()),
@@ -206,30 +243,79 @@ export default function CampoPage() {
       fetch(`${API_URL}/paddocks?${query}`, { cache: "no-store" }).then((r) => r.json()),
     ])
       .then(([dashboard, taskData, paddockData]) => {
-        if (dashboard?.kpis) setFieldKpis(dashboard.kpis);
-        if (Array.isArray(taskData.tasks)) {
-          setTasks(taskData.tasks.filter((task: FieldTask) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE"));
+        if (dashboard?.kpis) {
+          setFieldKpis(dashboard.kpis as FieldKpis);
+          try { localStorage.setItem(`eg_kpis_${establishment.id}`, JSON.stringify(dashboard.kpis)); } catch {}
         }
-        if (Array.isArray(paddockData.paddocks)) setPaddocks(paddockData.paddocks);
+        if (Array.isArray(taskData.tasks)) {
+          const filtered = (taskData.tasks as FieldTask[]).filter((task) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE");
+          setTasks(filtered);
+          try { localStorage.setItem(`eg_tasks_${establishment.id}`, JSON.stringify(filtered)); } catch {}
+        }
+        if (Array.isArray(paddockData.paddocks)) {
+          setPaddocks(paddockData.paddocks as Paddock[]);
+          try { localStorage.setItem(`eg_paddocks_${establishment.id}`, JSON.stringify(paddockData.paddocks)); } catch {}
+        }
       })
       .catch(() => {});
-  };
+  }, [establishment]);
 
   useEffect(() => {
     refreshFieldData();
-  }, [establishment]);
+  }, [refreshFieldData]);
 
   useEffect(() => {
     setChatHistory([]);
   }, [establishment?.id]);
 
-  const refreshRecentEvents = () => {
+  const refreshRecentEvents = useCallback(() => {
     if (!establishment) return;
     fetch(`${API_URL}/traceability/events?establishmentId=${establishment.id}&limit=5`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.events)) setRecentEvents(data.events); })
+      .then((data) => {
+        if (Array.isArray(data.events)) {
+          setRecentEvents(data.events as RecentEvent[]);
+          try { localStorage.setItem(`eg_events_${establishment.id}`, JSON.stringify(data.events)); } catch {}
+        }
+      })
       .catch(() => {});
-  };
+  }, [establishment]);
+
+  const refreshPendingCount = useCallback(async () => {
+    const count = await getPendingCount();
+    setPendingCount(count);
+  }, []);
+
+  const syncQueue = useCallback(async () => {
+    setSyncStatus("syncing");
+    const { processed } = await processQueue(API_URL);
+    await refreshPendingCount();
+    setSyncStatus("done");
+    if (processed > 0) {
+      refreshRecentEvents();
+      refreshFieldData();
+    }
+    setTimeout(() => setSyncStatus((s) => (s === "done" ? "idle" : s)), 3000);
+  }, [refreshPendingCount, refreshRecentEvents, refreshFieldData]);
+
+  // Track online/offline and auto-sync on reconnect
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      getPendingCount().then((count) => {
+        if (count > 0) syncQueue();
+      });
+    };
+    const handleOffline = () => setIsOnline(false);
+    setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    getPendingCount().then(setPendingCount);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncQueue]);
 
   const startVoice = () => {
     setVoiceError(null);
@@ -358,14 +444,19 @@ export default function CampoPage() {
     setStatus("sending");
 
     try {
-      const res = await fetch(`${API_URL}/traceability/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingEvent),
-      });
+      const result = await offlineFetch(
+        API_URL,
+        "/traceability/events",
+        "POST",
+        pendingEvent,
+        `${EVENT_LABELS[pendingEvent.type]} ${pendingEvent.earTag}`,
+      );
 
-      if (res.ok) {
-        if (selectedTaskId) {
+      if (result.ok) {
+        if (result.queued) {
+          await refreshPendingCount();
+        }
+        if (selectedTaskId && !result.queued) {
           try {
             await fetch(`${API_URL}/tasks/${selectedTaskId}/complete`, {
               method: "POST",
@@ -373,17 +464,20 @@ export default function CampoPage() {
               body: JSON.stringify({ notes: `Cerrada al confirmar ${EVENT_LABELS[pendingEvent.type]} de ${pendingEvent.earTag}` }),
             });
             setSelectedTaskId("");
-            refreshFieldData();
           } catch {
             // ignore task completion issues
           }
         }
         setFeedback({
           kind: "success",
-          text: `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
+          text: result.queued
+            ? `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} en cola (sin conexión).`
+            : `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
         });
-        refreshRecentEvents();
-        refreshFieldData();
+        if (!result.queued) {
+          refreshRecentEvents();
+          refreshFieldData();
+        }
       } else {
         setFeedback({ kind: "error", text: "No se pudo guardar el evento." });
       }
@@ -400,31 +494,36 @@ export default function CampoPage() {
     setStatus("sending");
 
     try {
-      const animalRes = await fetch(`${API_URL}/animals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingAnimalRegistration.animal),
-      });
-      const animalData = (await animalRes.json().catch(() => null)) as { message?: string } | null;
-      if (!animalRes.ok) {
-        throw new Error(animalData?.message ?? "No se pudo dar de alta el animal.");
-      }
+      const animalResult = await offlineFetch(
+        API_URL,
+        "/animals",
+        "POST",
+        pendingAnimalRegistration.animal,
+        `Alta ${pendingAnimalRegistration.animal.earTag}`,
+      );
+      if (!animalResult.ok) throw new Error("No se pudo dar de alta el animal.");
 
-      const eventRes = await fetch(`${API_URL}/traceability/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingAnimalRegistration.traceabilityEvent),
-      });
-      const eventData = (await eventRes.json().catch(() => null)) as { message?: string } | null;
-      if (!eventRes.ok) {
-        throw new Error(eventData?.message ?? "El animal fue dado de alta, pero no se pudo asociar el potrero.");
-      }
+      const eventResult = await offlineFetch(
+        API_URL,
+        "/traceability/events",
+        "POST",
+        pendingAnimalRegistration.traceabilityEvent,
+        `Potrero ${pendingAnimalRegistration.animal.earTag}`,
+      );
+      if (!eventResult.ok) throw new Error("El animal fue dado de alta, pero no se pudo asociar el potrero.");
 
-      const summary = `${pendingAnimalRegistration.animal.earTag} — alta guardada y asociada a ${pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}.`;
+      const queued = animalResult.queued || eventResult.queued;
+      if (queued) await refreshPendingCount();
+
+      const summary = queued
+        ? `${pendingAnimalRegistration.animal.earTag} — alta en cola (sin conexión).`
+        : `${pendingAnimalRegistration.animal.earTag} — alta guardada y asociada a ${pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}.`;
       setFeedback({ kind: "success", text: summary });
       setChatHistory((prev) => [...prev, { role: "assistant", content: summary }]);
-      refreshRecentEvents();
-      refreshFieldData();
+      if (!queued) {
+        refreshRecentEvents();
+        refreshFieldData();
+      }
     } catch (error) {
       setFeedback({ kind: "error", text: error instanceof Error ? error.message : "No se pudo confirmar el alta del animal." });
     } finally {
@@ -575,6 +674,35 @@ export default function CampoPage() {
             </div>
           ))}
         </section>
+      ) : null}
+
+      {/* Offline / sync banner */}
+      {!isOnline ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-amber-700 bg-amber-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-amber-200">
+            Sin conexión
+            {pendingCount > 0 ? ` — ${pendingCount} operación${pendingCount === 1 ? "" : "es"} en cola` : " — las acciones se guardarán localmente"}
+          </p>
+        </div>
+      ) : syncStatus === "syncing" ? (
+        <div className="mx-4 mt-3 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-emerald-300">Sincronizando operaciones pendientes...</p>
+        </div>
+      ) : syncStatus === "done" ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-emerald-300">Sincronizado correctamente.</p>
+        </div>
+      ) : pendingCount > 0 ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2">
+          <p className="text-xs text-slate-400">{pendingCount} operación{pendingCount === 1 ? "" : "es"} pendiente{pendingCount === 1 ? "" : "s"} de sincronizar</p>
+          <button
+            type="button"
+            onClick={syncQueue}
+            className="rounded bg-emerald-700 px-2 py-1 text-[10px] font-semibold text-white"
+          >
+            Sincronizar
+          </button>
+        </div>
       ) : null}
 
       {/* Scanner section */}

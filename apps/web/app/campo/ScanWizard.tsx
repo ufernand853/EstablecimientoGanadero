@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { offlineFetch } from "./offline-queue";
 
 const API_URL = getApiUrl();
 
@@ -100,40 +101,29 @@ export function ScanWizard({ context, establishmentId, paddocks, onDone, onCance
         : new Date().toISOString();
 
       if (step === "ALTA") {
-        const animalRes = await fetch(`${API_URL}/animals`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const animalResult = await offlineFetch(API_URL, "/animals", "POST", {
+          establishmentId,
+          earTag: context.earTag,
+          name: `Caravana ${context.earTag}`,
+          sex: form.sex,
+          category: form.category,
+          status: "ACTIVO",
+          notes: form.notes || null,
+        }, `Alta ${context.earTag}`);
+        if (!animalResult.ok) throw new Error("No se pudo dar de alta el animal.");
+
+        if (form.paddockName) {
+          await offlineFetch(API_URL, "/traceability/events", "POST", {
             establishmentId,
             earTag: context.earTag,
-            name: `Caravana ${context.earTag}`,
-            sex: form.sex,
-            category: form.category,
-            status: "ACTIVO",
-            notes: form.notes || null,
-          }),
-        });
-        if (!animalRes.ok) {
-          const d = (await animalRes.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(d?.message ?? "No se pudo dar de alta el animal.");
+            type: "ASIGNACION_POTRERO",
+            paddockName: form.paddockName,
+            source: "RFID",
+            occurredAt: occuredAt,
+          }, `Potrero ${context.earTag}`);
         }
-        if (form.paddockName) {
-          await fetch(`${API_URL}/traceability/events`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              establishmentId,
-              earTag: context.earTag,
-              type: "ASIGNACION_POTRERO",
-              paddockName: form.paddockName,
-              source: "RFID",
-              occurredAt: occuredAt,
-            }),
-          });
-        }
-        onDone(
-          `${context.earTag} — alta registrada como ${form.category}${form.paddockName ? ` en ${form.paddockName}` : ""}.`,
-        );
+        const suffix = animalResult.queued ? " (en cola, sin conexión)" : "";
+        onDone(`${context.earTag} — alta registrada como ${form.category}${form.paddockName ? ` en ${form.paddockName}` : ""}${suffix}.`);
         return;
       }
 
@@ -141,28 +131,22 @@ export function ScanWizard({ context, establishmentId, paddocks, onDone, onCance
         const motivo = form.motivo;
         const eventType = motivo === "MUERTE" ? "MUERTE" : "ENVIO_FRIGORIFICO";
         const newStatus = motivo === "MUERTE" ? "MUERTO" : "VENDIDO";
-        await fetch(`${API_URL}/traceability/events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            establishmentId,
-            earTag: context.earTag,
-            type: eventType,
-            notes: [motivo, form.notes].filter(Boolean).join(" — ") || null,
-            source: "RFID",
-            occurredAt: occuredAt,
-          }),
-        });
-        const statusRes = await fetch(`${API_URL}/animals/status`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ establishmentId, earTag: context.earTag, status: newStatus }),
-        });
-        if (!statusRes.ok) {
-          const d = (await statusRes.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(d?.message ?? "No se pudo actualizar el estado del animal.");
-        }
-        onDone(`${context.earTag} — baja registrada (${motivo.toLowerCase()}).`);
+        await offlineFetch(API_URL, "/traceability/events", "POST", {
+          establishmentId,
+          earTag: context.earTag,
+          type: eventType,
+          notes: [motivo, form.notes].filter(Boolean).join(" — ") || null,
+          source: "RFID",
+          occurredAt: occuredAt,
+        }, `Baja ${context.earTag}`);
+        const statusResult = await offlineFetch(API_URL, "/animals/status", "PATCH", {
+          establishmentId,
+          earTag: context.earTag,
+          status: newStatus,
+        }, `Estado ${context.earTag}`);
+        if (!statusResult.ok) throw new Error("No se pudo actualizar el estado del animal.");
+        const suffix = statusResult.queued ? " (en cola, sin conexión)" : "";
+        onDone(`${context.earTag} — baja registrada (${motivo.toLowerCase()})${suffix}.`);
         return;
       }
 
@@ -199,47 +183,35 @@ export function ScanWizard({ context, establishmentId, paddocks, onDone, onCance
         if (form.weight) payload.weight = Number(form.weight);
         if (form.notes) payload.notes = form.notes;
 
-        const evRes = await fetch(`${API_URL}/traceability/events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!evRes.ok) {
-          const d = (await evRes.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(d?.message ?? "No se pudo guardar el evento.");
-        }
+        const evResult = await offlineFetch(API_URL, "/traceability/events", "POST", payload, `${STEP_LABELS[step] ?? step} ${context.earTag}`);
+        if (!evResult.ok) throw new Error("No se pudo guardar el evento.");
 
         if (step === "FRIGORIFICO") {
-          await fetch(`${API_URL}/animals/status`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ establishmentId, earTag: context.earTag, status: "VENDIDO" }),
-          });
+          await offlineFetch(API_URL, "/animals/status", "PATCH", {
+            establishmentId,
+            earTag: context.earTag,
+            status: "VENDIDO",
+          }, `Frigorífico ${context.earTag}`);
         }
 
-        onDone(`${context.earTag} — ${STEP_LABELS[step]?.toLowerCase() ?? step} registrado.`);
+        const suffix = evResult.queued ? " (en cola, sin conexión)" : "";
+        onDone(`${context.earTag} — ${STEP_LABELS[step]?.toLowerCase() ?? step} registrado${suffix}.`);
         return;
       }
 
       if (step === "INCIDENTE") {
         if (!form.incidentNotes) throw new Error("Ingresá una descripción del incidente.");
-        const incRes = await fetch(`${API_URL}/incidents`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            establishmentId,
-            title: `${form.incidentType} — ${context.earTag}`,
-            description: form.incidentNotes,
-            severity: form.severity,
-            status: "OPEN",
-            source: "MANUAL",
-          }),
-        });
-        if (!incRes.ok) {
-          const d = (await incRes.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(d?.message ?? "No se pudo guardar el incidente.");
-        }
-        onDone(`${context.earTag} — incidente registrado (${form.severity.toLowerCase()}).`);
+        const incResult = await offlineFetch(API_URL, "/incidents", "POST", {
+          establishmentId,
+          title: `${form.incidentType} — ${context.earTag}`,
+          description: form.incidentNotes,
+          severity: form.severity,
+          status: "OPEN",
+          source: "MANUAL",
+        }, `Incidente ${context.earTag}`);
+        if (!incResult.ok) throw new Error("No se pudo guardar el incidente.");
+        const suffix = incResult.queued ? " (en cola, sin conexión)" : "";
+        onDone(`${context.earTag} — incidente registrado (${form.severity.toLowerCase()})${suffix}.`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al guardar.");
