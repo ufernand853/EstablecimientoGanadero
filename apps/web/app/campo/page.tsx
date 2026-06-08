@@ -6,6 +6,7 @@ import { ScanWizard, type ScanContext, type Paddock } from "./ScanWizard";
 import { offlineFetch, processQueue, getPendingCount } from "./offline-queue";
 
 const API_URL = getApiUrl();
+const RECENT_SCAN_EVENTS_LIMIT = 5;
 
 function cacheAnimalScan(establishmentId: string, earTag: string, ctx: ScanContext) {
   try { localStorage.setItem(`eg_scan_${establishmentId}_${earTag}`, JSON.stringify(ctx)); } catch {}
@@ -323,6 +324,7 @@ export default function CampoPage() {
             cacheAnimalScan(establishment.id, a.earTag, {
               earTag: a.earTag,
               animal: { exists: true, id: a.id, status: a.status, category: a.category, sex: a.sex, lastKnownPaddock: null, lastEvent: null },
+              recentEvents: [],
             });
           }
         }
@@ -629,7 +631,20 @@ export default function CampoPage() {
         throw new Error(d?.message ?? "No se pudo consultar la caravana.");
       }
       const data = (await res.json()) as { earTag: string; animal: ScanContext["animal"] };
-      const ctx: ScanContext = { earTag: data.earTag, animal: data.animal };
+
+      // Fetch recent events for this animal
+      let recentEvents: Array<{ type: string; occurredAt: string; notes?: string | null }> = [];
+      try {
+        const evRes = await fetch(`${API_URL}/traceability/events?earTag=${encodeURIComponent(data.earTag)}&limit=${RECENT_SCAN_EVENTS_LIMIT}`, { cache: "no-store" });
+        if (evRes.ok) {
+          const evData = (await evRes.json()) as { events?: Array<{ type: string; occurredAt: string; notes?: string | null }> };
+          recentEvents = evData.events ?? [];
+        }
+      } catch {
+        // Ignore errors fetching events
+      }
+
+      const ctx: ScanContext = { earTag: data.earTag, animal: data.animal, recentEvents };
       // Cache for future offline use
       cacheAnimalScan(establishment.id, data.earTag, ctx);
       setScanContext(ctx);

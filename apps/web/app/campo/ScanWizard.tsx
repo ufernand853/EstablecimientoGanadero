@@ -34,6 +34,7 @@ export type AnimalScanInfo = {
 export type ScanContext = {
   earTag: string;
   animal: AnimalScanInfo;
+  recentEvents?: Array<{ type: string; occurredAt: string; notes?: string | null }>;
 };
 
 export type Paddock = { id: string; name: string };
@@ -289,6 +290,22 @@ export function ScanWizard({ context, establishmentId, paddocks, onDone, onCance
                 </p>
               </div>
             )}
+
+            {context.recentEvents && context.recentEvents.length > 0 ? (
+              <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900/50 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Últimas acciones</p>
+                <div className="space-y-2">
+                  {context.recentEvents.map((ev, idx) => (
+                    <div key={idx} className="flex items-baseline justify-between text-xs">
+                      <span className="text-slate-300">{EVENT_TYPE_LABELS[ev.type] ?? ev.type}</span>
+                      <span className="text-slate-500">
+                        {new Date(ev.occurredAt).toLocaleDateString("es-UY")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
