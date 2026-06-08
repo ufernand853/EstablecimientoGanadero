@@ -7,6 +7,17 @@ import { offlineFetch, processQueue, getPendingCount } from "./offline-queue";
 
 const API_URL = getApiUrl();
 
+function cacheAnimalScan(establishmentId: string, earTag: string, ctx: ScanContext) {
+  try { localStorage.setItem(`eg_scan_${establishmentId}_${earTag}`, JSON.stringify(ctx)); } catch {}
+}
+
+function lookupAnimalScan(establishmentId: string, earTag: string): ScanContext | null {
+  try {
+    const raw = localStorage.getItem(`eg_scan_${establishmentId}_${earTag}`);
+    return raw ? (JSON.parse(raw) as ScanContext) : null;
+  } catch { return null; }
+}
+
 type Establishment = { id: string; name: string };
 
 type TraceabilityEventType =
@@ -298,6 +309,27 @@ export default function CampoPage() {
     setTimeout(() => setSyncStatus((s) => (s === "done" ? "idle" : s)), 3000);
   }, [refreshPendingCount, refreshRecentEvents, refreshFieldData]);
 
+  // Warm animal cache when online so scans work offline
+  useEffect(() => {
+    if (!establishment || !isOnline) return;
+    fetch(`${API_URL}/animals?establishmentId=${establishment.id}&limit=500`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data.animals)) return;
+        for (const a of data.animals as Array<{ id: string; earTag: string; status: string; category?: string; sex?: string }>) {
+          // Preserve richer cached entries (those have lastKnownPaddock / lastEvent from scan)
+          const existing = lookupAnimalScan(establishment.id, a.earTag);
+          if (!existing) {
+            cacheAnimalScan(establishment.id, a.earTag, {
+              earTag: a.earTag,
+              animal: { exists: true, id: a.id, status: a.status, category: a.category, sex: a.sex, lastKnownPaddock: null, lastEvent: null },
+            });
+          }
+        }
+      })
+      .catch(() => {});
+  }, [establishment, isOnline]);
+
   // Track online/offline and auto-sync on reconnect
   useEffect(() => {
     const handleOnline = () => {
@@ -565,33 +597,58 @@ export default function CampoPage() {
   };
 
   const handleScan = async () => {
-    const code = scanInput.trim();
+    const code = scanInput.trim().toUpperCase();
     if (!code || !establishment || scanLoading) return;
     setScanLoading(true);
     setFeedback(null);
+
+    // Offline path: resolve from local cache
+    if (!navigator.onLine) {
+      const cached = lookupAnimalScan(establishment.id, code);
+      if (cached) {
+        setScanContext(cached);
+        setFeedback({ kind: "info", text: "Sin conexión — datos en caché. El registro se guardará localmente." });
+      } else {
+        setScanContext({ earTag: code, animal: { exists: false } });
+        setFeedback({ kind: "info", text: "Sin conexión — animal desconocido. El registro se guardará localmente." });
+      }
+      setScanWizardOpen(true);
+      setScanInput("");
+      setScanLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/field/scans/assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          establishmentId: establishment.id,
-          rawCode: code,
-          source: "RFID_SCANNER",
-        }),
+        body: JSON.stringify({ establishmentId: establishment.id, rawCode: code, source: "RFID_SCANNER" }),
       });
       if (!res.ok) {
         const d = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(d?.message ?? "No se pudo consultar la caravana.");
       }
-      const data = (await res.json()) as {
-        earTag: string;
-        animal: ScanContext["animal"];
-      };
-      setScanContext({ earTag: data.earTag, animal: data.animal });
+      const data = (await res.json()) as { earTag: string; animal: ScanContext["animal"] };
+      const ctx: ScanContext = { earTag: data.earTag, animal: data.animal };
+      // Cache for future offline use
+      cacheAnimalScan(establishment.id, data.earTag, ctx);
+      setScanContext(ctx);
       setScanWizardOpen(true);
       setScanInput("");
-    } catch (e) {
-      setFeedback({ kind: "error", text: e instanceof Error ? e.message : "Error al consultar caravana." });
+    } catch {
+      // Network failed mid-request — fall back to cache
+      const cached = lookupAnimalScan(establishment.id, code);
+      if (cached) {
+        setScanContext(cached);
+        setScanWizardOpen(true);
+        setScanInput("");
+        setFeedback({ kind: "info", text: "Sin conexión — datos en caché. El registro se guardará localmente." });
+      } else {
+        setScanContext({ earTag: code, animal: { exists: false } });
+        setScanWizardOpen(true);
+        setScanInput("");
+        setFeedback({ kind: "info", text: "Sin conexión — caravana no encontrada en caché. Podés registrar igual." });
+      }
     } finally {
       setScanLoading(false);
     }
@@ -1083,8 +1140,12 @@ export default function CampoPage() {
             setScanWizardOpen(false);
             setScanContext(null);
             setFeedback({ kind: "success", text: summary });
-            refreshRecentEvents();
-            refreshFieldData();
+            // Refresh pending count in case we queued something
+            refreshPendingCount();
+            if (isOnline) {
+              refreshRecentEvents();
+              refreshFieldData();
+            }
           }}
           onCancel={() => setScanWizardOpen(false)}
         />
