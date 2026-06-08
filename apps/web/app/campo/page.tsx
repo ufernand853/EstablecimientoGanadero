@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getApiUrl } from "../lib/api-url";
 import { ScanWizard, type ScanContext, type Paddock } from "./ScanWizard";
+import { offlineFetch, processQueue, getPendingCount } from "./offline-queue";
 
 const API_URL = getApiUrl();
 
@@ -168,35 +169,73 @@ export default function CampoPage() {
   const [scanContext, setScanContext] = useState<ScanContext | null>(null);
   const [scanWizardOpen, setScanWizardOpen] = useState(false);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "done">("idle");
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load establishments
+  // Load establishments — try cache first, then network
   useEffect(() => {
+    try {
+      const cached = localStorage.getItem("eg_establishments");
+      if (cached) {
+        const data = JSON.parse(cached) as Establishment[];
+        if (Array.isArray(data) && data.length > 0) {
+          setEstablishments(data);
+          setEstablishment(data[0]);
+        }
+      }
+    } catch {}
+
     fetch(`${API_URL}/establishments`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data.establishments) && data.establishments.length > 0) {
           setEstablishments(data.establishments);
           setEstablishment(data.establishments[0]);
+          try { localStorage.setItem("eg_establishments", JSON.stringify(data.establishments)); } catch {}
         }
       })
       .catch(() => {});
   }, []);
 
-  // Load recent events when establishment changes
+  // Load recent events when establishment changes — try cache first
   useEffect(() => {
     if (!establishment) return;
+    try {
+      const cached = localStorage.getItem(`eg_events_${establishment.id}`);
+      if (cached) setRecentEvents(JSON.parse(cached) as RecentEvent[]);
+    } catch {}
+
     fetch(`${API_URL}/traceability/events?establishmentId=${establishment.id}&limit=5`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.events)) setRecentEvents(data.events); })
+      .then((data) => {
+        if (Array.isArray(data.events)) {
+          setRecentEvents(data.events as RecentEvent[]);
+          try { localStorage.setItem(`eg_events_${establishment.id}`, JSON.stringify(data.events)); } catch {}
+        }
+      })
       .catch(() => {});
   }, [establishment]);
 
-  const refreshFieldData = () => {
+  const refreshFieldData = useCallback(() => {
     if (!establishment) return;
+
+    // Seed from cache so UI is usable offline immediately
+    try {
+      const cachedKpis = localStorage.getItem(`eg_kpis_${establishment.id}`);
+      if (cachedKpis) setFieldKpis(JSON.parse(cachedKpis) as FieldKpis);
+      const cachedTasks = localStorage.getItem(`eg_tasks_${establishment.id}`);
+      if (cachedTasks) setTasks(JSON.parse(cachedTasks) as FieldTask[]);
+      const cachedPaddocks = localStorage.getItem(`eg_paddocks_${establishment.id}`);
+      if (cachedPaddocks) setPaddocks(JSON.parse(cachedPaddocks) as Paddock[]);
+    } catch {}
+
     const query = `establishmentId=${encodeURIComponent(establishment.id)}`;
     Promise.all([
       fetch(`${API_URL}/field/day-start?${query}`, { cache: "no-store" }).then((r) => r.json()),
@@ -204,30 +243,79 @@ export default function CampoPage() {
       fetch(`${API_URL}/paddocks?${query}`, { cache: "no-store" }).then((r) => r.json()),
     ])
       .then(([dashboard, taskData, paddockData]) => {
-        if (dashboard?.kpis) setFieldKpis(dashboard.kpis);
-        if (Array.isArray(taskData.tasks)) {
-          setTasks(taskData.tasks.filter((task: FieldTask) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE"));
+        if (dashboard?.kpis) {
+          setFieldKpis(dashboard.kpis as FieldKpis);
+          try { localStorage.setItem(`eg_kpis_${establishment.id}`, JSON.stringify(dashboard.kpis)); } catch {}
         }
-        if (Array.isArray(paddockData.paddocks)) setPaddocks(paddockData.paddocks);
+        if (Array.isArray(taskData.tasks)) {
+          const filtered = (taskData.tasks as FieldTask[]).filter((task) => task.status === "PENDING" || task.status === "IN_PROGRESS" || task.status === "OVERDUE");
+          setTasks(filtered);
+          try { localStorage.setItem(`eg_tasks_${establishment.id}`, JSON.stringify(filtered)); } catch {}
+        }
+        if (Array.isArray(paddockData.paddocks)) {
+          setPaddocks(paddockData.paddocks as Paddock[]);
+          try { localStorage.setItem(`eg_paddocks_${establishment.id}`, JSON.stringify(paddockData.paddocks)); } catch {}
+        }
       })
       .catch(() => {});
-  };
+  }, [establishment]);
 
   useEffect(() => {
     refreshFieldData();
-  }, [establishment]);
+  }, [refreshFieldData]);
 
   useEffect(() => {
     setChatHistory([]);
   }, [establishment?.id]);
 
-  const refreshRecentEvents = () => {
+  const refreshRecentEvents = useCallback(() => {
     if (!establishment) return;
     fetch(`${API_URL}/traceability/events?establishmentId=${establishment.id}&limit=5`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.events)) setRecentEvents(data.events); })
+      .then((data) => {
+        if (Array.isArray(data.events)) {
+          setRecentEvents(data.events as RecentEvent[]);
+          try { localStorage.setItem(`eg_events_${establishment.id}`, JSON.stringify(data.events)); } catch {}
+        }
+      })
       .catch(() => {});
-  };
+  }, [establishment]);
+
+  const refreshPendingCount = useCallback(async () => {
+    const count = await getPendingCount();
+    setPendingCount(count);
+  }, []);
+
+  const syncQueue = useCallback(async () => {
+    setSyncStatus("syncing");
+    const { processed } = await processQueue(API_URL);
+    await refreshPendingCount();
+    setSyncStatus("done");
+    if (processed > 0) {
+      refreshRecentEvents();
+      refreshFieldData();
+    }
+    setTimeout(() => setSyncStatus((s) => (s === "done" ? "idle" : s)), 3000);
+  }, [refreshPendingCount, refreshRecentEvents, refreshFieldData]);
+
+  // Track online/offline and auto-sync on reconnect
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      getPendingCount().then((count) => {
+        if (count > 0) syncQueue();
+      });
+    };
+    const handleOffline = () => setIsOnline(false);
+    setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    getPendingCount().then(setPendingCount);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncQueue]);
 
   const startVoice = () => {
     setVoiceError(null);
@@ -356,14 +444,19 @@ export default function CampoPage() {
     setStatus("sending");
 
     try {
-      const res = await fetch(`${API_URL}/traceability/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingEvent),
-      });
+      const result = await offlineFetch(
+        API_URL,
+        "/traceability/events",
+        "POST",
+        pendingEvent,
+        `${EVENT_LABELS[pendingEvent.type]} ${pendingEvent.earTag}`,
+      );
 
-      if (res.ok) {
-        if (selectedTaskId) {
+      if (result.ok) {
+        if (result.queued) {
+          await refreshPendingCount();
+        }
+        if (selectedTaskId && !result.queued) {
           try {
             await fetch(`${API_URL}/tasks/${selectedTaskId}/complete`, {
               method: "POST",
@@ -371,17 +464,20 @@ export default function CampoPage() {
               body: JSON.stringify({ notes: `Cerrada al confirmar ${EVENT_LABELS[pendingEvent.type]} de ${pendingEvent.earTag}` }),
             });
             setSelectedTaskId("");
-            refreshFieldData();
           } catch {
             // ignore task completion issues
           }
         }
         setFeedback({
           kind: "success",
-          text: `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
+          text: result.queued
+            ? `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} en cola (sin conexión).`
+            : `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
         });
-        refreshRecentEvents();
-        refreshFieldData();
+        if (!result.queued) {
+          refreshRecentEvents();
+          refreshFieldData();
+        }
       } else {
         setFeedback({ kind: "error", text: "No se pudo guardar el evento." });
       }
@@ -398,31 +494,36 @@ export default function CampoPage() {
     setStatus("sending");
 
     try {
-      const animalRes = await fetch(`${API_URL}/animals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingAnimalRegistration.animal),
-      });
-      const animalData = (await animalRes.json().catch(() => null)) as { message?: string } | null;
-      if (!animalRes.ok) {
-        throw new Error(animalData?.message ?? "No se pudo dar de alta el animal.");
-      }
+      const animalResult = await offlineFetch(
+        API_URL,
+        "/animals",
+        "POST",
+        pendingAnimalRegistration.animal,
+        `Alta ${pendingAnimalRegistration.animal.earTag}`,
+      );
+      if (!animalResult.ok) throw new Error("No se pudo dar de alta el animal.");
 
-      const eventRes = await fetch(`${API_URL}/traceability/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pendingAnimalRegistration.traceabilityEvent),
-      });
-      const eventData = (await eventRes.json().catch(() => null)) as { message?: string } | null;
-      if (!eventRes.ok) {
-        throw new Error(eventData?.message ?? "El animal fue dado de alta, pero no se pudo asociar el potrero.");
-      }
+      const eventResult = await offlineFetch(
+        API_URL,
+        "/traceability/events",
+        "POST",
+        pendingAnimalRegistration.traceabilityEvent,
+        `Potrero ${pendingAnimalRegistration.animal.earTag}`,
+      );
+      if (!eventResult.ok) throw new Error("El animal fue dado de alta, pero no se pudo asociar el potrero.");
 
-      const summary = `${pendingAnimalRegistration.animal.earTag} — alta guardada y asociada a ${pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}.`;
+      const queued = animalResult.queued || eventResult.queued;
+      if (queued) await refreshPendingCount();
+
+      const summary = queued
+        ? `${pendingAnimalRegistration.animal.earTag} — alta en cola (sin conexión).`
+        : `${pendingAnimalRegistration.animal.earTag} — alta guardada y asociada a ${pendingAnimalRegistration.traceabilityEvent.paddockName ?? "Temporal"}.`;
       setFeedback({ kind: "success", text: summary });
       setChatHistory((prev) => [...prev, { role: "assistant", content: summary }]);
-      refreshRecentEvents();
-      refreshFieldData();
+      if (!queued) {
+        refreshRecentEvents();
+        refreshFieldData();
+      }
     } catch (error) {
       setFeedback({ kind: "error", text: error instanceof Error ? error.message : "No se pudo confirmar el alta del animal." });
     } finally {
@@ -575,6 +676,35 @@ export default function CampoPage() {
         </section>
       ) : null}
 
+      {/* Offline / sync banner */}
+      {!isOnline ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-amber-700 bg-amber-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-amber-200">
+            Sin conexión
+            {pendingCount > 0 ? ` — ${pendingCount} operación${pendingCount === 1 ? "" : "es"} en cola` : " — las acciones se guardarán localmente"}
+          </p>
+        </div>
+      ) : syncStatus === "syncing" ? (
+        <div className="mx-4 mt-3 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-emerald-300">Sincronizando operaciones pendientes...</p>
+        </div>
+      ) : syncStatus === "done" ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2">
+          <p className="text-xs font-semibold text-emerald-300">Sincronizado correctamente.</p>
+        </div>
+      ) : pendingCount > 0 ? (
+        <div className="mx-4 mt-3 flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2">
+          <p className="text-xs text-slate-400">{pendingCount} operación{pendingCount === 1 ? "" : "es"} pendiente{pendingCount === 1 ? "" : "s"} de sincronizar</p>
+          <button
+            type="button"
+            onClick={syncQueue}
+            className="rounded bg-emerald-700 px-2 py-1 text-[10px] font-semibold text-white"
+          >
+            Sincronizar
+          </button>
+        </div>
+      ) : null}
+
       {/* Scanner section */}
       <section className="px-4 pt-4">
         <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
@@ -634,65 +764,92 @@ export default function CampoPage() {
         </div>
       </section>
 
+      {/* Tareas pendientes — colapsable */}
       <section className="px-4 pt-4">
-        <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-amber-400">Tareas pendientes</p>
-              <p className="text-sm text-slate-300">Registros guardados en backend para ejecutar en campo.</p>
-            </div>
-            <button type="button" onClick={refreshFieldData} className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300">Actualizar</button>
+        <div className="rounded-xl border border-amber-800 bg-amber-950/20">
+          <div className="flex items-center gap-2 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setTasksOpen((o) => !o)}
+              className="flex flex-1 items-center gap-2 text-left"
+            >
+              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">Tareas pendientes</span>
+              {tasks.length > 0 ? (
+                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-slate-950">{tasks.length}</span>
+              ) : null}
+              <span className="ml-auto text-xs text-amber-500">{tasksOpen ? "▲" : "▼"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={refreshFieldData}
+              className="shrink-0 rounded border border-slate-700 px-2 py-1 text-xs text-slate-400"
+              title="Actualizar"
+            >
+              ↺
+            </button>
           </div>
-          <div className="mt-3 space-y-2">
-            {tasks.length ? tasks.map((task) => (
-              <article key={task.id} className="rounded-lg bg-slate-900 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-100">{task.title}</p>
-                    {task.description ? <p className="mt-1 text-xs text-slate-400">{task.description}</p> : null}
-                    <p className="mt-2 text-xs text-slate-500">
-                      {task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : "Sin fecha"}
-                      {task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}
-                      {task.paddockName ? ` · ${task.paddockName}` : ""}
-                      {task.earTag ? ` · ${task.earTag}` : ""}
-                    </p>
+          {tasksOpen ? (
+            <div className="space-y-2 px-4 pb-4">
+              {tasks.length ? tasks.map((task) => (
+                <article key={task.id} className="rounded-lg bg-slate-900 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">{task.title}</p>
+                      {task.description ? <p className="mt-1 text-xs text-slate-400">{task.description}</p> : null}
+                      <p className="mt-2 text-xs text-slate-500">
+                        {task.scheduledAt ? `Fecha: ${new Date(task.scheduledAt).toLocaleString("es-UY")}` : "Sin fecha"}
+                        {task.assignedRole ? ` · Responsable: ${task.assignedRole}` : " · Sin responsable"}
+                        {task.paddockName ? ` · ${task.paddockName}` : ""}
+                        {task.earTag ? ` · ${task.earTag}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => completeTask(task.id)}
+                      disabled={isBusy}
+                      className="shrink-0 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
+                    >
+                      Cumplida
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => completeTask(task.id)}
-                    disabled={isBusy}
-                    className="shrink-0 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50"
-                  >
-                    Cumplida
-                  </button>
-                </div>
-              </article>
-            )) : <p className="text-sm text-slate-500">No hay tareas pendientes.</p>}
-          </div>
+                </article>
+              )) : <p className="text-sm text-slate-500">No hay tareas pendientes.</p>}
+            </div>
+          ) : null}
         </div>
       </section>
 
-      {/* Recent events */}
+      {/* Últimas acciones — colapsable */}
       <section className="px-4 pt-4">
-        {recentEvents.length > 0 ? (
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-widest text-slate-500">Últimas acciones</p>
-            {recentEvents.map((ev) => (
-              <div key={ev.id} className="flex items-baseline justify-between rounded-lg bg-slate-900 px-3 py-2">
-                <div>
-                  <span className="text-sm font-semibold text-emerald-300">{ev.earTag}</span>
-                  <span className="ml-2 text-sm text-slate-200">{EVENT_LABELS[ev.type]}</span>
-                  {ev.notes ? <span className="ml-2 text-xs text-slate-400">{ev.notes}</span> : null}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50">
+          <button
+            type="button"
+            onClick={() => setEventsOpen((o) => !o)}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left"
+          >
+            <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Últimas acciones</span>
+            {recentEvents.length > 0 ? (
+              <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-200">{recentEvents.length}</span>
+            ) : null}
+            <span className="ml-auto text-xs text-slate-500">{eventsOpen ? "▲" : "▼"}</span>
+          </button>
+          {eventsOpen ? (
+            <div className="space-y-2 px-4 pb-4">
+              {recentEvents.length > 0 ? recentEvents.map((ev) => (
+                <div key={ev.id} className="flex items-baseline justify-between rounded-lg bg-slate-800 px-3 py-2">
+                  <div>
+                    <span className="text-sm font-semibold text-emerald-300">{ev.earTag}</span>
+                    <span className="ml-2 text-sm text-slate-200">{EVENT_LABELS[ev.type]}</span>
+                    {ev.notes ? <span className="ml-2 text-xs text-slate-400">{ev.notes}</span> : null}
+                  </div>
+                  <time className="ml-4 shrink-0 text-xs text-slate-500">
+                    {new Date(ev.occurredAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                  </time>
                 </div>
-                <time className="ml-4 shrink-0 text-xs text-slate-500">
-                  {new Date(ev.occurredAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
-                </time>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-600">Sin acciones recientes.</p>
-        )}
+              )) : <p className="text-xs text-slate-600">Sin acciones recientes.</p>}
+            </div>
+          ) : null}
+        </div>
       </section>
 
       {chatHistory.length > 0 ? (
@@ -916,17 +1073,6 @@ export default function CampoPage() {
           </>
         )}
       </div>
-
-      {tasks.length > 0 ? (
-        <section className="mx-4 mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-          <p className="text-xs uppercase tracking-widest text-slate-400">Tareas pendientes</p>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
-            {tasks.slice(0, 5).map((task) => (
-              <li key={task.id}>• {task.title}{task.earTag ? ` (${task.earTag})` : ""}{task.priority === "URGENT" ? " — urgente" : ""}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {scanContext && scanWizardOpen ? (
         <ScanWizard
