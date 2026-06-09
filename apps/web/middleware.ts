@@ -91,7 +91,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const sessionRole = getSessionRoleFromToken(sessionToken);
+  // eg_role cookie allows JS to persist role for offline sessions (set by offline login flow)
+  const offlineRole = hasLegacyAuth ? (request.cookies.get("eg_role")?.value ?? null) : null;
+  const sessionRole = getSessionRoleFromToken(sessionToken) ?? offlineRole;
 
   if (isAuthenticated && pathname === "/login") {
     const dashboardUrl = request.nextUrl.clone();
