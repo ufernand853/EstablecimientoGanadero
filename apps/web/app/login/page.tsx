@@ -7,13 +7,10 @@ import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getHomePathForRole } from "../lib/roles";
 
 const API_URL = getApiUrl();
-const DEFAULT_USERNAME = "admin";
-const DEFAULT_PASSWORD = "admin";
-
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@test.local");
-  const [password, setPassword] = useState("admin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -37,17 +34,6 @@ export default function LoginPage() {
         return;
       }
 
-      if (email === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
-        const cookiePath = BASE_PATH || "/";
-        const secureFlag = window.location.protocol === "https:" ? "; secure" : "";
-        document.cookie = `eg_auth=1; path=${cookiePath}; max-age=28800; samesite=lax${secureFlag}`;
-        const params = new URLSearchParams(window.location.search);
-        const nextPath = params.get("next") || withBasePath("/dashboard");
-        router.push(nextPath);
-        router.refresh();
-        return;
-      }
-
       const data = await response.json().catch(() => ({ message: "Usuario o contraseña inválidos." }));
       setError(data.message ?? "Usuario o contraseña inválidos.");
     } catch {
@@ -63,7 +49,7 @@ export default function LoginPage() {
         <div className="text-center">
           <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="mx-auto h-12 w-auto" />
           <h1 className="mt-4 text-2xl font-semibold">Gestión Ganadera</h1>
-          <p className="mt-2 text-sm text-slate-300">Ingresá con un usuario existente o conocé los planes SaaS para nuevos clientes.</p>
+          <p className="mt-2 text-sm text-slate-300">Ingresá con tu cuenta general del establecimiento o conocé los planes SaaS para nuevos clientes.</p>
         </div>
 
         <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
@@ -71,7 +57,7 @@ export default function LoginPage() {
             Usuario / correo
             <input
               className="rounded bg-slate-800 p-3 text-sm outline-none ring-1 ring-slate-700 transition focus:ring-emerald-500"
-              placeholder="admin@test.local"
+              placeholder="tu-correo@empresa.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="username"
@@ -82,7 +68,7 @@ export default function LoginPage() {
             <input
               type="password"
               className="rounded bg-slate-800 p-3 text-sm outline-none ring-1 ring-slate-700 transition focus:ring-emerald-500"
-              placeholder="admin"
+              placeholder="Tu contraseña"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
@@ -102,10 +88,8 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
-          <p className="font-semibold text-slate-100">Usuarios test</p>
-          <p>Admin: admin@test.local / admin</p>
-          <p>Operador: usuario@test.local / usuario</p>
-          <p>Supervisor: supervisor@test.local / supervisor</p>
+          <p className="font-semibold text-slate-100">Acceso SaaS simplificado</p>
+          <p>Cada empresa trabaja con una cuenta general asociada al plan contratado.</p>
         </div>
       </section>
     </main>
