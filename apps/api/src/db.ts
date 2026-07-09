@@ -1,19 +1,34 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
 import { MongoClient } from "mongodb";
 
 const loadEnvironment = () => {
-  const envPath = resolve(process.cwd(), ".env");
-  const envExamplePath = resolve(process.cwd(), ".env.example");
+  let currentDir = process.cwd();
+  const visitedDirs = new Set<string>();
 
-  if (existsSync(envPath)) {
-    loadEnv({ path: envPath });
-    return;
-  }
+  while (!visitedDirs.has(currentDir)) {
+    visitedDirs.add(currentDir);
 
-  if (existsSync(envExamplePath)) {
-    loadEnv({ path: envExamplePath });
+    const envPath = resolve(currentDir, ".env");
+    const envExamplePath = resolve(currentDir, ".env.example");
+
+    if (existsSync(envPath)) {
+      loadEnv({ path: envPath, override: false });
+      return;
+    }
+
+    if (existsSync(envExamplePath)) {
+      loadEnv({ path: envExamplePath, override: false });
+      return;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+
+    currentDir = parentDir;
   }
 };
 

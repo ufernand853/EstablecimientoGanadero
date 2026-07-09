@@ -16,6 +16,7 @@ const topLevelLinks = [
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/insumos"), label: "Insumos" },
+  { href: withBasePath("/licencia"), label: "Licencia" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
   { href: withBasePath("/admin/users"), label: "Usuarios" },
 ];
@@ -36,6 +37,10 @@ export function AppHeader() {
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
   const isCampo = normalizedPath === withBasePath("/campo");
   const isLogin = normalizedPath === withBasePath("/login");
+  const isMarketing =
+    normalizedPath === withBasePath("/planes") ||
+    normalizedPath === withBasePath("/registro") ||
+    normalizedPath.startsWith(withBasePath("/pago"));
   const API_URL = getApiUrl();
   const handleLogout = async () => {
     try {
@@ -70,7 +75,7 @@ export function AppHeader() {
     loadSession();
   }, [API_URL]);
 
-  if (isLogin) return null;
+  if (isLogin || isMarketing) return null;
 
   return (
     <header className="mb-8 flex flex-col gap-4">

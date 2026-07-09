@@ -6,10 +6,24 @@ import { z } from "zod";
 import { categorySynonyms, parseCommand } from "@eg/shared";
 import { getDb, getMongoClient } from "./db.js";
 
-const app = Fastify({ logger: true });
+const normalizeBoolean = (value: string | undefined) => {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+};
+
+const configuredCorsOrigins = (process.env.CORS_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const app = Fastify({
+  logger: true,
+  trustProxy: normalizeBoolean(process.env.TRUST_PROXY),
+});
 
 await app.register(cors, {
-  origin: true,
+  origin: configuredCorsOrigins.length > 0 ? configuredCorsOrigins : true,
+  credentials: true,
 });
 
 app.addHook("onClose", async () => {
@@ -38,6 +52,14 @@ const registerSubscriptionSchema = z.object({
   companyName: z.string().min(2),
   password: z.string().min(8),
   planCode: z.string().min(2).default("PRO"),
+});
+
+const enterpriseContactSchema = z.object({
+  company: z.string().min(2),
+  contact: z.string().min(2),
+  email: z.string().email(),
+  phone: z.string().min(3).optional().nullable(),
+  message: z.string().min(2).optional().nullable(),
 });
 
 const webhookSchema = z.object({
@@ -512,6 +534,11 @@ type SubscriptionPlan = {
   trialDays: number;
   isDemo: boolean;
   active: boolean;
+  animalLimit: number | null;
+  description: string;
+  ctaLabel: string;
+  featureList: string[];
+  sortOrder: number;
 };
 
 type Subscription = {
@@ -540,6 +567,9 @@ type BillingCheckout = {
   passwordHash: string;
   status: "PENDING_PAYMENT" | "COMPLETED" | "FAILED";
   tenantId: string | null;
+  provider: string | null;
+  providerSubscriptionId: string | null;
+  checkoutUrl: string | null;
   createdAt: string;
   updatedAt: string;
   kind: "SUBSCRIPTION" | "DEMO";
@@ -554,6 +584,23 @@ type BillingEvent = {
   status: "PROCESSED" | "IGNORED" | "FAILED";
   payload: Record<string, unknown>;
   processedAt: string;
+};
+
+type TenantEstablishment = {
+  tenantId: string;
+  establishmentId: string;
+};
+
+type EnterpriseLead = {
+  id: string;
+  company: string;
+  contact: string;
+  email: string;
+  phone: string | null;
+  message: string | null;
+  planCode: string;
+  source: string;
+  createdAt: string;
 };
 
 type SupplyType = "MEDICINE" | "VACCINE" | "DEWORMER" | "FEED" | "OTHER";
@@ -731,6 +778,17 @@ const SESSION_COOKIE_NAME = "eg_session";
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "eg-dev-session-secret-change-me";
 const BILLING_WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "eg-dev-webhook-secret-change-me";
 const DEMO_TRIAL_DAYS = 5;
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL ?? "https://ganaderia.stock.com";
+const MERCADOPAGO_ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN ?? "";
+const MERCADOPAGO_PUBLIC_KEY = process.env.MERCADOPAGO_PUBLIC_KEY ?? "";
+const MERCADOPAGO_WEBHOOK_SECRET = process.env.MERCADOPAGO_WEBHOOK_SECRET ?? "";
+const MERCADOPAGO_CURRENCY = process.env.MERCADOPAGO_CURRENCY ?? "UYU";
+const MERCADOPAGO_COUNTRY = process.env.MERCADOPAGO_COUNTRY ?? "UY";
+const MERCADOPAGO_SUCCESS_URL = process.env.MERCADOPAGO_SUCCESS_URL ?? `${PUBLIC_APP_URL}/pago/exitoso`;
+const MERCADOPAGO_PENDING_URL = process.env.MERCADOPAGO_PENDING_URL ?? `${PUBLIC_APP_URL}/pago/pendiente`;
+const MERCADOPAGO_FAILURE_URL = process.env.MERCADOPAGO_FAILURE_URL ?? `${PUBLIC_APP_URL}/pago/error`;
+const MERCADOPAGO_NOTIFICATION_URL = process.env.MERCADOPAGO_NOTIFICATION_URL ?? `${PUBLIC_APP_URL}/api/proxy/webhooks/mercadopago`;
+const MERCADOPAGO_PAYER_EMAIL_OVERRIDE = process.env.MERCADOPAGO_PAYER_EMAIL_OVERRIDE ?? "";
 const PERPETUAL_ACCESS_EMAILS = new Set(
   (process.env.PERPETUAL_ACCESS_EMAILS ?? "ufernand853@gmail.com")
     .split(",")
@@ -766,6 +824,8 @@ const getCollections = async () => {
     subscriptions: db.collection<Subscription>("subscriptions"),
     billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
     billingEvents: db.collection<BillingEvent>("billing_events"),
+    tenantEstablishments: db.collection<TenantEstablishment>("tenant_establishments"),
+    enterpriseLeads: db.collection<EnterpriseLead>("enterprise_leads"),
     traceabilityEvents: db.collection<TraceabilityEvent>("traceability_events"),
     supplies: db.collection<Supply>("supplies"),
     supplyBatches: db.collection<SupplyBatch>("supply_batches"),
@@ -1442,21 +1502,153 @@ const resolveSubscriptionStatus = (subscription: Subscription) => {
 
 const hasPerpetualAccess = (email: string) => PERPETUAL_ACCESS_EMAILS.has(email.toLowerCase());
 
+const isMercadoPagoConfigured = () => Boolean(MERCADOPAGO_ACCESS_TOKEN);
+
+const buildPublicUrl = (path: string) => new URL(path, PUBLIC_APP_URL).toString();
+
+const mapMercadoPagoStatus = (status: string | null | undefined): Subscription["status"] => {
+  switch (status) {
+    case "authorized":
+      return "ACTIVE";
+    case "paused":
+    case "rejected":
+      return "PAST_DUE";
+    case "cancelled":
+    case "canceled":
+      return "CANCELLED";
+    case "pending":
+    default:
+      return "PENDING";
+  }
+};
+
+const mercadoPagoRequest = async <T>(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) => {
+  if (!MERCADOPAGO_ACCESS_TOKEN) {
+    throw new Error("Mercado Pago no está configurado.");
+  }
+
+  const response = await fetch(`https://api.mercadopago.com${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${MERCADOPAGO_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof data === "object" && data && "message" in data
+        ? String((data as { message?: string }).message)
+        : "Mercado Pago rechazó la solicitud.";
+    throw new Error(message);
+  }
+
+  return data as T;
+};
+
+type MercadoPagoPreapproval = {
+  id: string;
+  status: string;
+  external_reference?: string;
+  init_point?: string | null;
+  sandbox_init_point?: string | null;
+  next_payment_date?: string | null;
+};
+
+const getMercadoPagoCheckoutUrl = (subscription: MercadoPagoPreapproval) => {
+  const isTestCredential = MERCADOPAGO_ACCESS_TOKEN.startsWith("TEST-");
+  if (isTestCredential) {
+    return subscription.sandbox_init_point ?? subscription.init_point ?? null;
+  }
+  return subscription.init_point ?? subscription.sandbox_init_point ?? null;
+};
+
+const createMercadoPagoSubscription = async (input: {
+  referenceId: string;
+  companyName: string;
+  email: string;
+  plan: SubscriptionPlan;
+}) => {
+  const amount = Number((input.plan.amountCents / 100).toFixed(2));
+  if (!amount || amount <= 0) {
+    throw new Error("El plan seleccionado no tiene precio mensual automático.");
+  }
+
+  const payerEmail = MERCADOPAGO_PAYER_EMAIL_OVERRIDE || input.email;
+  const body = {
+    reason: `${input.plan.name} - ${input.companyName}`,
+    external_reference: input.referenceId,
+    payer_email: payerEmail,
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      transaction_amount: amount,
+      currency_id: input.plan.currency || MERCADOPAGO_CURRENCY,
+    },
+    back_url: MERCADOPAGO_SUCCESS_URL || buildPublicUrl("/pago/exitoso"),
+    status: "pending",
+    notification_url: MERCADOPAGO_NOTIFICATION_URL || buildPublicUrl("/api/proxy/webhooks/mercadopago"),
+  };
+
+  return mercadoPagoRequest<MercadoPagoPreapproval>("/preapproval", { method: "POST", body });
+};
+
+const fetchMercadoPagoSubscription = async (preapprovalId: string) =>
+  mercadoPagoRequest<MercadoPagoPreapproval>(`/preapproval/${encodeURIComponent(preapprovalId)}`);
+
 const ensureDefaultPlans = async () => {
   const { subscriptionPlans } = await getCollections();
-  const count = await subscriptionPlans.countDocuments();
-  if (count > 0) return;
-  await subscriptionPlans.insertMany([
+  const defaultPlans: SubscriptionPlan[] = [
     {
       id: randomUUID(),
-      code: "PRO",
-      name: "Plan Pro Mensual",
+      code: "BASIC",
+      name: "Plan Básico",
       billingPeriodDays: 30,
-      amountCents: 49900,
-      currency: "ARS",
+      amountCents: 39000,
+      currency: "UYU",
       trialDays: 0,
       isDemo: false,
       active: true,
+      animalLimit: 250,
+      description: "Para establecimientos chicos que quieren digitalizar stock, sanidad y movimientos.",
+      ctaLabel: "Contratar",
+      featureList: ["Hasta 250 animales", "Trazabilidad básica", "Modo campo y gestión", "Soporte por WhatsApp"],
+      sortOrder: 10,
+    },
+    {
+      id: randomUUID(),
+      code: "PRO",
+      name: "Plan Pro",
+      billingPeriodDays: 30,
+      amountCents: 199000,
+      currency: "UYU",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+      animalLimit: 1000,
+      description: "Para operaciones en crecimiento con más rodeo, usuarios y seguimiento operativo.",
+      ctaLabel: "Contratar",
+      featureList: ["Hasta 1000 animales", "Sanidad, trazabilidad y tareas", "Módulo IA operativo", "Alertas y reportes"],
+      sortOrder: 20,
+    },
+    {
+      id: randomUUID(),
+      code: "ENTERPRISE",
+      name: "Plan Empresa",
+      billingPeriodDays: 30,
+      amountCents: 0,
+      currency: "UYU",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+      animalLimit: null,
+      description: "Para clientes con varios establecimientos, integraciones, despliegue asistido y necesidades a medida.",
+      ctaLabel: "Solicitar demo",
+      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración comercial a medida", "Prioridad de soporte"],
+      sortOrder: 30,
     },
     {
       id: randomUUID(),
@@ -1464,12 +1656,41 @@ const ensureDefaultPlans = async () => {
       name: "Demo 5 días",
       billingPeriodDays: DEMO_TRIAL_DAYS,
       amountCents: 0,
-      currency: "ARS",
+      currency: "UYU",
       trialDays: DEMO_TRIAL_DAYS,
       isDemo: true,
       active: true,
+      animalLimit: 50,
+      description: "Demo breve para validar el flujo operativo antes de contratar.",
+      ctaLabel: "Probar demo",
+      featureList: ["Acceso temporal", "Carga de prueba", "Modo campo y gestión"],
+      sortOrder: 5,
     },
-  ]);
+  ];
+
+  for (const plan of defaultPlans) {
+    await subscriptionPlans.updateOne(
+      { code: plan.code },
+      {
+        $set: {
+          name: plan.name,
+          billingPeriodDays: plan.billingPeriodDays,
+          amountCents: plan.amountCents,
+          currency: plan.currency,
+          trialDays: plan.trialDays,
+          isDemo: plan.isDemo,
+          active: plan.active,
+          animalLimit: plan.animalLimit,
+          description: plan.description,
+          ctaLabel: plan.ctaLabel,
+          featureList: plan.featureList,
+          sortOrder: plan.sortOrder,
+        },
+        $setOnInsert: { id: plan.id },
+      },
+      { upsert: true },
+    );
+  }
 };
 
 const TEST_TENANT_ID = "test-tenant";
@@ -1483,7 +1704,7 @@ const ensureTestLoginData = async (requestedEmail?: string) => {
   const normalizedEmail = requestedEmail?.toLowerCase();
   if (normalizedEmail && !TEST_USERS.some((testUser) => testUser.email === normalizedEmail)) return;
 
-  const { tenants, subscriptions, establishments, users, memberships } = await getCollections();
+  const { tenants, subscriptions, establishments, users, memberships, tenantEstablishments } = await getCollections();
   const now = new Date().toISOString();
 
   await tenants.updateOne(
@@ -1515,14 +1736,29 @@ const ensureTestLoginData = async (requestedEmail?: string) => {
   );
 
   if (await establishments.countDocuments() === 0) {
+    const establishmentId = randomUUID();
     await establishments.insertOne({
-      id: randomUUID(),
+      id: establishmentId,
       name: "Estancia La Esperanza",
       timezone: "UTC-3",
       mapImageUrl: null,
       createdAt: now,
       updatedAt: now,
     });
+    await tenantEstablishments.updateOne(
+      { tenantId: TEST_TENANT_ID, establishmentId },
+      { $set: { tenantId: TEST_TENANT_ID, establishmentId } },
+      { upsert: true },
+    );
+  } else {
+    const firstEstablishment = await establishments.findOne({}, { projection: { id: 1 } });
+    if (firstEstablishment?.id) {
+      await tenantEstablishments.updateOne(
+        { tenantId: TEST_TENANT_ID, establishmentId: firstEstablishment.id },
+        { $set: { tenantId: TEST_TENANT_ID, establishmentId: firstEstablishment.id } },
+        { upsert: true },
+      );
+    }
   }
 
   for (const testUser of TEST_USERS) {
@@ -1555,7 +1791,11 @@ const ensureTestLoginData = async (requestedEmail?: string) => {
 };
 
 const setSessionCookie = (reply: { header: (name: string, value: string) => unknown }, token: string) => {
-  reply.header("Set-Cookie", `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`);
+  const secureCookie = PUBLIC_APP_URL.startsWith("https://") || process.env.NODE_ENV === "production";
+  reply.header(
+    "Set-Cookie",
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secureCookie ? "; Secure" : ""}`,
+  );
 };
 
 const loadAISettings = async () => {
@@ -5683,6 +5923,104 @@ app.get("/traceability/dashboard", async (request, reply) => {
   };
 });
 
+app.get("/public/plans", async () => {
+  await ensureDefaultPlans();
+  const { subscriptionPlans } = await getCollections();
+  const plans = await subscriptionPlans.find({ active: true }).sort({ sortOrder: 1, amountCents: 1 }).toArray();
+  return plans.map((plan) => ({
+    code: plan.code,
+    name: plan.name,
+    priceAmount: plan.amountCents > 0 ? Number((plan.amountCents / 100).toFixed(2)) : null,
+    amountCents: plan.amountCents,
+    currency: plan.currency,
+    billingPeriodDays: plan.billingPeriodDays,
+    trialDays: plan.trialDays,
+    animalLimit: plan.animalLimit,
+    description: plan.description,
+    ctaLabel: plan.ctaLabel,
+    featureList: plan.featureList,
+    isDemo: plan.isDemo,
+    isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE",
+  }));
+});
+
+app.post("/public/enterprise-contact", async (request, reply) => {
+  const body = enterpriseContactSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  const { enterpriseLeads } = await getCollections();
+  const lead: EnterpriseLead = {
+    id: randomUUID(),
+    company: body.data.company.trim(),
+    contact: body.data.contact.trim(),
+    email: body.data.email.toLowerCase(),
+    phone: body.data.phone?.trim() || null,
+    message: body.data.message?.trim() || null,
+    planCode: "ENTERPRISE",
+    source: "pricing",
+    createdAt: new Date().toISOString(),
+  };
+  await enterpriseLeads.insertOne(lead);
+  return reply.status(201).send({
+    id: lead.id,
+    message: "Consulta registrada. Te contactaremos para coordinar la demo.",
+  });
+});
+
+app.get("/billing/license", async (request, reply) => {
+  const session = await getSessionFromRequest(request);
+  if (!session) {
+    return reply.status(401).send({ code: "UNAUTHORIZED" });
+  }
+
+  await ensureDefaultPlans();
+  const { subscriptionPlans, subscriptions, tenantEstablishments, animals, tenants } = await getCollections();
+  const [plan, latestSubscription, links, tenant] = await Promise.all([
+    subscriptionPlans.findOne({ code: session.subscription.planCode }),
+    subscriptions.findOne({ tenantId: session.membership.tenantId }, { sort: { updatedAt: -1 } }),
+    tenantEstablishments.find({ tenantId: session.membership.tenantId }).toArray(),
+    tenants.findOne({ id: session.membership.tenantId }),
+  ]);
+
+  const establishmentIds = links.map((link) => link.establishmentId);
+  const usedAnimals = establishmentIds.length > 0
+    ? await animals.countDocuments({ establishmentId: { $in: establishmentIds }, status: { $ne: "MUERTO" } })
+    : 0;
+
+  return reply.send({
+    tenant: {
+      id: session.membership.tenantId,
+      name: tenant?.name ?? session.user.fullName,
+      role: session.membership.role,
+    },
+    license: plan ? {
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      ctaLabel: plan.ctaLabel,
+      currency: plan.currency,
+      amountCents: plan.amountCents,
+      animalLimit: plan.animalLimit,
+      featureList: plan.featureList,
+      status: session.subscription.status,
+      currentPeriodEnd: session.subscription.currentPeriodEnd,
+    } : null,
+    usage: {
+      usedAnimals,
+      animalLimit: plan?.animalLimit ?? null,
+      remainingAnimals: plan?.animalLimit ? Math.max(0, plan.animalLimit - usedAnimals) : null,
+      establishments: establishmentIds.length,
+    },
+    subscription: latestSubscription ? {
+      provider: latestSubscription.provider,
+      status: latestSubscription.status,
+      currentPeriodStart: latestSubscription.currentPeriodStart,
+      currentPeriodEnd: latestSubscription.currentPeriodEnd,
+    } : null,
+  });
+});
+
 app.post("/auth/register-subscription", async (request, reply) => {
   const body = registerSubscriptionSchema.safeParse(request.body);
   if (!body.success) {
@@ -5709,17 +6047,58 @@ app.post("/auth/register-subscription", async (request, reply) => {
     passwordHash: hashPassword(body.data.password),
     status: "PENDING_PAYMENT",
     tenantId: null,
+    provider: null,
+    providerSubscriptionId: null,
+    checkoutUrl: null,
     createdAt: now,
     updatedAt: now,
     kind: "SUBSCRIPTION",
   };
+
+  if (isMercadoPagoConfigured() && plan.amountCents > 0) {
+    try {
+      const mpSubscription = await createMercadoPagoSubscription({
+        referenceId: checkout.referenceId,
+        companyName: checkout.companyName,
+        email: checkout.email,
+        plan,
+      });
+      checkout.provider = "mercadopago";
+      checkout.providerSubscriptionId = mpSubscription.id;
+      checkout.checkoutUrl = getMercadoPagoCheckoutUrl(mpSubscription);
+    } catch (error) {
+      return reply.status(503).send({
+        code: "MERCADOPAGO_UNAVAILABLE",
+        message: error instanceof Error ? error.message : "No se pudo crear la suscripción en Mercado Pago.",
+      });
+    }
+  }
+
   await billingCheckouts.insertOne(checkout);
   return reply.status(201).send({
     checkoutId: checkout.id,
     referenceId: checkout.referenceId,
     status: checkout.status,
     webhookUrl: "/billing/webhook",
-    message: "Checkout pendiente creado. Envía `referenceId` a la pasarela y confirma por webhook.",
+    checkoutUrl: checkout.checkoutUrl,
+    provider: checkout.provider,
+    providerSubscriptionId: checkout.providerSubscriptionId,
+    mercadoPago: {
+      configured: isMercadoPagoConfigured(),
+      publicKey: MERCADOPAGO_PUBLIC_KEY || null,
+      country: MERCADOPAGO_COUNTRY,
+      currency: MERCADOPAGO_CURRENCY,
+    },
+    plan: {
+      code: plan.code,
+      name: plan.name,
+      amountCents: plan.amountCents,
+      currency: plan.currency,
+      animalLimit: plan.animalLimit,
+    },
+    message: checkout.checkoutUrl
+      ? "Cuenta creada. Redirigí al cliente a Mercado Pago para activar la suscripción."
+      : "Checkout pendiente creado. Envía `referenceId` a la pasarela y confirma por webhook.",
   });
 });
 
@@ -5746,6 +6125,9 @@ app.post("/auth/demo-request", async (request, reply) => {
     passwordHash: hashPassword(plainPassword),
     status: "PENDING_PAYMENT",
     tenantId: null,
+    provider: null,
+    providerSubscriptionId: null,
+    checkoutUrl: null,
     createdAt: now,
     updatedAt: now,
     kind: "DEMO",
@@ -5765,6 +6147,251 @@ app.post("/auth/demo-request", async (request, reply) => {
   });
 });
 
+app.post("/webhooks/mercadopago", async (request, reply) => {
+  const payload = (request.body ?? {}) as Record<string, unknown>;
+  const eventType =
+    typeof payload.type === "string"
+      ? payload.type
+      : typeof payload.action === "string"
+        ? payload.action
+        : "mercadopago.unknown";
+  const externalId =
+    typeof payload.id === "string"
+      ? payload.id
+      : typeof payload.id === "number"
+        ? String(payload.id)
+        : typeof payload.data === "object" &&
+            payload.data &&
+            "id" in payload.data &&
+            (typeof (payload.data as { id?: unknown }).id === "string" || typeof (payload.data as { id?: unknown }).id === "number")
+          ? String((payload.data as { id: string | number }).id)
+          : null;
+
+  if (!externalId) {
+    return reply.status(400).send({ code: "MERCADOPAGO_ID_MISSING", message: "Webhook de Mercado Pago sin identificador." });
+  }
+
+  if (MERCADOPAGO_WEBHOOK_SECRET) {
+    const providedSecret = request.headers["x-webhook-secret"];
+    if (typeof providedSecret === "string" && providedSecret !== MERCADOPAGO_WEBHOOK_SECRET) {
+      return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Webhook de Mercado Pago inválido." });
+    }
+  }
+
+  let providerData: MercadoPagoPreapproval;
+  try {
+    providerData =
+      typeof payload.external_reference === "string"
+        ? (payload as unknown as MercadoPagoPreapproval)
+        : await fetchMercadoPagoSubscription(externalId);
+  } catch (error) {
+    return reply.status(502).send({
+      code: "MERCADOPAGO_FETCH_FAILED",
+      message: error instanceof Error ? error.message : "No se pudo consultar la suscripción en Mercado Pago.",
+    });
+  }
+
+  const referenceId = providerData.external_reference;
+  if (!referenceId) {
+    return reply.status(400).send({
+      code: "MERCADOPAGO_REFERENCE_MISSING",
+      message: "La suscripción de Mercado Pago no trae external_reference.",
+    });
+  }
+
+  await ensureDefaultPlans();
+  const { billingEvents, billingCheckouts, users, tenants, memberships, subscriptions, subscriptionPlans, establishments, tenantEstablishments } = await getCollections();
+  const existingEvent = await billingEvents.findOne({ provider: "mercadopago", providerEventId: externalId, eventType });
+  if (existingEvent) {
+    return reply.send({ received: true, duplicated: true, status: existingEvent.status });
+  }
+
+  const checkout =
+    (await billingCheckouts.findOne({ referenceId })) ??
+    (await billingCheckouts.findOne({ providerSubscriptionId: providerData.id }));
+
+  if (!checkout) {
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: "mercadopago",
+      providerEventId: externalId,
+      referenceId,
+      eventType,
+      status: "FAILED",
+      payload,
+      processedAt: new Date().toISOString(),
+    });
+    return reply.status(404).send({ code: "CHECKOUT_NOT_FOUND", message: "No existe un checkout asociado a esta suscripción." });
+  }
+
+  const mappedStatus = mapMercadoPagoStatus(providerData.status);
+  const nowIso = new Date().toISOString();
+
+  if (mappedStatus === "CANCELLED") {
+    if (checkout.tenantId) {
+      await subscriptions.updateMany(
+        { tenantId: checkout.tenantId, status: { $in: ["ACTIVE", "TRIALING", "PAST_DUE", "PENDING"] } },
+        { $set: { status: "CANCELLED", updatedAt: nowIso, cancelAt: nowIso } },
+      );
+    }
+    await billingCheckouts.updateOne(
+      { id: checkout.id },
+      { $set: { provider: "mercadopago", providerSubscriptionId: providerData.id, updatedAt: nowIso } },
+    );
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: "mercadopago",
+      providerEventId: externalId,
+      referenceId,
+      eventType,
+      status: "PROCESSED",
+      payload: providerData as unknown as Record<string, unknown>,
+      processedAt: nowIso,
+    });
+    return reply.send({ received: true, status: "cancelled" });
+  }
+
+  if (mappedStatus !== "ACTIVE") {
+    await billingCheckouts.updateOne(
+      { id: checkout.id },
+      {
+        $set: {
+          provider: "mercadopago",
+          providerSubscriptionId: providerData.id,
+          checkoutUrl: getMercadoPagoCheckoutUrl(providerData),
+          updatedAt: nowIso,
+        },
+      },
+    );
+    await billingEvents.insertOne({
+      id: randomUUID(),
+      provider: "mercadopago",
+      providerEventId: externalId,
+      referenceId,
+      eventType,
+      status: "IGNORED",
+      payload: providerData as unknown as Record<string, unknown>,
+      processedAt: nowIso,
+    });
+    return reply.send({ received: true, status: mappedStatus.toLowerCase() });
+  }
+
+  const plan = await subscriptionPlans.findOne({ code: checkout.planCode, active: true });
+  if (!plan) {
+    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout inválido." });
+  }
+
+  const tenantId = checkout.tenantId ?? randomUUID();
+  const userId = randomUUID();
+  const existingUser = await users.findOne({ email: checkout.email });
+  const effectiveUserId = existingUser?.id ?? userId;
+  const currentPeriodEnd = providerData.next_payment_date
+    ? new Date(providerData.next_payment_date).toISOString()
+    : new Date(Date.now() + plan.billingPeriodDays * 86400000).toISOString();
+
+  if (!checkout.tenantId) {
+    await tenants.insertOne({
+      id: tenantId,
+      name: checkout.companyName,
+      status: "ACTIVE",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    const establishmentId = randomUUID();
+    await establishments.insertOne({
+      id: establishmentId,
+      name: checkout.companyName,
+      timezone: "UTC-3",
+      mapImageUrl: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await tenantEstablishments.updateOne(
+      { tenantId, establishmentId },
+      { $set: { tenantId, establishmentId } },
+      { upsert: true },
+    );
+    if (!existingUser) {
+      await users.insertOne({
+        id: effectiveUserId,
+        email: checkout.email,
+        fullName: checkout.fullName,
+        passwordHash: checkout.passwordHash,
+        status: "ACTIVE",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        lastLoginAt: null,
+      });
+    }
+    await memberships.insertOne({
+      id: randomUUID(),
+      tenantId,
+      userId: effectiveUserId,
+      role: "OWNER",
+      createdAt: nowIso,
+    });
+  }
+
+  const existingSubscription = await subscriptions.findOne({ tenantId, providerSubscriptionId: providerData.id });
+  if (existingSubscription) {
+    await subscriptions.updateOne(
+      { id: existingSubscription.id },
+      {
+        $set: {
+          status: "ACTIVE",
+          provider: "mercadopago",
+          currentPeriodStart: existingSubscription.currentPeriodStart ?? nowIso,
+          currentPeriodEnd,
+          updatedAt: nowIso,
+        },
+      },
+    );
+  } else {
+    await subscriptions.insertOne({
+      id: randomUUID(),
+      tenantId,
+      planCode: plan.code,
+      status: "ACTIVE",
+      provider: "mercadopago",
+      providerCustomerId: null,
+      providerSubscriptionId: providerData.id,
+      currentPeriodStart: nowIso,
+      currentPeriodEnd,
+      graceUntil: null,
+      cancelAt: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+
+  await billingCheckouts.updateOne(
+    { id: checkout.id },
+    {
+      $set: {
+        status: "COMPLETED",
+        tenantId,
+        provider: "mercadopago",
+        providerSubscriptionId: providerData.id,
+        checkoutUrl: getMercadoPagoCheckoutUrl(providerData),
+        updatedAt: nowIso,
+      },
+    },
+  );
+
+  await billingEvents.insertOne({
+    id: randomUUID(),
+    provider: "mercadopago",
+    providerEventId: externalId,
+    referenceId,
+    eventType,
+    status: "PROCESSED",
+    payload: providerData as unknown as Record<string, unknown>,
+    processedAt: nowIso,
+  });
+
+  return reply.send({ received: true, status: "authorized", tenantId });
+});
+
 app.post("/billing/webhook", async (request, reply) => {
   const signature = request.headers["x-webhook-signature"];
   const rawBody = JSON.stringify(request.body ?? {});
@@ -5778,7 +6405,7 @@ app.post("/billing/webhook", async (request, reply) => {
   }
   const event = body.data;
   await ensureDefaultPlans();
-  const { billingEvents, billingCheckouts, users, tenants, memberships, subscriptions, subscriptionPlans, establishments } = await getCollections();
+  const { billingEvents, billingCheckouts, users, tenants, memberships, subscriptions, subscriptionPlans, establishments, tenantEstablishments } = await getCollections();
   const duplicated = await billingEvents.findOne({ provider: event.provider, providerEventId: event.providerEventId });
   if (duplicated) {
     return reply.send({ ok: true, duplicated: true });
@@ -5847,14 +6474,20 @@ app.post("/billing/webhook", async (request, reply) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    const establishmentId = randomUUID();
     await establishments.insertOne({
-      id: randomUUID(),
+      id: establishmentId,
       name: checkout.companyName,
       timezone: "UTC-3",
       mapImageUrl: null,
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    await tenantEstablishments.updateOne(
+      { tenantId, establishmentId },
+      { $set: { tenantId, establishmentId } },
+      { upsert: true },
+    );
     if (!existingUser) {
       await users.insertOne({
         id: effectiveUserId,
@@ -6097,7 +6730,11 @@ app.get("/auth/session", async (request, reply) => {
 });
 
 app.post("/auth/logout", async (_request, reply) => {
-  reply.header("Set-Cookie", `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const secureCookie = PUBLIC_APP_URL.startsWith("https://") || process.env.NODE_ENV === "production";
+  reply.header(
+    "Set-Cookie",
+    `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie ? "; Secure" : ""}`,
+  );
   return reply.send({ ok: true });
 });
 
@@ -6200,7 +6837,8 @@ app.patch("/animals/status", async (request, reply) => {
 const start = async () => {
   try {
     await ensureDefaultPlans();
-    await app.listen({ port: 3001, host: "0.0.0.0" });
+    const port = Number(process.env.PORT ?? "3001");
+    await app.listen({ port, host: "0.0.0.0" });
   } catch (error) {
     app.log.error(error);
     process.exit(1);

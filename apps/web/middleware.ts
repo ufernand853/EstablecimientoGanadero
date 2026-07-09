@@ -1,9 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/api"];
+const PUBLIC_ROUTES = ["/login", "/planes", "/registro", "/pago", "/api"];
 const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|avif|svg|txt|xml|webmanifest)$/i;
-const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
+const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/licencia", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
 const SUPERVISOR_ALLOWED_PREFIXES = [
   "/",
   "/supervision",
@@ -13,6 +13,7 @@ const SUPERVISOR_ALLOWED_PREFIXES = [
   "/traceability",
   "/insumos",
   "/health",
+  "/licencia",
   "/api",
   "/_next",
   "/favicon",
