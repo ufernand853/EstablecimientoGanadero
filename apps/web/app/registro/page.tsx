@@ -91,7 +91,7 @@ function RegisterPageContent() {
           </span>
           <h1 className="text-3xl font-black tracking-tight text-white">Creá la cuenta del establecimiento</h1>
           <p className="text-sm leading-7 text-slate-200">
-            Registramos la empresa, el usuario owner y el plan comercial. Luego el flujo de pago y activación queda listo para enlazar con el remoto.
+            Registramos la empresa, la cuenta general de acceso y el plan comercial. Luego el flujo de pago y activación queda listo para enlazar con el remoto.
           </p>
           {selectedPlan ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-slate-100">
@@ -107,7 +107,7 @@ function RegisterPageContent() {
 
       <section className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
         <h2 className="text-xl font-bold text-white">Datos de la cuenta</h2>
-        <p className="mt-2 text-sm text-slate-300">La cuenta queda separada por tenant y lista para activación comercial.</p>
+        <p className="mt-2 text-sm text-slate-300">La cuenta queda separada por tenant y lista para activación comercial con un único acceso general.</p>
         {loading ? <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">Cargando planes...</p> : null}
         {error ? <p className="mt-5 rounded-2xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{error}</p> : null}
         {result ? (
