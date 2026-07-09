@@ -63,7 +63,7 @@ export default function LoginPage() {
         <div className="text-center">
           <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="mx-auto h-12 w-auto" />
           <h1 className="mt-4 text-2xl font-semibold">Gestión Ganadera</h1>
-          <p className="mt-2 text-sm text-slate-300">Ingresá con un usuario de prueba para acceder al sistema.</p>
+          <p className="mt-2 text-sm text-slate-300">Ingresá con un usuario existente o conocé los planes SaaS para nuevos clientes.</p>
         </div>
 
         <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
@@ -93,6 +93,13 @@ export default function LoginPage() {
             {loading ? "Ingresando..." : "Entrar"}
           </button>
         </form>
+
+        <div className="mt-4 text-center text-sm text-slate-300">
+          ¿Todavía no tenés cuenta?{" "}
+          <a href={withBasePath("/planes")} className="font-semibold text-emerald-300 transition hover:text-emerald-200">
+            Ver planes y funcionalidades
+          </a>
+        </div>
 
         <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
           <p className="font-semibold text-slate-100">Usuarios test</p>

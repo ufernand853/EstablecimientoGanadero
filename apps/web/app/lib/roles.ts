@@ -7,7 +7,7 @@ export const getHomePathForRole = (role?: string | null) => {
 };
 
 export const canSeeLink = (role: string | null, pathname: string) => {
-  if (role === "OPERATOR") return pathname === "/" || pathname === "/campo";
+  if (role === "OPERATOR") return pathname === "/" || pathname === "/campo" || pathname === "/licencia";
   if (role === "SUPERVISOR") {
     return [
       "/",
@@ -19,6 +19,7 @@ export const canSeeLink = (role: string | null, pathname: string) => {
       "/traceability/dashboard",
       "/insumos",
       "/health",
+      "/licencia",
     ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   }
   return true;
