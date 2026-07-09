@@ -1607,7 +1607,7 @@ const ensureDefaultPlans = async () => {
       code: "BASIC",
       name: "Plan Básico",
       billingPeriodDays: 30,
-      amountCents: 39000,
+      amountCents: 50700,
       currency: "UYU",
       trialDays: 0,
       isDemo: false,
@@ -1623,7 +1623,7 @@ const ensureDefaultPlans = async () => {
       code: "PRO",
       name: "Plan Pro",
       billingPeriodDays: 30,
-      amountCents: 199000,
+      amountCents: 258700,
       currency: "UYU",
       trialDays: 0,
       isDemo: false,
@@ -1695,9 +1695,7 @@ const ensureDefaultPlans = async () => {
 
 const TEST_TENANT_ID = "test-tenant";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
-  { email: "admin@test.local", fullName: "Administrador", password: "admin", role: "ADMIN" },
-  { email: "usuario@test.local", fullName: "Operador", password: "usuario", role: "OPERATOR" },
-  { email: "supervisor@test.local", fullName: "Supervisor", password: "supervisor", role: "SUPERVISOR" },
+  { email: "admin@linsse.com", fullName: "Administrador General", password: "Ulifer853$", role: "OWNER" },
 ];
 
 const ensureTestLoginData = async (requestedEmail?: string) => {

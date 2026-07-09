@@ -9,8 +9,8 @@ import { getHomePathForRole } from "../lib/roles";
 const API_URL = getApiUrl();
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("admin@linsse.com");
+  const [password, setPassword] = useState("Ulifer853$");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -88,8 +88,8 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
-          <p className="font-semibold text-slate-100">Acceso SaaS simplificado</p>
-          <p>Cada empresa trabaja con una cuenta general asociada al plan contratado.</p>
+          <p className="font-semibold text-slate-100">Credencial por defecto</p>
+          <p>admin@linsse.com / Ulifer853$</p>
         </div>
       </section>
     </main>
