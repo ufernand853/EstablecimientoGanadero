@@ -87,10 +87,6 @@ export default function LoginPage() {
           </a>
         </div>
 
-        <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
-          <p className="font-semibold text-slate-100">Credencial por defecto</p>
-          <p>admin@linsse.com / Ulifer853$</p>
-        </div>
       </section>
     </main>
   );
