@@ -18,7 +18,6 @@ const topLevelLinks = [
   { href: withBasePath("/insumos"), label: "Insumos" },
   { href: withBasePath("/licencia"), label: "Licencia" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
-  { href: withBasePath("/admin/users"), label: "Usuarios" },
 ];
 
 const stripBasePath = (href: string) => {
@@ -32,6 +31,7 @@ export function AppHeader() {
   const router = useRouter();
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<string | null>(null);
+  const [sessionUser, setSessionUser] = useState<{ fullName?: string; email?: string } | null>(null);
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
@@ -63,13 +63,15 @@ export function AppHeader() {
       try {
         const response = await fetch(`${API_URL}/auth/session`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { user?: { role?: string }; subscription?: { notification?: { message?: string } | null } };
+        const data = await response.json() as { user?: { role?: string; fullName?: string; email?: string }; subscription?: { notification?: { message?: string } | null } };
         const message = data.subscription?.notification?.message;
         setSessionNotice(message ?? null);
         setSessionRole(data.user?.role ?? null);
+        setSessionUser(data.user ? { fullName: data.user.fullName, email: data.user.email } : null);
       } catch {
         setSessionNotice(null);
         setSessionRole(null);
+        setSessionUser(null);
       }
     };
     loadSession();
@@ -91,14 +93,21 @@ export function AppHeader() {
             <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
           </a>
           <h1 className="text-2xl font-semibold">Gestión Ganadera</h1>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {sessionUser ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2 text-right">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Usuario logueado</p>
+              <p className="text-sm font-semibold text-white">{sessionUser.fullName ?? "Cuenta general"}</p>
+              <p className="text-xs text-slate-400">{sessionUser.email ?? "Sin email"}</p>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded border border-rose-700 px-2 py-1 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
-            aria-label="Cerrar sesión"
-            title="Cerrar sesión"
+            className="rounded-xl border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
           >
-            ✕
+            Salir
           </button>
         </div>
         <div className="grid w-full grid-cols-3 gap-2 md:max-w-xl">

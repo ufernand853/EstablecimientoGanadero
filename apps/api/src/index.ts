@@ -575,6 +575,17 @@ type BillingCheckout = {
   kind: "SUBSCRIPTION" | "DEMO";
 };
 
+const DEFAULT_HERD_CATEGORY_NAMES = [
+  "VACAS DE CRIA",
+  "VAQUILLONAS",
+  "TERNEROS",
+  "TERNERAS",
+  "NOVILLOS",
+  "TOROS",
+  "REPRODUCTORES",
+  "RECRIA",
+] as const;
+
 type BillingEvent = {
   id: string;
   provider: string;
@@ -778,7 +789,7 @@ const SESSION_COOKIE_NAME = "eg_session";
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "eg-dev-session-secret-change-me";
 const BILLING_WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "eg-dev-webhook-secret-change-me";
 const DEMO_TRIAL_DAYS = 5;
-const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL ?? "https://ganaderia.stock.com";
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL ?? "https://ganaderia.linsse.com";
 const MERCADOPAGO_ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN ?? "";
 const MERCADOPAGO_PUBLIC_KEY = process.env.MERCADOPAGO_PUBLIC_KEY ?? "";
 const MERCADOPAGO_WEBHOOK_SECRET = process.env.MERCADOPAGO_WEBHOOK_SECRET ?? "";
@@ -1607,15 +1618,15 @@ const ensureDefaultPlans = async () => {
       code: "BASIC",
       name: "Plan Básico",
       billingPeriodDays: 30,
-      amountCents: 39000,
+      amountCents: 50700,
       currency: "UYU",
       trialDays: 0,
       isDemo: false,
       active: true,
       animalLimit: 250,
-      description: "Para establecimientos chicos que quieren digitalizar stock, sanidad y movimientos.",
+      description: "Ideal para ordenar el establecimiento, registrar movimientos y empezar a trabajar con trazabilidad digital.",
       ctaLabel: "Contratar",
-      featureList: ["Hasta 250 animales", "Trazabilidad básica", "Modo campo y gestión", "Soporte por WhatsApp"],
+      featureList: ["Hasta 250 animales", "Modo campo y modo gestión", "Trazabilidad por caravana", "Soporte comercial por WhatsApp"],
       sortOrder: 10,
     },
     {
@@ -1623,15 +1634,15 @@ const ensureDefaultPlans = async () => {
       code: "PRO",
       name: "Plan Pro",
       billingPeriodDays: 30,
-      amountCents: 199000,
+      amountCents: 258700,
       currency: "UYU",
       trialDays: 0,
       isDemo: false,
       active: true,
       animalLimit: 1000,
-      description: "Para operaciones en crecimiento con más rodeo, usuarios y seguimiento operativo.",
+      description: "Pensado para operaciones que necesitan más control, más seguimiento y mejor lectura del negocio en tiempo real.",
       ctaLabel: "Contratar",
-      featureList: ["Hasta 1000 animales", "Sanidad, trazabilidad y tareas", "Módulo IA operativo", "Alertas y reportes"],
+      featureList: ["Hasta 1000 animales", "Sanidad, insumos y tareas programadas", "Trazabilidad con historial por caravana", "Alertas y reportes operativos"],
       sortOrder: 20,
     },
     {
@@ -1645,9 +1656,9 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: null,
-      description: "Para clientes con varios establecimientos, integraciones, despliegue asistido y necesidades a medida.",
+      description: "Para empresas que buscan una implementación acompañada, integraciones y una propuesta comercial a medida.",
       ctaLabel: "Solicitar demo",
-      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración comercial a medida", "Prioridad de soporte"],
+      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración operativa a medida", "Prioridad de soporte"],
       sortOrder: 30,
     },
     {
@@ -1693,11 +1704,23 @@ const ensureDefaultPlans = async () => {
   }
 };
 
+const ensureDefaultHerdCategories = async (establishmentId: string, nowIso = new Date().toISOString()) => {
+  const { herdCategories } = await getCollections();
+  for (const name of DEFAULT_HERD_CATEGORY_NAMES) {
+    await herdCategories.updateOne(
+      { establishmentId, name },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: { id: randomUUID(), establishmentId, name, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+};
+
 const TEST_TENANT_ID = "test-tenant";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
-  { email: "admin@test.local", fullName: "Administrador", password: "admin", role: "ADMIN" },
-  { email: "usuario@test.local", fullName: "Operador", password: "usuario", role: "OPERATOR" },
-  { email: "supervisor@test.local", fullName: "Supervisor", password: "supervisor", role: "SUPERVISOR" },
+  { email: "admin@linsse.com", fullName: "Administrador General", password: "Ulifer853$", role: "OWNER" },
 ];
 
 const ensureTestLoginData = async (requestedEmail?: string) => {
@@ -6306,6 +6329,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    await ensureDefaultHerdCategories(establishmentId, nowIso);
     await tenantEstablishments.updateOne(
       { tenantId, establishmentId },
       { $set: { tenantId, establishmentId } },
@@ -6483,6 +6507,7 @@ app.post("/billing/webhook", async (request, reply) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    await ensureDefaultHerdCategories(establishmentId, nowIso);
     await tenantEstablishments.updateOne(
       { tenantId, establishmentId },
       { $set: { tenantId, establishmentId } },
