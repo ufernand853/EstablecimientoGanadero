@@ -86,7 +86,7 @@ const seed = async () => {
   await subscriptionPlans.updateOne(
     { code: "PRO" },
     {
-      $set: { name: "Plan Pro", billingPeriodDays: 30, amountCents: 250000, currency: "UYU", trialDays: 0, isDemo: false, active: true },
+      $set: { name: "Plan Pro", billingPeriodDays: 30, amountCents: 375000, currency: "UYU", trialDays: 0, isDemo: false, active: true },
       $setOnInsert: { id: randomUUID(), code: "PRO" },
     },
     { upsert: true },
