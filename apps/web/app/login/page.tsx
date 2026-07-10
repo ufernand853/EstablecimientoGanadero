@@ -9,8 +9,8 @@ import { getHomePathForRole } from "../lib/roles";
 const API_URL = getApiUrl();
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@linsse.com");
-  const [password, setPassword] = useState("Ulifer853$");
+  const [email, setEmail] = useState<string>("admin@linsse.com");
+  const [password, setPassword] = useState<string>("Ulifer853$");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -86,7 +86,6 @@ export default function LoginPage() {
             Ver planes y funcionalidades
           </a>
         </div>
-
       </section>
     </main>
   );
