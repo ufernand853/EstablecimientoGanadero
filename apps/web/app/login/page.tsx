@@ -49,7 +49,7 @@ export default function LoginPage() {
         <div className="text-center">
           <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="mx-auto h-12 w-auto" />
           <h1 className="mt-4 text-2xl font-semibold">Gestión Ganadera</h1>
-          <p className="mt-2 text-sm text-slate-300">Ingresá con tu cuenta general del establecimiento o conocé los planes SaaS para nuevos clientes.</p>
+          <p className="mt-2 text-sm text-slate-300">Ingresá con la cuenta general del establecimiento o conocé los planes y funcionalidades para nuevos clientes.</p>
         </div>
 
         <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
