@@ -6,6 +6,16 @@ chmod +x deploy/restart-ganaderia.sh
 ./deploy/restart-ganaderia.sh
 ```
 
+Que hace:
+
+- actualiza `master`
+- instala dependencias
+- recompila `apps/web`
+- reinicia API en `3201`
+- espera healthcheck real de la API
+- reinicia web en `3200`
+- espera respuesta real de la web
+
 Puertos usados:
 
 - API: `3201`
