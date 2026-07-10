@@ -575,6 +575,17 @@ type BillingCheckout = {
   kind: "SUBSCRIPTION" | "DEMO";
 };
 
+const DEFAULT_HERD_CATEGORY_NAMES = [
+  "VACAS DE CRIA",
+  "VAQUILLONAS",
+  "TERNEROS",
+  "TERNERAS",
+  "NOVILLOS",
+  "TOROS",
+  "REPRODUCTORES",
+  "RECRIA",
+] as const;
+
 type BillingEvent = {
   id: string;
   provider: string;
@@ -1613,9 +1624,9 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: 250,
-      description: "Para establecimientos chicos que quieren digitalizar stock, sanidad y movimientos.",
+      description: "Ideal para ordenar el establecimiento, registrar movimientos y empezar a trabajar con trazabilidad digital.",
       ctaLabel: "Contratar",
-      featureList: ["Hasta 250 animales", "Trazabilidad básica", "Modo campo y gestión", "Soporte por WhatsApp"],
+      featureList: ["Hasta 250 animales", "Modo campo y modo gestión", "Trazabilidad por caravana", "Soporte comercial por WhatsApp"],
       sortOrder: 10,
     },
     {
@@ -1629,9 +1640,9 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: 1000,
-      description: "Para operaciones en crecimiento con más rodeo, usuarios y seguimiento operativo.",
+      description: "Pensado para operaciones que necesitan más control, más seguimiento y mejor lectura del negocio en tiempo real.",
       ctaLabel: "Contratar",
-      featureList: ["Hasta 1000 animales", "Sanidad, trazabilidad y tareas", "Módulo IA operativo", "Alertas y reportes"],
+      featureList: ["Hasta 1000 animales", "Sanidad, insumos y tareas programadas", "Trazabilidad con historial por caravana", "Alertas y reportes operativos"],
       sortOrder: 20,
     },
     {
@@ -1645,9 +1656,9 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: null,
-      description: "Para clientes con varios establecimientos, integraciones, despliegue asistido y necesidades a medida.",
+      description: "Para empresas que buscan una implementación acompañada, integraciones y una propuesta comercial a medida.",
       ctaLabel: "Solicitar demo",
-      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración comercial a medida", "Prioridad de soporte"],
+      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración operativa a medida", "Prioridad de soporte"],
       sortOrder: 30,
     },
     {
@@ -1687,6 +1698,20 @@ const ensureDefaultPlans = async () => {
           sortOrder: plan.sortOrder,
         },
         $setOnInsert: { id: plan.id },
+      },
+      { upsert: true },
+    );
+  }
+};
+
+const ensureDefaultHerdCategories = async (establishmentId: string, nowIso = new Date().toISOString()) => {
+  const { herdCategories } = await getCollections();
+  for (const name of DEFAULT_HERD_CATEGORY_NAMES) {
+    await herdCategories.updateOne(
+      { establishmentId, name },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: { id: randomUUID(), establishmentId, name, createdAt: nowIso },
       },
       { upsert: true },
     );
@@ -6304,6 +6329,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    await ensureDefaultHerdCategories(establishmentId, nowIso);
     await tenantEstablishments.updateOne(
       { tenantId, establishmentId },
       { $set: { tenantId, establishmentId } },
@@ -6481,6 +6507,7 @@ app.post("/billing/webhook", async (request, reply) => {
       createdAt: nowIso,
       updatedAt: nowIso,
     });
+    await ensureDefaultHerdCategories(establishmentId, nowIso);
     await tenantEstablishments.updateOne(
       { tenantId, establishmentId },
       { $set: { tenantId, establishmentId } },
