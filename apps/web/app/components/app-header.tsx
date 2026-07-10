@@ -11,13 +11,14 @@ const topLevelLinks = [
   { href: withBasePath("/operations"), label: "Registrar" },
   { href: withBasePath("/animals"), label: "Consultar" },
   { href: withBasePath("/dashboard"), label: "Reportes" },
-  { href: withBasePath("/supervision"), label: "Supervisión" },
+  { href: withBasePath("/supervision"), label: "Supervisi\u00f3n" },
   { href: withBasePath("/gestion/tareas"), label: "Tareas" },
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/insumos"), label: "Insumos" },
   { href: withBasePath("/licencia"), label: "Licencia" },
-  { href: withBasePath("/admin/ai-settings"), label: "Configuración" },
+  { href: withBasePath("/admin/planes"), label: "Planes SaaS" },
+  { href: withBasePath("/admin/ai-settings"), label: "Configuraci\u00f3n" },
 ];
 
 const stripBasePath = (href: string) => {
@@ -92,7 +93,7 @@ export function AppHeader() {
           >
             <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
           </a>
-          <h1 className="text-2xl font-semibold">Gestión Ganadera</h1>
+          <h1 className="text-2xl font-semibold">{"Gesti\u00f3n Ganadera"}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {sessionUser ? (
@@ -116,24 +117,24 @@ export function AppHeader() {
             onClick={() => router.back()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            ←
+            {"\u2190"}
           </button>
           <a
             className="flex h-11 w-full items-center justify-center rounded bg-emerald-500 px-3 text-sm font-semibold text-slate-950"
             href={withBasePath("/")}
           >
-            ⌂
+            {"\u2302"}
           </a>
           <button
             type="button"
             onClick={() => router.forward()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            →
+            {"\u2192"}
           </button>
         </div>
       </div>
-      {isCampo ? null : <p className="text-sm text-slate-300">Accesos rápidos para gestionar la operación diaria.</p>}
+      {isCampo ? null : <p className="text-sm text-slate-300">{"Accesos r\u00e1pidos para gestionar la operaci\u00f3n diaria."}</p>}
       {sessionNotice ? (
         <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
           {sessionNotice}

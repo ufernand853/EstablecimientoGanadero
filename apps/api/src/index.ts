@@ -100,6 +100,10 @@ const adminUserUpdateSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
+const adminPlanUpdateSchema = z.object({
+  amountCents: z.number().int().nonnegative(),
+});
+
 const aiChatSchema = z.object({
   establishmentId: z.string().uuid(),
   prompt: z.string().min(2),
@@ -1680,13 +1684,15 @@ const ensureDefaultPlans = async () => {
   ];
 
   for (const plan of defaultPlans) {
+    const existingPlan = await subscriptionPlans.findOne<{ amountCents?: number }>({ code: plan.code }, { projection: { amountCents: 1 } });
+    const resolvedAmountCents = typeof existingPlan?.amountCents === "number" ? existingPlan.amountCents : plan.amountCents;
     await subscriptionPlans.updateOne(
       { code: plan.code },
       {
         $set: {
           name: plan.name,
           billingPeriodDays: plan.billingPeriodDays,
-          amountCents: plan.amountCents,
+          amountCents: resolvedAmountCents,
           currency: plan.currency,
           trialDays: plan.trialDays,
           isDemo: plan.isDemo,
@@ -6629,6 +6635,29 @@ app.get("/admin/users", async (request, reply) => {
   return reply.send({ users: rows });
 });
 
+app.get("/admin/plans", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+  await ensureDefaultPlans();
+  const { subscriptionPlans } = await getCollections();
+  const plans = await subscriptionPlans.find({ active: true, isDemo: false }).sort({ sortOrder: 1, amountCents: 1 }).toArray();
+  return reply.send({
+    plans: plans.map((plan) => ({
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      amountCents: plan.amountCents,
+      currency: plan.currency,
+      billingPeriodDays: plan.billingPeriodDays,
+      animalLimit: plan.animalLimit,
+      ctaLabel: plan.ctaLabel,
+      sortOrder: plan.sortOrder,
+    })),
+  });
+});
+
 app.post("/admin/users", async (request, reply) => {
   const access = await ensureAdminAccess(request);
   if (!access || !access.session) {
@@ -6688,6 +6717,26 @@ app.patch("/admin/users/:userId", async (request, reply) => {
   if (body.data.role && membership.role !== "OWNER") {
     await memberships.updateOne({ id: membership.id }, { $set: { role: body.data.role } });
   }
+  return reply.send({ ok: true });
+});
+
+app.patch("/admin/plans/:planCode", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+  const params = request.params as { planCode: string };
+  const body = adminPlanUpdateSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+  await ensureDefaultPlans();
+  const { subscriptionPlans } = await getCollections();
+  const existingPlan = await subscriptionPlans.findOne({ code: params.planCode, active: true, isDemo: false });
+  if (!existingPlan) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Plan no encontrado." });
+  }
+  await subscriptionPlans.updateOne({ code: params.planCode }, { $set: { amountCents: body.data.amountCents } });
   return reply.send({ ok: true });
 });
 
