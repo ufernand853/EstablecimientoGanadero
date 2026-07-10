@@ -1722,6 +1722,7 @@ const TEST_TENANT_ID = "test-tenant";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
   { email: "admin@linsse.com", fullName: "Administrador General", password: "Ulifer853$", role: "OWNER" },
   { email: "marula@linsse.com", fullName: "Marula", password: "marula1234", role: "ADMIN" },
+  { email: "prueba@linsse.com", fullName: "Usuario de Prueba", password: "prueba1234", role: "ADMIN" },
 ];
 
 const ensureTestLoginData = async (requestedEmail?: string) => {
