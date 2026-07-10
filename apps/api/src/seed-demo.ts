@@ -65,7 +65,7 @@ const seed = async () => {
   );
   await coll("subscription_plans").updateOne(
     { code: "PRO" },
-    { $set: { name: "Plan Pro", billingPeriodDays: 30, amountCents: 250_000, currency: "UYU", trialDays: 0, isDemo: false, active: true }, $setOnInsert: { id: randomUUID(), code: "PRO" } },
+    { $set: { name: "Plan Pro", billingPeriodDays: 30, amountCents: 375_000, currency: "UYU", trialDays: 0, isDemo: false, active: true }, $setOnInsert: { id: randomUUID(), code: "PRO" } },
     { upsert: true },
   );
   await coll("subscriptions").updateOne(
