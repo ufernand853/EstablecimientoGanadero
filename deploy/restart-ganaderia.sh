@@ -54,7 +54,7 @@ wait_for_http "$API_HEALTH_URL" "API" || {
 }
 
 echo "[7/8] Levantando web en puerto $WEB_PORT..."
-nohup bash -lc "cd '$APP_DIR/apps/web' && PORT='$WEB_PORT' npm run start" > "$APP_DIR/web.log" 2> "$APP_DIR/web.err" &
+nohup bash -lc "cd '$APP_DIR/apps/web' && API_INTERNAL_URL='http://127.0.0.1:${API_PORT}' PORT='$WEB_PORT' npm run start" > "$APP_DIR/web.log" 2> "$APP_DIR/web.err" &
 
 echo "[8/8] Validando web..."
 wait_for_http "$WEB_HEALTH_URL" "web" || {

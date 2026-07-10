@@ -12,6 +12,7 @@ Que hace:
 - instala dependencias
 - recompila `apps/web`
 - reinicia API en `3201`
+- exporta `API_INTERNAL_URL=http://127.0.0.1:3201` al levantar la web
 - espera healthcheck real de la API
 - reinicia web en `3200`
 - espera respuesta real de la web
