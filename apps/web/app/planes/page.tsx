@@ -150,7 +150,7 @@ export default function PricingPage() {
                 rel="noreferrer"
                 className="rounded-full border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-400"
               >
-                Hablar por WhatsApp
+                Conectar por WhatsApp
               </a>
             </div>
           </div>
@@ -166,12 +166,27 @@ export default function PricingPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-800 bg-slate-900/60 p-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Funcionalidades</p>
+            <h2 className="mt-2 text-2xl font-black text-white">Lo que el cliente entiende rapido apenas entra</h2>
+          </div>
+          <Link
+            href={withBasePath("/login")}
+            className="inline-flex items-center justify-center rounded-full border border-emerald-400 px-5 py-3 text-sm font-bold text-emerald-100 transition hover:bg-emerald-400 hover:text-slate-950"
+          >
+            Ir a login
+          </Link>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {FEATURE_STORIES.map((item) => (
           <article key={item} className="rounded-[1.5rem] border border-slate-800 bg-slate-900/75 p-5 text-sm leading-6 text-slate-200 shadow-lg shadow-slate-950/20">
             {item}
           </article>
         ))}
+        </div>
       </section>
 
       <section className="rounded-[2rem] border border-slate-800 bg-slate-900/70 p-6 shadow-xl shadow-slate-950/20">
