@@ -1725,17 +1725,517 @@ const ensureDefaultHerdCategories = async (establishmentId: string, nowIso = new
 };
 
 const TEST_TENANT_ID = "test-tenant";
+const TEST_ESTABLISHMENT_ID = "00000000-0000-4000-8000-000000000301";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
   { email: "admin@linsse.com", fullName: "Administrador General", password: "Ulifer853$", role: "OWNER" },
   { email: "marula@linsse.com", fullName: "Marula", password: "marula1234", role: "ADMIN" },
   { email: "prueba@linsse.com", fullName: "Usuario de Prueba", password: "prueba1234", role: "ADMIN" },
 ];
 
+const TEST_PADDOCK_SEED = [
+  { id: "00000000-0000-4000-8000-000000000401", name: "Potrero Norte" },
+  { id: "00000000-0000-4000-8000-000000000402", name: "Potrero Sur" },
+  { id: "00000000-0000-4000-8000-000000000403", name: "Potrero Riego" },
+] as const;
+
+const TEST_HERD_SEED = [
+  { paddockId: "00000000-0000-4000-8000-000000000401", category: "VACAS DE CRIA", count: 95 },
+  { paddockId: "00000000-0000-4000-8000-000000000401", category: "TERNEROS", count: 44 },
+  { paddockId: "00000000-0000-4000-8000-000000000402", category: "VAQUILLONAS", count: 68 },
+  { paddockId: "00000000-0000-4000-8000-000000000403", category: "NOVILLOS", count: 58 },
+] as const;
+
+const TEST_SUPPLY_SEED = [
+  {
+    id: "00000000-0000-4000-8000-000000000501",
+    batchId: "00000000-0000-4000-8000-000000000601",
+    type: "VACCINE" as const,
+    name: "Vacuna aftosa",
+    activeIngredient: "Antigeno aftosa",
+    unit: "dosis",
+    batchNumber: "AFT-LINSSE-01",
+    quantity: 180,
+    expirationDate: new Date(Date.now() + 120 * 86400000).toISOString(),
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000502",
+    batchId: "00000000-0000-4000-8000-000000000602",
+    type: "DEWORMER" as const,
+    name: "Ivermectina",
+    activeIngredient: "Ivermectina",
+    unit: "ml",
+    batchNumber: "IVM-LINSSE-01",
+    quantity: 900,
+    expirationDate: new Date(Date.now() + 90 * 86400000).toISOString(),
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000503",
+    batchId: "00000000-0000-4000-8000-000000000603",
+    type: "MEDICINE" as const,
+    name: "Antibiotico LA",
+    activeIngredient: "Oxitetraciclina",
+    unit: "ml",
+    batchNumber: "ATB-LINSSE-01",
+    quantity: 450,
+    expirationDate: new Date(Date.now() + 180 * 86400000).toISOString(),
+  },
+] as const;
+
+const TEST_CONSIGNOR_SEED = [
+  {
+    id: "00000000-0000-4000-8000-000000000701",
+    name: "Consignataria del Norte",
+    contactName: "Lucia Pereira",
+    phone: "+598 98 111 222",
+    email: "lucia@consignatariadelnorte.com",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000702",
+    name: "Ganados del Sur",
+    contactName: "Martin Reyes",
+    phone: "+598 98 333 444",
+    email: "martin@ganadosdelsur.com",
+  },
+] as const;
+
+const TEST_SLAUGHTERHOUSE_SEED = [
+  {
+    id: "00000000-0000-4000-8000-000000000801",
+    name: "Frigorifico San Miguel",
+    contactName: "Valeria Gomez",
+    phone: "+598 98 555 666",
+    email: "operaciones@sanmiguel.com",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000802",
+    name: "Frigorifico La Campina",
+    contactName: "Joaquin Silva",
+    phone: "+598 98 777 888",
+    email: "faena@lacampina.com",
+  },
+] as const;
+
+const TEST_ANIMAL_SEED = [
+  {
+    id: "00000000-0000-4000-8000-000000000901",
+    earTag: "858001001001",
+    name: "Caravana 858001001001",
+    sex: "HEMBRA" as const,
+    category: "VACAS DE CRIA",
+    birthDate: new Date(Date.now() - 1900 * 86400000).toISOString(),
+    notes: "Preñez confirmada y seguimiento sanitario al dia.",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000902",
+    earTag: "858001001045",
+    name: "Caravana 858001001045",
+    sex: "MACHO" as const,
+    category: "NOVILLOS",
+    birthDate: new Date(Date.now() - 540 * 86400000).toISOString(),
+    notes: "Pesaje reciente en Potrero Riego.",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000903",
+    earTag: "858001001078",
+    name: "Caravana 858001001078",
+    sex: "HEMBRA" as const,
+    category: "VAQUILLONAS",
+    birthDate: new Date(Date.now() - 820 * 86400000).toISOString(),
+    notes: "Lote de recria con vacunacion completa.",
+  },
+] as const;
+
+const TEST_TRACEABILITY_SEED = [
+  {
+    id: "00000000-0000-4000-8000-000000001001",
+    earTag: "858001001001",
+    type: "PREÑEZ_CONFIRMADA" as const,
+    paddockId: "00000000-0000-4000-8000-000000000401",
+    paddockName: "Potrero Norte",
+    product: null,
+    dose: null,
+    weight: null,
+    notes: "Diagnostico positivo por ecografia.",
+    occurredAt: new Date(Date.now() - 15 * 86400000).toISOString(),
+  },
+  {
+    id: "00000000-0000-4000-8000-000000001002",
+    earTag: "858001001045",
+    type: "PESAJE" as const,
+    paddockId: "00000000-0000-4000-8000-000000000403",
+    paddockName: "Potrero Riego",
+    product: null,
+    dose: null,
+    weight: 386,
+    notes: "Pesaje de control mensual.",
+    occurredAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+  },
+  {
+    id: "00000000-0000-4000-8000-000000001003",
+    earTag: "858001001078",
+    type: "VACUNACION_REALIZADA" as const,
+    paddockId: "00000000-0000-4000-8000-000000000402",
+    paddockName: "Potrero Sur",
+    product: "Aftosa",
+    dose: "1 dosis",
+    weight: null,
+    notes: "Campaña sanitaria del lote.",
+    occurredAt: new Date(Date.now() - 12 * 86400000).toISOString(),
+  },
+] as const;
+
+const ensureTestDemoData = async (nowIso = new Date().toISOString()) => {
+  const {
+    establishments,
+    tenantEstablishments,
+    paddocks,
+    herds,
+    herdCategories,
+    supplies,
+    supplyBatches,
+    supplyMovements,
+    consignors,
+    slaughterhouses,
+    animals,
+    traceabilityEvents,
+    tasks,
+    healthEvents,
+  } = await getCollections();
+
+  await establishments.updateOne(
+    { id: TEST_ESTABLISHMENT_ID },
+    {
+      $set: {
+        name: "Estancia La Esperanza",
+        timezone: "UTC-3",
+        mapImageUrl: null,
+        updatedAt: nowIso,
+      },
+      $setOnInsert: { id: TEST_ESTABLISHMENT_ID, createdAt: nowIso },
+    },
+    { upsert: true },
+  );
+
+  await tenantEstablishments.deleteMany({ tenantId: TEST_TENANT_ID, establishmentId: { $ne: TEST_ESTABLISHMENT_ID } });
+  await tenantEstablishments.updateOne(
+    { tenantId: TEST_TENANT_ID, establishmentId: TEST_ESTABLISHMENT_ID },
+    { $set: { tenantId: TEST_TENANT_ID, establishmentId: TEST_ESTABLISHMENT_ID } },
+    { upsert: true },
+  );
+
+  await ensureDefaultHerdCategories(TEST_ESTABLISHMENT_ID, nowIso);
+  for (const name of ["VACAS DE CRIA", "VAQUILLONAS", "TERNEROS", "NOVILLOS"]) {
+    await herdCategories.updateOne(
+      { establishmentId: TEST_ESTABLISHMENT_ID, name },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: { id: randomUUID(), establishmentId: TEST_ESTABLISHMENT_ID, name, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const paddock of TEST_PADDOCK_SEED) {
+    await paddocks.updateOne(
+      { id: paddock.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          name: paddock.name,
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: paddock.id, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const herdRow of TEST_HERD_SEED) {
+    await herds.updateOne(
+      { paddockId: herdRow.paddockId, category: herdRow.category },
+      { $set: { count: herdRow.count, updatedAt: nowIso } },
+      { upsert: true },
+    );
+  }
+
+  for (const supply of TEST_SUPPLY_SEED) {
+    await supplies.updateOne(
+      { id: supply.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          type: supply.type,
+          name: supply.name,
+          activeIngredient: supply.activeIngredient,
+          presentation: "Carga demo comercial",
+          unit: supply.unit,
+          defaultDose: null,
+          withdrawalPeriodDays: null,
+          storageNotes: "Stock demo para pruebas del establecimiento.",
+          status: "ACTIVE",
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: supply.id, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+
+    await supplyBatches.updateOne(
+      { id: supply.batchId },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          supplyId: supply.id,
+          batchNumber: supply.batchNumber,
+          quantityInitial: supply.quantity,
+          quantityAvailable: supply.quantity,
+          unit: supply.unit,
+          expirationDate: supply.expirationDate,
+          purchaseDate: nowIso,
+          supplier: "Proveedor demo",
+          invoiceNumber: null,
+          location: "Deposito principal",
+          status: "AVAILABLE",
+          notes: "Lote demo listo para pruebas.",
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: supply.batchId, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+
+    await supplyMovements.updateOne(
+      { id: `movement-${supply.batchId}` },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          supplyId: supply.id,
+          batchId: supply.batchId,
+          type: "IN",
+          quantity: supply.quantity,
+          unit: supply.unit,
+          reason: "Seed demo inicial",
+          relatedTaskId: null,
+          relatedHealthEventId: null,
+          relatedTraceabilityEventId: null,
+          occurredAt: nowIso,
+          createdBy: "seed",
+          createdAt: nowIso,
+        },
+        $setOnInsert: { id: `movement-${supply.batchId}` },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const consignor of TEST_CONSIGNOR_SEED) {
+    await consignors.updateOne(
+      { id: consignor.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          name: consignor.name,
+          address: null,
+          contactName: consignor.contactName,
+          phone: consignor.phone,
+          email: consignor.email,
+          notes: "Contacto demo para seguimiento comercial.",
+          status: "ACTIVE",
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: consignor.id, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const slaughterhouse of TEST_SLAUGHTERHOUSE_SEED) {
+    await slaughterhouses.updateOne(
+      { id: slaughterhouse.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          name: slaughterhouse.name,
+          address: null,
+          contactName: slaughterhouse.contactName,
+          phone: slaughterhouse.phone,
+          email: slaughterhouse.email,
+          notes: "Frigorifico demo para pruebas de flujo.",
+          status: "ACTIVE",
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: slaughterhouse.id, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const animal of TEST_ANIMAL_SEED) {
+    await animals.updateOne(
+      { id: animal.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          earTag: animal.earTag,
+          name: animal.name,
+          sex: animal.sex,
+          breed: null,
+          birthDate: animal.birthDate,
+          category: animal.category,
+          status: "ACTIVO",
+          notes: animal.notes,
+          updatedAt: nowIso,
+        },
+        $setOnInsert: { id: animal.id, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const event of TEST_TRACEABILITY_SEED) {
+    await traceabilityEvents.updateOne(
+      { id: event.id },
+      {
+        $set: {
+          establishmentId: TEST_ESTABLISHMENT_ID,
+          earTag: event.earTag,
+          type: event.type,
+          paddockId: event.paddockId,
+          paddockName: event.paddockName,
+          product: event.product,
+          dose: event.dose,
+          weight: event.weight,
+          destination: null,
+          notes: event.notes,
+          occurredAt: event.occurredAt,
+          source: "MANUAL",
+          createdBy: "seed",
+          createdAt: event.occurredAt,
+        },
+        $setOnInsert: { id: event.id },
+      },
+      { upsert: true },
+    );
+  }
+
+  const taskSeed: FieldTask[] = [
+    {
+      id: "00000000-0000-4000-8000-000000001101",
+      establishmentId: TEST_ESTABLISHMENT_ID,
+      title: "Revisar lote de terneros en Potrero Norte",
+      description: "Confirmar estado corporal y repasar caravanas con el lector.",
+      type: "FIELD_CHECK",
+      status: "PENDING",
+      priority: "HIGH",
+      dueDate: new Date(Date.now() + 2 * 86400000).toISOString(),
+      scheduledAt: new Date(Date.now() + 1 * 86400000).toISOString(),
+      completedAt: null,
+      assignedToUserId: null,
+      assignedRole: "OPERATOR",
+      paddockId: "00000000-0000-4000-8000-000000000401",
+      paddockName: "Potrero Norte",
+      animalId: null,
+      earTag: null,
+      source: "MANUAL",
+      sourceEventId: null,
+      createdBy: "seed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      id: "00000000-0000-4000-8000-000000001102",
+      establishmentId: TEST_ESTABLISHMENT_ID,
+      title: "Control de stock de ivermectina",
+      description: "Verificar vencimiento y disponibilidad del lote principal.",
+      type: "HEALTH",
+      status: "PENDING",
+      priority: "MEDIUM",
+      dueDate: new Date(Date.now() + 4 * 86400000).toISOString(),
+      scheduledAt: new Date(Date.now() + 3 * 86400000).toISOString(),
+      completedAt: null,
+      assignedToUserId: null,
+      assignedRole: "ADMIN",
+      paddockId: null,
+      paddockName: null,
+      animalId: null,
+      earTag: null,
+      source: "MANUAL",
+      sourceEventId: null,
+      createdBy: "seed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+  ];
+
+  for (const task of taskSeed) {
+    await tasks.updateOne(
+      { id: task.id },
+      { $set: task },
+      { upsert: true },
+    );
+  }
+
+  const healthSeed: HealthEvent[] = [
+    {
+      id: "00000000-0000-4000-8000-000000001201",
+      establishmentId: TEST_ESTABLISHMENT_ID,
+      type: "VACCINATION",
+      category: "LOTE Potrero Sur",
+      qty: 68,
+      product: "Vacuna aftosa",
+      dose: "1 dosis",
+      route: null,
+      notes: "Campaña sanitaria demo para mostrar seguimiento.",
+      supplyId: "00000000-0000-4000-8000-000000000501",
+      supplyBatchId: "00000000-0000-4000-8000-000000000601",
+      quantityUsed: 68,
+      unit: "dosis",
+      responsible: "Equipo sanitario",
+      occurredAt: new Date(Date.now() - 9 * 86400000).toISOString(),
+      nextDueAt: new Date(Date.now() + 150 * 86400000).toISOString(),
+      status: "COMPLETED",
+      source: "MANUAL",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+    {
+      id: "00000000-0000-4000-8000-000000001202",
+      establishmentId: TEST_ESTABLISHMENT_ID,
+      type: "DEWORMING",
+      category: "LOTE Potrero Riego",
+      qty: 58,
+      product: "Ivermectina",
+      dose: "10 ml",
+      route: null,
+      notes: "Aplicacion programada de desparasitacion.",
+      supplyId: "00000000-0000-4000-8000-000000000502",
+      supplyBatchId: "00000000-0000-4000-8000-000000000602",
+      quantityUsed: 580,
+      unit: "ml",
+      responsible: "Capataz",
+      occurredAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+      nextDueAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      status: "COMPLETED",
+      source: "MANUAL",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+  ];
+
+  for (const healthEvent of healthSeed) {
+    await healthEvents.updateOne(
+      { id: healthEvent.id },
+      { $set: healthEvent },
+      { upsert: true },
+    );
+  }
+};
+
 const ensureTestLoginData = async (requestedEmail?: string) => {
   const normalizedEmail = requestedEmail?.toLowerCase();
   if (normalizedEmail && !TEST_USERS.some((testUser) => testUser.email === normalizedEmail)) return;
 
-  const { tenants, subscriptions, establishments, users, memberships, tenantEstablishments } = await getCollections();
+  const { tenants, subscriptions, users, memberships } = await getCollections();
   const now = new Date().toISOString();
 
   await tenants.updateOne(
@@ -1766,31 +2266,7 @@ const ensureTestLoginData = async (requestedEmail?: string) => {
     { upsert: true },
   );
 
-  if (await establishments.countDocuments() === 0) {
-    const establishmentId = randomUUID();
-    await establishments.insertOne({
-      id: establishmentId,
-      name: "Estancia La Esperanza",
-      timezone: "UTC-3",
-      mapImageUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await tenantEstablishments.updateOne(
-      { tenantId: TEST_TENANT_ID, establishmentId },
-      { $set: { tenantId: TEST_TENANT_ID, establishmentId } },
-      { upsert: true },
-    );
-  } else {
-    const firstEstablishment = await establishments.findOne({}, { projection: { id: 1 } });
-    if (firstEstablishment?.id) {
-      await tenantEstablishments.updateOne(
-        { tenantId: TEST_TENANT_ID, establishmentId: firstEstablishment.id },
-        { $set: { tenantId: TEST_TENANT_ID, establishmentId: firstEstablishment.id } },
-        { upsert: true },
-      );
-    }
-  }
+  await ensureTestDemoData(now);
 
   for (const testUser of TEST_USERS) {
     const existingUser = await users.findOne({ email: testUser.email });
