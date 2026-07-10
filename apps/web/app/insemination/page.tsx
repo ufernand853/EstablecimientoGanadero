@@ -9,6 +9,18 @@ type Establishment = { id: string; name: string };
 type HerdCategory = { id: string; name: string };
 type TraceabilityType = "INSEMINACION" | "PREÑEZ_CONFIRMADA" | "OBSERVACION";
 
+const normalizeTraceabilityType = (value: string): TraceabilityType => {
+  if (value === "PREÃ‘EZ_CONFIRMADA") return "PREÑEZ_CONFIRMADA";
+  return value as TraceabilityType;
+};
+
+const getTraceabilityLabel = (value: string) => {
+  const type = normalizeTraceabilityType(value);
+  if (type === "INSEMINACION") return "Inseminada";
+  if (type === "PREÑEZ_CONFIRMADA") return "Preñada";
+  return "Fallada / observación";
+};
+
 type ReproductionEvent = {
   id: string;
   establishmentId: string;
@@ -89,7 +101,11 @@ export default function InseminationPage() {
 
     setCategories(catData.categories);
     setEvents(eventData.reproductionEvents);
-    setAnimalEvents(traceabilityData.events.filter((item) => ["INSEMINACION", "PREÑEZ_CONFIRMADA", "OBSERVACION"].includes(item.type)));
+    setAnimalEvents(
+      traceabilityData.events.filter((item) =>
+        ["INSEMINACION", "PREÑEZ_CONFIRMADA", "PREÃ‘EZ_CONFIRMADA", "OBSERVACION"].includes(item.type),
+      ),
+    );
 
     if (catData.categories.length) {
       setEntoreCategory((prev) => catData.categories.some((item) => item.name === prev) ? prev : catData.categories[0].name);
@@ -156,7 +172,9 @@ export default function InseminationPage() {
     }
   };
 
-  const filteredAnimalEvents = animalEvents.filter((item) => animalFilter === "ALL" || item.type === animalFilter);
+  const filteredAnimalEvents = animalEvents.filter(
+    (item) => animalFilter === "ALL" || normalizeTraceabilityType(item.type) === animalFilter,
+  );
 
   return (<main className="space-y-6">
     <header className="flex flex-wrap items-center justify-between gap-3"><div>
@@ -183,7 +201,7 @@ export default function InseminationPage() {
     <section className="rounded-lg bg-slate-900 p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Listado de caravanas reproductivas</h3>
       <select className="rounded bg-slate-800 p-2 text-sm" value={animalFilter} onChange={(e) => setAnimalFilter(e.target.value as "ALL" | TraceabilityType)}><option value="ALL">Todas</option><option value="INSEMINACION">Inseminadas</option><option value="PREÑEZ_CONFIRMADA">Preñadas</option><option value="OBSERVACION">Falladas/obs.</option></select>
     </div>
-      <div className="mt-3 grid gap-2">{filteredAnimalEvents.map((item) => <div key={item.id} className="rounded bg-slate-800/60 p-3 text-sm"><p className="font-semibold">{item.earTag} · {item.type === "INSEMINACION" ? "Inseminada" : item.type === "PREÑEZ_CONFIRMADA" ? "Preñada" : "Fallada / observación"}</p><p className="text-xs text-slate-400">{new Date(item.occurredAt).toLocaleString()} · Potrero: {item.paddockName || "-"}{item.notes ? ` · ${item.notes}` : ""}</p></div>)}
+      <div className="mt-3 grid gap-2">{filteredAnimalEvents.map((item) => <div key={item.id} className="rounded bg-slate-800/60 p-3 text-sm"><p className="font-semibold">{item.earTag} · {getTraceabilityLabel(item.type)}</p><p className="text-xs text-slate-400">{new Date(item.occurredAt).toLocaleString()} · Potrero: {item.paddockName || "-"}{item.notes ? ` · ${item.notes}` : ""}</p></div>)}
       {filteredAnimalEvents.length === 0 && <p className="text-sm text-slate-400">Sin caravanas para ese filtro.</p>}</div>
       {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
       {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}</section>
