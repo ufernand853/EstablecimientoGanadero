@@ -132,10 +132,10 @@ export default function PricingPage() {
               Linsse Ganaderia
             </span>
             <h1 className="max-w-3xl text-4xl font-black tracking-tight text-white md:text-5xl">
-              Menos planillas, mas control del rodeo y una trazabilidad que el cliente percibe enseguida.
+              Menos planillas, más control del rodeo y una trazabilidad clara para toda la operación.
             </h1>
             <p className="max-w-2xl text-sm leading-7 text-slate-200 md:text-base">
-              Mostrale al productor una herramienta que ordena el trabajo diario, mejora la gestión sanitaria, organiza las tareas y le da valor real a cada lectura de caravana.
+              Una herramienta pensada para ordenar el trabajo diario, mejorar la gestión sanitaria, organizar tareas y dar más valor a la información del establecimiento.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
