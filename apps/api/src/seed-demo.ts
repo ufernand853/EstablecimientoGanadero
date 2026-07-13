@@ -94,6 +94,7 @@ const seed = async () => {
     { email: "capataz@demo.local", fullName: "Roberto Gadea",   password: "demo1234", role: "SUPERVISOR" as const },
     { email: "peon@demo.local",    fullName: "Diego Suárez",    password: "demo1234", role: "OPERATOR" as const },
     { email: "admin@demo.local",   fullName: "Administrador",   password: "demo1234", role: "ADMIN" as const },
+    { email: "prueba@linsse.com",  fullName: "Usuario de Prueba", password: "prueba1234", role: "ADMIN" as const },
   ];
   for (const u of users) {
     const existingUser = await coll("users").findOne<{ id: string }>({ email: u.email });

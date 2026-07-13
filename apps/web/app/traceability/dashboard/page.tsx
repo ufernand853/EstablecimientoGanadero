@@ -219,6 +219,8 @@ export default function TraceabilityDashboardPage() {
 
   const totalEvents = dashboard?.eventsByType.reduce((acc, row) => acc + row.count, 0) ?? 0;
   const maxCount = Math.max(...(dashboard?.eventsByType.map((r) => r.count) ?? [1]), 1);
+  const topEventType = dashboard?.eventsByType[0] ?? null;
+  const recentEarTags = Array.from(new Set((dashboard?.recentEvents ?? []).map((event) => event.earTag))).slice(0, 4);
 
   // ─── KPI cards ──────────────────────────────────────────────────────────────
 
@@ -308,6 +310,53 @@ export default function TraceabilityDashboardPage() {
               <p className="mt-1 text-xs text-slate-500">{card.sub}</p>
             </div>
           ))}
+        </section>
+      ) : null}
+
+      {!loading && dashboard ? (
+        <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <article className="rounded-lg bg-slate-900 p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Lectura ejecutiva</h3>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-xs uppercase tracking-widest text-slate-500">Evento dominante</p>
+                <p className="mt-2 text-lg font-semibold text-white">
+                  {topEventType ? (EVENT_TYPE_CONFIG[topEventType.type as TraceabilityEventType]?.label ?? topEventType.type) : "Sin datos"}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">{topEventType ? `${topEventType.count} registros en 30 dias` : "Sin actividad reciente"}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-4">
+                <p className="text-xs uppercase tracking-widest text-emerald-300">Cobertura</p>
+                <p className="mt-2 text-lg font-semibold text-emerald-200">
+                  {dashboard.totalActiveAnimals > 0 ? Math.round((dashboard.totalTrackedAnimals / dashboard.totalActiveAnimals) * 100) : 0}%
+                </p>
+                <p className="mt-1 text-xs text-slate-400">del rodeo con al menos un evento trazado</p>
+              </div>
+              <div className="rounded-xl border border-sky-800/60 bg-sky-950/20 p-4">
+                <p className="text-xs uppercase tracking-widest text-sky-300">Animales recientes</p>
+                <p className="mt-2 text-lg font-semibold text-sky-200">{recentEarTags.length}</p>
+                <p className="mt-1 text-xs text-slate-400">caravanas destacadas para mostrar en demo</p>
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-lg bg-slate-900 p-5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Caravanas destacadas</h3>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {recentEarTags.length === 0 ? (
+                <p className="text-sm text-slate-500">Sin actividad reciente.</p>
+              ) : recentEarTags.map((earTag) => (
+                <button
+                  key={earTag}
+                  type="button"
+                  onClick={() => loadAnimalProfile(earTag)}
+                  className="rounded-full border border-slate-700 px-3 py-2 text-sm text-slate-200 transition hover:border-emerald-500 hover:text-white"
+                >
+                  {earTag}
+                </button>
+              ))}
+            </div>
+          </article>
         </section>
       ) : null}
 
