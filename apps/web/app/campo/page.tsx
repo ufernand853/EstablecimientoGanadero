@@ -690,6 +690,11 @@ export default function CampoPage() {
 
   const isBusy = status === "sending";
   const hasPending = pendingEvent !== null || pendingAnimalRegistration !== null || pendingHerdResponse !== null || pendingFieldConfirmation !== null;
+  const quickPrompts = [
+    "Que tareas tengo hoy?",
+    "Registrar observacion para la caravana 858001001001",
+    "Necesito revisar terneros en Potrero Norte",
+  ];
 
   return (
     <main className="flex min-h-[calc(100vh-5rem)] flex-col bg-slate-950">
@@ -732,6 +737,33 @@ export default function CampoPage() {
           ))}
         </section>
       ) : null}
+
+      <section className="px-4 pt-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <article className="rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-emerald-300">Modo Campo</p>
+            <p className="mt-2 text-sm text-slate-200">Pensado para usar con el telefono en recorrida, manga o potrero.</p>
+          </article>
+          <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 md:col-span-2">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Explorar la demo</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {quickPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-500"
+                  onClick={() => {
+                    setInput(prompt);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </article>
+        </div>
+      </section>
 
       {/* Offline / sync banner */}
       {!isOnline ? (

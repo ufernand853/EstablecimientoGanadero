@@ -45,6 +45,10 @@ export default function InsumosPage() {
   const [saving, setSaving] = useState(false);
 
   const selectedSupply = useMemo(() => supplies.find((supply) => supply.id === selectedSupplyId), [selectedSupplyId, supplies]);
+  const totalSupplies = supplies.length;
+  const totalBatches = batches.length;
+  const criticalNotifications = notifications.filter((notification) => notification.severity === "CRITICAL").length;
+  const availableUnits = batches.reduce((accumulator, batch) => accumulator + batch.quantityAvailable, 0);
 
   const loadData = async (targetEstablishmentId = establishmentId) => {
     if (!targetEstablishmentId) return;
@@ -150,15 +154,37 @@ export default function InsumosPage() {
 
   return (
     <main className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm uppercase tracking-widest text-emerald-400">Insumos</p>
-          <h2 className="text-2xl font-semibold">Stock, lotes y vencimientos</h2>
-          <p className="mt-1 text-sm text-slate-400">Registrá medicamentos, vacunas e insumos con lote, cantidad y fecha de vencimiento para planificar su uso.</p>
+      <header className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-sm uppercase tracking-widest text-emerald-400">Insumos</p>
+            <h2 className="text-2xl font-semibold">Stock, lotes y vencimientos</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              Mostra disponibilidad, vencimientos y capacidad de planificar uso desde una vista comercialmente clara.
+            </p>
+          </div>
+          <select className="rounded bg-slate-800 px-3 py-2 text-sm" value={establishmentId} onChange={(event) => { setEstablishmentId(event.target.value); loadData(event.target.value).catch(() => setError("No se pudieron cargar insumos.")); }}>
+            {establishments.map((establishment) => <option key={establishment.id} value={establishment.id}>{establishment.name}</option>)}
+          </select>
         </div>
-        <select className="rounded bg-slate-900 px-3 py-2 text-sm" value={establishmentId} onChange={(event) => { setEstablishmentId(event.target.value); loadData(event.target.value).catch(() => setError("No se pudieron cargar insumos.")); }}>
-          {establishments.map((establishment) => <option key={establishment.id} value={establishment.id}>{establishment.name}</option>)}
-        </select>
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <article className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Insumos activos</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{totalSupplies}</p>
+          </article>
+          <article className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Lotes</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{totalBatches}</p>
+          </article>
+          <article className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-amber-300">Alertas criticas</p>
+            <p className="mt-2 text-3xl font-semibold text-amber-200">{criticalNotifications}</p>
+          </article>
+          <article className="rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-emerald-300">Stock disponible</p>
+            <p className="mt-2 text-3xl font-semibold text-emerald-200">{availableUnits.toLocaleString("es-UY")}</p>
+          </article>
+        </div>
       </header>
 
       {error ? <p className="rounded border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p> : null}
@@ -192,6 +218,7 @@ export default function InsumosPage() {
 
       <section className="rounded-lg bg-slate-900 p-4">
         <h3 className="font-semibold text-emerald-300">Alertas y próximos vencimientos</h3>
+        <p className="mt-1 text-xs text-slate-400">Esta vista sirve para explicar como el sistema anticipa quiebres de stock y ordena prioridades sanitarias.</p>
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {notifications.length === 0 ? <p className="text-sm text-slate-400">Sin vencimientos críticos próximos.</p> : null}
           {notifications.map((notification) => (
@@ -206,6 +233,7 @@ export default function InsumosPage() {
 
       <section className="rounded-lg bg-slate-900 p-4">
         <h3 className="font-semibold text-emerald-300">Lotes registrados</h3>
+        <p className="mt-1 text-xs text-slate-400">Cada lote conserva trazabilidad comercial: cantidad inicial, disponible, ubicacion y vencimiento.</p>
         <div className="mt-3 grid gap-2">
           {batches.map((batch) => (
             <article key={batch.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-800 p-3 text-sm">

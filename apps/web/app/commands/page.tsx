@@ -314,6 +314,12 @@ export default function CommandsPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const promptFormRef = useRef<HTMLFormElement | null>(null);
+  const suggestedPrompts = [
+    "Mostrame el estado sanitario del rodeo y que prioridad tengo esta semana.",
+    "Quiero registrar vacunacion aftosa en Potrero Sur para 68 animales.",
+    "Que tareas y vencimientos tengo que revisar hoy en el establecimiento?",
+    "Resumen ejecutivo para mostrarle al duenio del campo.",
+  ];
 
   const loadCommandLogs = async (estId: string) => {
     if (!estId) {
@@ -971,17 +977,37 @@ export default function CommandsPage() {
 
   return (
     <main className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold">Modo IA</h2>
-        <p className="text-sm text-slate-300">
-          Chat con contexto real del establecimiento. Podés consultar por texto o por voz.
-        </p>
-        <a
-          href={withBasePath("/commands/changes")}
-          className="mt-3 inline-flex rounded bg-sky-500 px-3 py-2 text-xs font-semibold text-slate-950"
-        >
-          Ver log de cambios IA
-        </a>
+      <header className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Modo IA</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Asistente operativo con contexto del establecimiento</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Sirve para consultar el estado del rodeo, pedir resumenes ejecutivos y preparar acciones operativas
+              antes de confirmarlas. En demo conviene usarlo para mostrar preguntas reales y carga asistida.
+            </p>
+          </div>
+          <a
+            href={withBasePath("/commands/changes")}
+            className="inline-flex rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-slate-950"
+          >
+            Ver log de cambios IA
+          </a>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <article className="rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-emerald-300">Consultas</p>
+            <p className="mt-2 text-sm text-slate-200">Pregunta por stock, sanidad, potreros, movimientos o prioridades del dia.</p>
+          </article>
+          <article className="rounded-xl border border-amber-800/60 bg-amber-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-amber-300">Operaciones</p>
+            <p className="mt-2 text-sm text-slate-200">Detecta acciones y pide confirmacion antes de impactar la base.</p>
+          </article>
+          <article className="rounded-xl border border-sky-800/60 bg-sky-950/20 p-4">
+            <p className="text-xs uppercase tracking-widest text-sky-300">Demo comercial</p>
+            <p className="mt-2 text-sm text-slate-200">Ideal para mostrar como una consulta natural se transforma en una accion auditable.</p>
+          </article>
+        </div>
       </header>
 
       <section className="rounded-lg bg-slate-900 p-4">
@@ -1008,6 +1034,18 @@ export default function CommandsPage() {
             Contexto usado: {meta.paddocks} potreros · {meta.stockRows} filas de stock · {meta.movements} movimientos · {meta.healthEvents} eventos sanitarios.
           </p>
         )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {suggestedPrompts.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-500 hover:text-white"
+              onClick={() => setInput(prompt)}
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-lg bg-slate-900 p-4">
