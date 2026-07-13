@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { isCommercialDemoUser } from "../lib/roles";
 
 const API_URL = getApiUrl();
 
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [healthSchedules, setHealthSchedules] = useState<HealthSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
 
   const activeEstablishment = establishments[0] ?? null;
 
@@ -105,6 +107,18 @@ export default function DashboardPage() {
     loadDashboardData();
   }, []);
 
+  useEffect(() => {
+    fetch(`${API_URL}/auth/session`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<{ user?: { email?: string } }>;
+      })
+      .then((data) => setSessionEmail(data?.user?.email ?? null))
+      .catch(() => setSessionEmail(null));
+  }, []);
+
+  const isDemoUser = isCommercialDemoUser(sessionEmail);
+
   const cards = useMemo(() => {
     const totalStock = herds.reduce((accumulator, herd) => accumulator + herd.count, 0);
     const occupiedPaddocks = new Set(herds.filter((herd) => herd.count > 0).map((herd) => herd.paddockId)).size;
@@ -156,25 +170,27 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Recorrido de demo</p>
-        <div className="mt-3 grid gap-4 md:grid-cols-2">
-          <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-4">
-            <h3 className="text-sm font-semibold text-emerald-300">Modo Campo</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-200">
-              Vista simple para usar en manga, potrero o recorrida. Sirve para cargar trabajo hecho, identificar animales
-              y registrar novedades desde el celular.
-            </p>
-          </article>
-          <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-4">
-            <h3 className="text-sm font-semibold text-sky-300">Modo Gestion</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-200">
-              Espacio para supervisar resultados, ordenar tareas, consultar trazabilidad y mostrar una vision ejecutiva
-              del establecimiento.
-            </p>
-          </article>
-        </div>
-      </section>
+      {isDemoUser ? (
+        <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Recorrido de demo</p>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-4">
+              <h3 className="text-sm font-semibold text-emerald-300">Modo Campo</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">
+                Vista simple para usar en manga, potrero o recorrida. Sirve para cargar trabajo hecho, identificar animales
+                y registrar novedades desde el celular.
+              </p>
+            </article>
+            <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-4">
+              <h3 className="text-sm font-semibold text-sky-300">Modo Gestion</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">
+                Espacio para supervisar resultados, ordenar tareas, consultar trazabilidad y mostrar una vision ejecutiva
+                del establecimiento.
+              </p>
+            </article>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         {cards.map((card) => (

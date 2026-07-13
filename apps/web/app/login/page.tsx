@@ -52,22 +52,21 @@ export default function LoginPage() {
             <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-12 w-auto" />
             <h1 className="mt-6 text-3xl font-semibold text-white">Gestion Ganadera</h1>
             <p className="mt-3 max-w-xl text-sm leading-7 text-slate-200">
-              Ingresá con tu cuenta, conocé los planes disponibles o creá un establecimiento nuevo.
-              La demo comercial sigue disponible, pero ya no reemplaza el acceso normal.
+              Ordena la operacion del establecimiento, segui animales, tareas, sanidad e insumos en un mismo lugar.
             </p>
 
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               <article className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Ingresar</p>
-                <p className="mt-2 text-sm text-slate-200">Acceso normal para usuarios existentes.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Operacion diaria</p>
+                <p className="mt-2 text-sm text-slate-200">Cargas, seguimiento y control del rodeo en una sola plataforma.</p>
               </article>
               <article className="rounded-2xl border border-sky-800/60 bg-sky-950/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Planes</p>
-                <p className="mt-2 text-sm text-slate-200">Compará funcionalidades y elegí el esquema que mejor encaja.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Trazabilidad</p>
+                <p className="mt-2 text-sm text-slate-200">Historial por animal, movimientos y datos listos para consultar.</p>
               </article>
               <article className="rounded-2xl border border-amber-800/60 bg-amber-950/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Demo</p>
-                <p className="mt-2 text-sm text-slate-200">Mostrá la aplicacion recortada solo cuando quieras recorrerla.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Gestion</p>
+                <p className="mt-2 text-sm text-slate-200">Sanidad, tareas e insumos ordenados para decidir mejor.</p>
               </article>
             </div>
 
@@ -101,7 +100,7 @@ export default function LoginPage() {
             <div>
               <h2 className="text-2xl font-semibold text-white">Entrar a tu cuenta</h2>
               <p className="mt-2 text-sm text-slate-300">
-                Si querés mostrar la demo comercial, usá el boton de carga demo y después entrá normalmente.
+                Ingresa con tu usuario. Si queres mostrar la demo comercial, podes precargar el usuario demo desde aca.
               </p>
             </div>
 

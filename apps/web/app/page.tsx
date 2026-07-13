@@ -106,7 +106,7 @@ export default function HomePage() {
         <p className="mt-2 text-slate-300">
           {isDemoUser
             ? "Recorrido comercial simplificado para mostrar la operacion diaria y la gestion del establecimiento."
-            : "Navegacion simplificada por flujo de uso diario."}
+            : "Acceso completo a las funciones del establecimiento segun tu rol."}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <a
@@ -122,22 +122,24 @@ export default function HomePage() {
             Ir a modo gestion
           </a>
         </div>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-5">
-            <h3 className="text-base font-semibold text-emerald-300">Modo Campo</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-200">
-              Pensado para el operario o capataz en el terreno. Permite registrar caravanas, ejecutar tareas,
-              cargar novedades y trabajar con una interfaz rapida desde el celular.
-            </p>
-          </article>
-          <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-5">
-            <h3 className="text-base font-semibold text-sky-300">Modo Gestion</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-200">
-              Enfocado en supervision y toma de decisiones. Reune indicadores, trazabilidad, tareas, stock e
-              historial para ordenar la operacion y mostrar resultados.
-            </p>
-          </article>
-        </div>
+        {isDemoUser ? (
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-5">
+              <h3 className="text-base font-semibold text-emerald-300">Modo Campo</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">
+                Pensado para el operario o capataz en el terreno. Permite registrar caravanas, ejecutar tareas,
+                cargar novedades y trabajar con una interfaz rapida desde el celular.
+              </p>
+            </article>
+            <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-5">
+              <h3 className="text-base font-semibold text-sky-300">Modo Gestion</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">
+                Enfocado en supervision y toma de decisiones. Reune indicadores, trazabilidad, tareas, stock e
+                historial para ordenar la operacion y mostrar resultados.
+              </p>
+            </article>
+          </div>
+        ) : null}
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {visibleMenuGroups.map((group) => (
             <article key={group.title} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
