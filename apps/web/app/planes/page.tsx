@@ -170,7 +170,7 @@ export default function PricingPage() {
         <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-800 bg-slate-900/60 p-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Funcionalidades</p>
-            <h2 className="mt-2 text-2xl font-black text-white">Lo que el cliente entiende rapido apenas entra</h2>
+            <h2 className="mt-2 text-2xl font-black text-white">Lo que resuelve la plataforma desde el primer dia</h2>
           </div>
           <Link
             href={withBasePath("/login")}
@@ -192,19 +192,19 @@ export default function PricingPage() {
       <section className="rounded-[2rem] border border-slate-800 bg-slate-900/70 p-6 shadow-xl shadow-slate-950/20">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Mini demo visual</p>
-            <h2 className="mt-2 text-3xl font-black text-white">Dos formas de trabajar, una misma operación ordenada</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Vista de producto</p>
+            <h2 className="mt-2 text-3xl font-black text-white">Una operación más ordenada, con menos planillas sueltas</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
-              La propuesta comercial gana fuerza cuando el cliente ve que el operario puede resolver en campo y que la administración recibe todo listo para controlar, decidir y vender mejor.
+              Mostrá de forma simple cómo la información queda disponible para registrar, consultar y controlar sin perder tiempo entre herramientas separadas.
             </p>
           </div>
         </div>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           <MiniScreen
-            badge="Modo campo"
+            badge="Registro"
             title="Carga rapida, lectura clara"
-            description="Pensado para recorrer, registrar y confirmar acciones sin fricción. Ideal para trabajo con caravanas, tratamientos, nacimientos, pesajes y tareas del día."
+            description="Pensado para registrar novedades, consultar caravanas y confirmar acciones sin fricción durante la operación diaria."
             lines={[
               "Buscar caravana o pegar lectura del lector",
               "Registrar tratamiento, pesaje o baja en segundos",
@@ -213,9 +213,9 @@ export default function PricingPage() {
             ]}
           />
           <MiniScreen
-            badge="Modo gestion"
+            badge="Control"
             title="Panel para decidir mejor"
-            description="El responsable visualiza trazabilidad, sanidad, tareas, stock e insumos en una sola vista, con información más ordenada y más útil para seguir el establecimiento."
+            description="El responsable visualiza trazabilidad, sanidad, tareas, stock e insumos en una sola vista, con información ordenada para seguir el establecimiento."
             lines={[
               "Historial por caravana y por lote",
               "Tareas programadas y seguimiento operativo",
