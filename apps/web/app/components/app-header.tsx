@@ -17,6 +17,7 @@ const topLevelLinks = [
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/insumos"), label: "Insumos" },
   { href: withBasePath("/licencia"), label: "Licencia" },
+  { href: withBasePath("/admin/users"), label: "Usuarios" },
   { href: withBasePath("/admin/planes"), label: "Planes SaaS" },
   { href: withBasePath("/admin/ai-settings"), label: "Configuracion" },
 ];

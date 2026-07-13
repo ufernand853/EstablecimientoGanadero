@@ -528,6 +528,38 @@ type Membership = {
   createdAt: string;
 };
 
+type AccessLogEvent = "LOGIN_SUCCESS" | "LOGIN_FAILURE" | "LOGOUT";
+
+type AccessLog = {
+  id: string;
+  email: string;
+  userId: string | null;
+  tenantId: string | null;
+  event: AccessLogEvent;
+  status: "SUCCESS" | "FAILED";
+  ip: string | null;
+  userAgent: string | null;
+  message: string | null;
+  createdAt: string;
+};
+
+type DemoActivityLog = {
+  id: string;
+  email: string;
+  userId: string;
+  tenantId: string;
+  role: Membership["role"];
+  method: string;
+  path: string;
+  action: string;
+  statusCode: number;
+  blocked: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  message: string | null;
+  createdAt: string;
+};
+
 type SubscriptionPlan = {
   id: string;
   code: string;
@@ -810,6 +842,8 @@ const PERPETUAL_ACCESS_EMAILS = new Set(
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
 );
+const DEMO_READONLY_EMAILS = new Set(["prueba@linsse.com"]);
+const READONLY_DEMO_MESSAGE = "Esta cuenta demo es solo lectura. Podes recorrer la plataforma, pero no modificar datos.";
 
 const getCollections = async () => {
   const db = await getDb();
@@ -835,6 +869,8 @@ const getCollections = async () => {
     tenants: db.collection<Tenant>("tenants"),
     users: db.collection<UserAccount>("users"),
     memberships: db.collection<Membership>("memberships"),
+    accessLogs: db.collection<AccessLog>("access_logs"),
+    demoActivityLogs: db.collection<DemoActivityLog>("demo_activity_logs"),
     subscriptionPlans: db.collection<SubscriptionPlan>("subscription_plans"),
     subscriptions: db.collection<Subscription>("subscriptions"),
     billingCheckouts: db.collection<BillingCheckout>("billing_checkouts"),
@@ -1498,6 +1534,96 @@ const getSessionFromRequest = async (request: { headers: Record<string, unknown>
   return { user, membership, subscription };
 };
 
+const isTrackedDemoEmail = (email: string) => DEMO_READONLY_EMAILS.has(email.toLowerCase());
+
+const isReadOnlyDemoSession = (session: NonNullable<Awaited<ReturnType<typeof getSessionFromRequest>>>) =>
+  session.membership.role === "READONLY" || isTrackedDemoEmail(session.user.email);
+
+const getRequestPath = (request: { url?: string; routeOptions?: { url?: string } }) =>
+  request.routeOptions?.url ?? request.url?.split("?")[0] ?? "/";
+
+const getRequestIp = (request: { headers: Record<string, unknown>; ip?: string }) => {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() ?? null;
+  }
+  return request.ip ?? null;
+};
+
+const getRequestUserAgent = (request: { headers: Record<string, unknown> }) =>
+  typeof request.headers["user-agent"] === "string" ? request.headers["user-agent"] : null;
+
+const buildDemoActivityAction = (path: string, method: string) => {
+  const normalizedMethod = method.toUpperCase();
+  if (path.startsWith("/dashboard")) return normalizedMethod === "GET" ? "DASHBOARD_VIEW" : "DASHBOARD_MUTATION_ATTEMPT";
+  if (path.startsWith("/traceability")) return normalizedMethod === "GET" ? "TRACEABILITY_VIEW" : "TRACEABILITY_MUTATION_ATTEMPT";
+  if (path.startsWith("/animals")) return normalizedMethod === "GET" ? "ANIMAL_VIEW" : "ANIMAL_MUTATION_ATTEMPT";
+  if (path.startsWith("/commands")) return normalizedMethod === "GET" ? "AI_VIEW" : "AI_ACTION_ATTEMPT";
+  if (path.startsWith("/supplies")) return normalizedMethod === "GET" ? "SUPPLY_VIEW" : "SUPPLY_MUTATION_ATTEMPT";
+  if (path.startsWith("/tasks")) return normalizedMethod === "GET" ? "TASK_VIEW" : "TASK_MUTATION_ATTEMPT";
+  if (path.startsWith("/health")) return normalizedMethod === "GET" ? "HEALTH_VIEW" : "HEALTH_MUTATION_ATTEMPT";
+  if (path.startsWith("/paddocks")) return normalizedMethod === "GET" ? "PADDOCK_VIEW" : "PADDOCK_MUTATION_ATTEMPT";
+  if (path.startsWith("/auth")) return "AUTH_FLOW";
+  return `${normalizedMethod}_${path.replace(/[/:]/g, "_").replace(/^_+|_+$/g, "").toUpperCase() || "ROOT"}`;
+};
+
+const shouldTraceDemoActivity = (path: string) =>
+  !path.startsWith("/auth/session")
+  && !path.startsWith("/auth/logout")
+  && !path.startsWith("/admin/")
+  && !path.startsWith("/public/")
+  && path !== "/health";
+
+const appendAccessLog = async (entry: Omit<AccessLog, "id" | "createdAt">) => {
+  const { accessLogs } = await getCollections();
+  await accessLogs.insertOne({
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    ...entry,
+  });
+};
+
+const appendDemoActivityLog = async (entry: Omit<DemoActivityLog, "id" | "createdAt">) => {
+  const { demoActivityLogs } = await getCollections();
+  await demoActivityLogs.insertOne({
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    ...entry,
+  });
+};
+
+app.addHook("preHandler", async (request, reply) => {
+  const method = request.method.toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return;
+  const path = getRequestPath(request);
+  if (path === "/auth/logout") return;
+  const session = await getSessionFromRequest(request);
+  if (!session || !isReadOnlyDemoSession(session)) return;
+  return reply.status(403).send({ code: "READ_ONLY_DEMO", message: READONLY_DEMO_MESSAGE });
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  if (request.method.toUpperCase() === "OPTIONS") return;
+  const path = getRequestPath(request);
+  if (!shouldTraceDemoActivity(path)) return;
+  const session = await getSessionFromRequest(request);
+  if (!session || !isTrackedDemoEmail(session.user.email)) return;
+  await appendDemoActivityLog({
+    email: session.user.email,
+    userId: session.user.id,
+    tenantId: session.membership.tenantId,
+    role: session.membership.role,
+    method: request.method.toUpperCase(),
+    path,
+    action: buildDemoActivityAction(path, request.method),
+    statusCode: reply.statusCode,
+    blocked: reply.statusCode === 403,
+    ip: getRequestIp(request),
+    userAgent: getRequestUserAgent(request),
+    message: reply.statusCode === 403 ? READONLY_DEMO_MESSAGE : null,
+  });
+});
+
 const resolveSubscriptionStatus = (subscription: Subscription) => {
   const now = new Date();
   const periodEnd = new Date(subscription.currentPeriodEnd);
@@ -1729,7 +1855,7 @@ const TEST_ESTABLISHMENT_ID = "00000000-0000-4000-8000-000000000301";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
   { email: "admin@linsse.com", fullName: "Administrador General", password: "Ulifer853$", role: "OWNER" },
   { email: "marula@linsse.com", fullName: "Marula", password: "marula1234", role: "ADMIN" },
-  { email: "prueba@linsse.com", fullName: "Usuario de Prueba", password: "prueba1234", role: "ADMIN" },
+  { email: "prueba@linsse.com", fullName: "Usuario de Prueba", password: "prueba1234", role: "READONLY" },
 ];
 
 const TEST_PADDOCK_SEED = [
@@ -7111,6 +7237,45 @@ app.get("/admin/users", async (request, reply) => {
   return reply.send({ users: rows });
 });
 
+app.get("/admin/activity", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+
+  const { users, memberships, accessLogs, demoActivityLogs } = await getCollections();
+  const tenantId = access.session?.membership.tenantId ?? null;
+  let trackedEmails = Array.from(DEMO_READONLY_EMAILS);
+
+  if (tenantId) {
+    const membershipDocs = await memberships.find({ tenantId }).toArray();
+    const userIds = membershipDocs.map((membership) => membership.userId);
+    const tenantUsers = userIds.length ? await users.find({ id: { $in: userIds } }).toArray() : [];
+    trackedEmails = Array.from(new Set([
+      ...trackedEmails,
+      ...tenantUsers.map((user) => user.email.toLowerCase()),
+    ]));
+  }
+
+  const [recentAccessLogs, recentDemoActivity] = await Promise.all([
+    accessLogs
+      .find(tenantId ? { $or: [{ tenantId }, { email: { $in: trackedEmails } }] } : {})
+      .sort({ createdAt: -1 })
+      .limit(80)
+      .toArray(),
+    demoActivityLogs
+      .find(tenantId ? { tenantId } : {})
+      .sort({ createdAt: -1 })
+      .limit(120)
+      .toArray(),
+  ]);
+
+  return reply.send({
+    accessLogs: recentAccessLogs,
+    demoActivity: recentDemoActivity,
+  });
+});
+
 app.get("/admin/plans", async (request, reply) => {
   const access = await ensureAdminAccess(request);
   if (!access) {
@@ -7223,26 +7388,77 @@ app.post("/auth/login", async (request, reply) => {
   }
   await ensureTestLoginData(body.data.email);
   const { users, memberships, subscriptions } = await getCollections();
-  const user = await users.findOne({ email: body.data.email.toLowerCase(), status: "ACTIVE" });
+  const normalizedEmail = body.data.email.toLowerCase();
+  const user = await users.findOne({ email: normalizedEmail, status: "ACTIVE" });
   if (!user || !verifyPassword(body.data.password, user.passwordHash)) {
+    await appendAccessLog({
+      email: normalizedEmail,
+      userId: user?.id ?? null,
+      tenantId: null,
+      event: "LOGIN_FAILURE",
+      status: "FAILED",
+      ip: getRequestIp(request),
+      userAgent: getRequestUserAgent(request),
+      message: "Credenciales invalidas.",
+    });
     return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." });
   }
   const membership = await memberships.findOne({ userId: user.id });
   if (!membership) {
+    await appendAccessLog({
+      email: user.email,
+      userId: user.id,
+      tenantId: null,
+      event: "LOGIN_FAILURE",
+      status: "FAILED",
+      ip: getRequestIp(request),
+      userAgent: getRequestUserAgent(request),
+      message: "Usuario sin organizacion asociada.",
+    });
     return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organización asociada." });
   }
   const subscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
   if (!subscription) {
+    await appendAccessLog({
+      email: user.email,
+      userId: user.id,
+      tenantId: membership.tenantId,
+      event: "LOGIN_FAILURE",
+      status: "FAILED",
+      ip: getRequestIp(request),
+      userAgent: getRequestUserAgent(request),
+      message: "Organizacion sin suscripcion activa.",
+    });
     return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
   }
   const access = resolveSubscriptionStatus(subscription);
   const perpetualAccess = hasPerpetualAccess(user.email);
   if (!access.canAccess && !perpetualAccess) {
+    await appendAccessLog({
+      email: user.email,
+      userId: user.id,
+      tenantId: membership.tenantId,
+      event: "LOGIN_FAILURE",
+      status: "FAILED",
+      ip: getRequestIp(request),
+      userAgent: getRequestUserAgent(request),
+      message: "Suscripcion sin acceso.",
+    });
     return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
   }
   const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role });
   setSessionCookie(reply, token);
   await users.updateOne({ id: user.id }, { $set: { lastLoginAt: new Date().toISOString() } });
+  await appendAccessLog({
+    email: user.email,
+    userId: user.id,
+    tenantId: membership.tenantId,
+    event: "LOGIN_SUCCESS",
+    status: "SUCCESS",
+    ip: getRequestIp(request),
+    userAgent: getRequestUserAgent(request),
+    message: membership.role === "READONLY" ? "Ingreso en modo demo de solo lectura." : "Ingreso exitoso.",
+  });
   return reply.send({
     ok: true,
     user: { id: user.id, email: user.email, fullName: user.fullName, role: membership.role },
@@ -7261,6 +7477,7 @@ app.get("/auth/session", async (request, reply) => {
   }
   const access = resolveSubscriptionStatus(session.subscription);
   const perpetualAccess = hasPerpetualAccess(session.user.email);
+  const demoReadonly = isReadOnlyDemoSession(session);
   const notifyType = access.daysLeft <= 1 ? "CRITICAL" : access.daysLeft <= 3 ? "WARNING" : access.daysLeft <= 5 ? "INFO" : "NONE";
   return reply.send({
     user: {
@@ -7273,7 +7490,10 @@ app.get("/auth/session", async (request, reply) => {
       status: perpetualAccess ? "PERPETUAL" : access.statusLabel,
       daysLeft: perpetualAccess ? null : access.daysLeft,
       currentPeriodEnd: session.subscription.currentPeriodEnd,
-      notification: perpetualAccess || notifyType === "NONE" ? null : {
+      notification: demoReadonly ? {
+        level: "INFO",
+        message: READONLY_DEMO_MESSAGE,
+      } : perpetualAccess || notifyType === "NONE" ? null : {
         level: notifyType,
         message: `Tu suscripción vence en ${access.daysLeft} día(s).`,
       },
@@ -7281,7 +7501,20 @@ app.get("/auth/session", async (request, reply) => {
   });
 });
 
-app.post("/auth/logout", async (_request, reply) => {
+app.post("/auth/logout", async (request, reply) => {
+  const session = await getSessionFromRequest(request);
+  if (session) {
+    await appendAccessLog({
+      email: session.user.email,
+      userId: session.user.id,
+      tenantId: session.membership.tenantId,
+      event: "LOGOUT",
+      status: "SUCCESS",
+      ip: getRequestIp(request),
+      userAgent: getRequestUserAgent(request),
+      message: "Salida de sesion.",
+    });
+  }
   const secureCookie = PUBLIC_APP_URL.startsWith("https://") || process.env.NODE_ENV === "production";
   reply.header(
     "Set-Cookie",
