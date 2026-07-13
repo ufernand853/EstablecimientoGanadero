@@ -4,21 +4,21 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getApiUrl } from "../lib/api-url";
-import { canSeeLink } from "../lib/roles";
+import { canSeeLink, isCommercialDemoUser } from "../lib/roles";
 
 const topLevelLinks = [
   { href: withBasePath("/"), label: "Inicio" },
   { href: withBasePath("/operations"), label: "Registrar" },
   { href: withBasePath("/animals"), label: "Consultar" },
   { href: withBasePath("/dashboard"), label: "Reportes" },
-  { href: withBasePath("/supervision"), label: "Supervisi\u00f3n" },
+  { href: withBasePath("/supervision"), label: "Supervision" },
   { href: withBasePath("/gestion/tareas"), label: "Tareas" },
   { href: withBasePath("/commands"), label: "Modo IA" },
   { href: withBasePath("/traceability"), label: "Trazabilidad" },
   { href: withBasePath("/insumos"), label: "Insumos" },
   { href: withBasePath("/licencia"), label: "Licencia" },
   { href: withBasePath("/admin/planes"), label: "Planes SaaS" },
-  { href: withBasePath("/admin/ai-settings"), label: "Configuraci\u00f3n" },
+  { href: withBasePath("/admin/ai-settings"), label: "Configuracion" },
 ];
 
 const stripBasePath = (href: string) => {
@@ -38,11 +38,13 @@ export function AppHeader() {
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
   const isCampo = normalizedPath === withBasePath("/campo");
   const isLogin = normalizedPath === withBasePath("/login");
+  const isDemoUser = isCommercialDemoUser(sessionUser?.email);
   const isMarketing =
     normalizedPath === withBasePath("/planes") ||
     normalizedPath === withBasePath("/registro") ||
     normalizedPath.startsWith(withBasePath("/pago"));
   const API_URL = getApiUrl();
+
   const handleLogout = async () => {
     try {
       await fetch(`${API_URL}/auth/logout`, {
@@ -93,7 +95,7 @@ export function AppHeader() {
           >
             <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
           </a>
-          <h1 className="text-2xl font-semibold">{"Gesti\u00f3n Ganadera"}</h1>
+          <h1 className="text-2xl font-semibold">Gestion Ganadera</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {sessionUser ? (
@@ -117,25 +119,25 @@ export function AppHeader() {
             onClick={() => router.back()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            {"\u2190"}
+            {"<-"}
           </button>
           <a
             className="flex h-11 w-full items-center justify-center rounded bg-emerald-500 px-3 text-sm font-semibold text-slate-950"
             href={withBasePath("/")}
           >
-            {"\u2302"}
+            {"Inicio"}
           </a>
           <button
             type="button"
             onClick={() => router.forward()}
             className="h-11 w-full rounded border border-slate-700 px-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
           >
-            {"\u2192"}
+            {"->"}
           </button>
         </div>
       </div>
-      {isCampo ? null : <p className="text-sm text-slate-300">{"Accesos r\u00e1pidos para gestionar la operaci\u00f3n diaria."}</p>}
-      {sessionNotice ? (
+      {isCampo ? null : <p className="text-sm text-slate-300">Accesos rapidos para gestionar la operacion diaria.</p>}
+      {sessionNotice && !isDemoUser ? (
         <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
           {sessionNotice}
         </div>
@@ -152,7 +154,7 @@ export function AppHeader() {
       ) : null}
       {isCampo ? null : <nav className="flex flex-wrap gap-2">
         {topLevelLinks
-          .filter((link) => canSeeLink(sessionRole, stripBasePath(link.href)))
+          .filter((link) => canSeeLink(sessionRole, stripBasePath(link.href), sessionUser?.email))
           .map((link) => (
           <a
             key={link.href}
