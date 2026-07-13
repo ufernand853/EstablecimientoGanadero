@@ -1,35 +1,28 @@
 export type SessionRole = "OWNER" | "ADMIN" | "SUPERVISOR" | "OPERATOR" | "READONLY";
 
-export const getHomePathForRole = (role?: string | null) => {
-  if (role === "OPERATOR") return "/campo";
-  if (role === "SUPERVISOR") return "/supervision";
+const DEMO_USER_EMAIL = "prueba@linsse.com";
+
+export const getHomePathForRole = (_role?: string | null) => {
   return "/dashboard";
 };
 
-const matchesPrefix = (pathname: string, prefixes: string[]) =>
-  prefixes.some((prefix) => {
-    if (prefix === "/") return pathname === "/";
-    return pathname === prefix || pathname.startsWith(`${prefix}/`);
-  });
+export const isCommercialDemoUser = (email?: string | null) => email?.trim().toLowerCase() === DEMO_USER_EMAIL;
 
-export const canSeeLink = (role: string | null, pathname: string) => {
-  if (!role) return false;
+export const canSeeLink = (_role: string | null, pathname: string, email?: string | null) => {
+  if (isCommercialDemoUser(email)) {
+    const hiddenForDemo = new Set([
+      "/licencia",
+      "/admin/planes",
+      "/admin/ai-settings",
+      "/admin/users",
+      "/masters/herd-categories",
+      "/masters/consignors",
+      "/masters/slaughterhouses",
+    ]);
 
-  const adminOnlyPrefixes = ["/admin/users", "/admin/planes", "/admin/ai-settings"];
-  if (matchesPrefix(pathname, adminOnlyPrefixes)) {
-    return role === "OWNER" || role === "ADMIN";
-  }
-
-  if (role === "READONLY") {
-    return matchesPrefix(pathname, ["/", "/dashboard", "/animals", "/traceability", "/licencia"]);
-  }
-
-  if (role === "OPERATOR") {
-    return matchesPrefix(pathname, ["/", "/campo", "/licencia"]);
-  }
-
-  if (role === "SUPERVISOR") {
-    return matchesPrefix(pathname, ["/", "/supervision", "/commands", "/gestion/tareas", "/dashboard", "/traceability", "/insumos", "/health", "/licencia"]);
+    if (hiddenForDemo.has(pathname)) {
+      return false;
+    }
   }
 
   return true;

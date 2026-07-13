@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
-import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -115,7 +114,7 @@ export default function DashboardPage() {
 
     return [
       {
-        title: "Stock por categoría",
+        title: "Stock por categoria",
         value: `${totalStock.toLocaleString("es-AR")} cabezas`,
       },
       {
@@ -123,7 +122,7 @@ export default function DashboardPage() {
         value: `${occupiedPaddocks} / ${paddocks.length}`,
       },
       {
-        title: "Operaciones próximas",
+        title: "Operaciones proximas",
         value: String(upcomingOperations),
       },
       {
@@ -157,15 +156,23 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <section className="rounded-lg bg-emerald-900/30 p-4 text-sm text-emerald-100">
-        <p className="font-semibold">Nuevos módulos disponibles</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <a className="rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" href={withBasePath("/health")}>
-            Ir a Gestión sanitaria
-          </a>
-          <a className="rounded bg-slate-800 px-3 py-2 text-xs text-slate-200" href={withBasePath("/insemination")}>
-            Ir a Reproducción
-          </a>
+      <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Recorrido de demo</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-4">
+            <h3 className="text-sm font-semibold text-emerald-300">Modo Campo</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-200">
+              Vista simple para usar en manga, potrero o recorrida. Sirve para cargar trabajo hecho, identificar animales
+              y registrar novedades desde el celular.
+            </p>
+          </article>
+          <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-4">
+            <h3 className="text-sm font-semibold text-sky-300">Modo Gestion</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-200">
+              Espacio para supervisar resultados, ordenar tareas, consultar trazabilidad y mostrar una vision ejecutiva
+              del establecimiento.
+            </p>
+          </article>
         </div>
       </section>
 
@@ -182,7 +189,7 @@ export default function DashboardPage() {
         <h2 className="text-lg font-semibold">Establecimiento activo</h2>
         <p className="mt-2 text-slate-300">
           {activeEstablishment
-            ? `${activeEstablishment.name} · ${activeEstablishment.timezone}`
+            ? `${activeEstablishment.name} - ${activeEstablishment.timezone}`
             : "No hay establecimientos cargados"}
         </p>
       </section>
