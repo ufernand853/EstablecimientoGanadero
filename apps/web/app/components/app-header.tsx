@@ -79,7 +79,7 @@ export function AppHeader() {
       }
     };
     loadSession();
-  }, [API_URL]);
+  }, [API_URL, pathname]);
 
   if (isLogin || isMarketing) return null;
 

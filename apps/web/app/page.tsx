@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getApiUrl } from "./lib/api-url";
 import { withBasePath } from "./lib/base-path";
 import { canSeeLink, isCommercialDemoUser } from "./lib/roles";
@@ -67,6 +68,7 @@ const menuGroups = [
 ];
 
 export default function HomePage() {
+  const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
 
@@ -84,7 +86,7 @@ export default function HomePage() {
       }
     };
     loadSession();
-  }, []);
+  }, [pathname]);
 
   const visibleMenuGroups = useMemo(
     () =>

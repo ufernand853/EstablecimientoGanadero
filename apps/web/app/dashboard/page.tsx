@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
 import { isCommercialDemoUser } from "../lib/roles";
 
@@ -34,6 +35,7 @@ type HealthEvent = {
 };
 
 export default function DashboardPage() {
+  const pathname = usePathname();
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
   const [herds, setHerds] = useState<Herd[]>([]);
@@ -105,7 +107,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     fetch(`${API_URL}/auth/session`, { cache: "no-store" })
