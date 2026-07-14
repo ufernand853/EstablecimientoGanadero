@@ -61,12 +61,12 @@ export default function LoginPage() {
                 <p className="mt-2 text-sm text-slate-200">Cargas, seguimiento y control del rodeo en una sola plataforma.</p>
               </article>
               <article className="rounded-2xl border border-sky-800/60 bg-sky-950/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Trazabilidad</p>
-                <p className="mt-2 text-sm text-slate-200">Historial por animal, movimientos y datos listos para consultar.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Lectores y bastones</p>
+                <p className="mt-2 text-sm text-slate-200">Integracion con bastones de toma de datos y lectura de caravanas para agilizar el trabajo de campo.</p>
               </article>
               <article className="rounded-2xl border border-amber-800/60 bg-amber-950/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Gestion</p>
-                <p className="mt-2 text-sm text-slate-200">Sanidad, tareas e insumos ordenados para decidir mejor.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Modo IA</p>
+                <p className="mt-2 text-sm text-slate-200">Asistente interactivo por voz y texto para consultar, cargar datos y ejecutar acciones con mas rapidez.</p>
               </article>
             </div>
 
