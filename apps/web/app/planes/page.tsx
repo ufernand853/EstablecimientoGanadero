@@ -5,32 +5,70 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { LanguageSelector } from "../components/language-selector";
 import { getApiUrl } from "../lib/api-url";
 import { withBasePath } from "../lib/base-path";
-import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
+import { PublicPlan } from "../lib/billing";
 import { useI18n } from "../lib/i18n";
 
 const API_URL = getApiUrl();
 const WHATSAPP_URL = "https://wa.me/59898682749?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Linsse%20Ganader%C3%ADa%20y%20sus%20planes";
 
 const VISUALS: Record<string, { accent: string; badge: string }> = {
-  BASIC: { accent: "from-emerald-400 via-lime-300 to-emerald-500", badge: "Arranque" },
-  PRO: { accent: "from-amber-300 via-orange-300 to-emerald-400", badge: "Mas elegido" },
-  ENTERPRISE: { accent: "from-sky-300 via-cyan-300 to-emerald-300", badge: "A medida" },
+  BASIC: { accent: "from-emerald-400 via-lime-300 to-emerald-500", badge: "plans.badge.basic" },
+  PRO: { accent: "from-amber-300 via-orange-300 to-emerald-400", badge: "plans.badge.pro" },
+  ENTERPRISE: { accent: "from-sky-300 via-cyan-300 to-emerald-300", badge: "plans.badge.enterprise" },
 };
 
-const COMMERCIAL_PILLARS = [
-  {
-    title: "Trazabilidad que se entiende",
-    text: "Consulta el historial por caravana, registra movimientos y segui cada animal con una lectura simple y clara.",
+const PLAN_TRANSLATIONS = {
+  pt: {
+    BASIC: {
+      name: "Plano Basico",
+      description: "Ideal para organizar o estabelecimento, registrar movimentacoes e comecar a trabalhar com rastreabilidade digital.",
+      ctaLabel: "Contratar",
+      featureList: [
+        "Ate 250 animais",
+        "Modo campo e modo gestao",
+        "Rastreabilidade por brinco",
+        "Suporte comercial por WhatsApp",
+      ],
+    },
+    PRO: {
+      name: "Plano Pro",
+      description: "Pensado para operacoes que precisam de mais controle, mais acompanhamento e melhor leitura do negocio em tempo real.",
+      ctaLabel: "Contratar",
+      featureList: [
+        "Ate 1000 animais",
+        "Sanidade, insumos e tarefas programadas",
+        "Rastreabilidade com historico por brinco",
+        "Alertas e relatorios operacionais",
+      ],
+    },
+    ENTERPRISE: {
+      name: "Plano Empresa",
+      description: "Para empresas que buscam implantacao acompanhada, integracoes e uma proposta comercial sob medida.",
+      ctaLabel: "Solicitar contato",
+      featureList: [
+        "Animais ilimitados",
+        "Integracoes e acompanhamento",
+        "Configuracao operacional sob medida",
+        "Prioridade de suporte",
+      ],
+    },
   },
-  {
-    title: "Trabajo real en campo",
-    text: "El operario puede cargar datos desde modo campo y el responsable ve todo ordenado en modo gestion.",
-  },
-  {
-    title: "Sanidad, insumos y tareas",
-    text: "Planifica vacunaciones, tratamientos, vencimientos y tareas programadas sin depender de planillas sueltas.",
-  },
-];
+} as const;
+
+const formatPlanPrice = (plan: Pick<PublicPlan, "currency" | "priceAmount">, locale: string, customLabel: string) => {
+  if (plan.priceAmount == null) return customLabel;
+  const amount = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: plan.currency,
+    maximumFractionDigits: plan.priceAmount % 1 === 0 ? 0 : 2,
+  }).format(plan.priceAmount);
+  return `${amount}/mes`;
+};
+
+const formatAnimalLimit = (animalLimit: number | null, locale: string, template: string, unlimitedLabel: string) => {
+  if (animalLimit == null) return unlimitedLabel;
+  return template.replace("{count}", animalLimit.toLocaleString(locale));
+};
 
 function MiniScreen({
   badge,
@@ -71,7 +109,7 @@ function MiniScreen({
 }
 
 export default function PricingPage() {
-  const { t } = useI18n();
+  const { t, language, locale } = useI18n();
   const [plans, setPlans] = useState<PublicPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +135,20 @@ export default function PricingPage() {
   const selfServicePlans = useMemo(() => plans.filter((plan) => plan.isSelfService), [plans]);
   const enterprisePlan = useMemo(() => plans.find((plan) => plan.code === "ENTERPRISE") ?? null, [plans]);
   const featureStories = [t("plans.feature.1"), t("plans.feature.2"), t("plans.feature.3"), t("plans.feature.4")];
+  const commercialPillars = [
+    { title: t("plans.pillar.1.title"), text: t("plans.pillar.1.body") },
+    { title: t("plans.pillar.2.title"), text: t("plans.pillar.2.body") },
+    { title: t("plans.pillar.3.title"), text: t("plans.pillar.3.body") },
+  ];
+
+  const getLocalizedPlan = (plan: PublicPlan) => {
+    const translationSet = PLAN_TRANSLATIONS[language as "pt"]?.[plan.code as keyof typeof PLAN_TRANSLATIONS.pt];
+    if (!translationSet) return plan;
+    return {
+      ...plan,
+      ...translationSet,
+    };
+  };
 
   async function handleEnterpriseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,7 +208,7 @@ export default function PricingPage() {
           </div>
 
           <div className="grid gap-3 rounded-[1.75rem] border border-white/10 bg-white/5 p-4 backdrop-blur">
-            {COMMERCIAL_PILLARS.map((pillar) => (
+            {commercialPillars.map((pillar) => (
               <div key={pillar.title} className="rounded-[1.25rem] border border-white/10 bg-slate-950/60 p-4">
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-200">{pillar.title}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-300">{pillar.text}</p>
@@ -192,35 +244,35 @@ export default function PricingPage() {
       <section className="rounded-[2rem] border border-slate-800 bg-slate-900/70 p-6 shadow-xl shadow-slate-950/20">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Vista de producto</p>
-            <h2 className="mt-2 text-3xl font-black text-white">Una operacion mas ordenada, con menos planillas sueltas</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">{t("plans.productEyebrow")}</p>
+            <h2 className="mt-2 text-3xl font-black text-white">{t("plans.productTitle")}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
-              Mostra de forma simple como la informacion queda disponible para registrar, consultar y controlar sin perder tiempo entre herramientas separadas.
+              {t("plans.productBody")}
             </p>
           </div>
         </div>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           <MiniScreen
-            badge="Registro"
-            title="Carga rapida, lectura clara"
-            description="Pensado para registrar novedades, consultar caravanas y confirmar acciones sin friccion durante la operacion diaria."
+            badge={t("plans.screen.register.badge")}
+            title={t("plans.screen.register.title")}
+            description={t("plans.screen.register.body")}
             lines={[
-              "Buscar caravana o pegar lectura del lector",
-              "Registrar tratamiento, pesaje o baja en segundos",
-              "Ver tareas pendientes por potrero",
-              "Confirmar trabajo realizado desde el campo",
+              t("plans.screen.register.1"),
+              t("plans.screen.register.2"),
+              t("plans.screen.register.3"),
+              t("plans.screen.register.4"),
             ]}
           />
           <MiniScreen
-            badge="Control"
-            title="Panel para decidir mejor"
-            description="El responsable visualiza trazabilidad, sanidad, tareas, stock e insumos en una sola vista, con informacion ordenada para seguir el establecimiento."
+            badge={t("plans.screen.control.badge")}
+            title={t("plans.screen.control.title")}
+            description={t("plans.screen.control.body")}
             lines={[
-              "Historial por caravana y por lote",
-              "Tareas programadas y seguimiento operativo",
-              "Sanidad e insumos con vencimientos y alertas",
-              "Indicadores para control diario y comercial",
+              t("plans.screen.control.1"),
+              t("plans.screen.control.2"),
+              t("plans.screen.control.3"),
+              t("plans.screen.control.4"),
             ]}
           />
         </div>
@@ -232,25 +284,26 @@ export default function PricingPage() {
           {error ? <div className="rounded-3xl border border-rose-900 bg-rose-950/40 p-6 text-rose-200">{error}</div> : null}
           {selfServicePlans.map((plan) => {
             const visual = VISUALS[plan.code] ?? VISUALS.PRO;
+            const localizedPlan = getLocalizedPlan(plan);
             return (
-              <article key={plan.code} className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
+              <article key={localizedPlan.code} className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
                 <div className={`mb-5 rounded-[1.5rem] bg-gradient-to-br ${visual.accent} p-5 text-slate-950`}>
                   <div className="flex items-center justify-between gap-3">
                     <span className="rounded-full bg-white/70 px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]">
-                      {visual.badge}
+                      {t(visual.badge as keyof typeof import("../lib/i18n/es").es)}
                     </span>
-                    <span className="text-xs font-semibold uppercase tracking-[0.24em]">{plan.code}</span>
+                    <span className="text-xs font-semibold uppercase tracking-[0.24em]">{localizedPlan.code}</span>
                   </div>
-                  <h2 className="mt-8 text-2xl font-black">{plan.name}</h2>
-                  <p className="mt-2 text-sm font-medium text-slate-900/80">{plan.description}</p>
+                  <h2 className="mt-8 text-2xl font-black">{localizedPlan.name}</h2>
+                  <p className="mt-2 text-sm font-medium text-slate-900/80">{localizedPlan.description}</p>
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-3xl font-black text-white">{formatPlanPrice(plan)}</p>
-                    <p className="mt-1 text-sm text-emerald-200">{formatAnimalLimit(plan.animalLimit)}</p>
+                    <p className="text-3xl font-black text-white">{formatPlanPrice(localizedPlan, locale, t("plans.price.custom"))}</p>
+                    <p className="mt-1 text-sm text-emerald-200">{formatAnimalLimit(localizedPlan.animalLimit, locale, t("plans.animals.until"), t("plans.animals.unlimited"))}</p>
                   </div>
                   <ul className="space-y-2 text-sm text-slate-300">
-                    {plan.featureList.map((feature) => (
+                    {localizedPlan.featureList.map((feature) => (
                       <li key={feature} className="flex gap-2">
                         <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400" />
                         <span>{feature}</span>
@@ -258,10 +311,10 @@ export default function PricingPage() {
                     ))}
                   </ul>
                   <Link
-                    href={withBasePath(`/registro?plan=${plan.code}`)}
+                    href={withBasePath(`/registro?plan=${localizedPlan.code}`)}
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
                   >
-                    {plan.ctaLabel}
+                    {localizedPlan.ctaLabel}
                   </Link>
                 </div>
               </article>
@@ -272,20 +325,20 @@ export default function PricingPage() {
         <aside className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
           <div className={`rounded-[1.5rem] bg-gradient-to-br ${(enterprisePlan ? (VISUALS[enterprisePlan.code] ?? VISUALS.ENTERPRISE) : VISUALS.ENTERPRISE).accent} p-5 text-slate-950`}>
             <span className="rounded-full bg-white/70 px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]">
-              Propuesta comercial
+              {t("plans.enterpriseBadge")}
             </span>
-            <h2 className="mt-8 text-2xl font-black">{enterprisePlan?.name ?? "Plan Empresa"}</h2>
+            <h2 className="mt-8 text-2xl font-black">{getLocalizedPlan(enterprisePlan ?? { code: "ENTERPRISE", name: t("plans.enterpriseTitle"), description: t("plans.enterpriseBody"), ctaLabel: "", featureList: [], amountCents: 0, animalLimit: null, billingPeriodDays: 30, currency: "USD", isDemo: false, isSelfService: false, priceAmount: null, trialDays: 0 }).name}</h2>
             <p className="mt-2 text-sm font-medium text-slate-900/80">
-              {enterprisePlan?.description ?? "Implementacion acompanada, configuraciones a medida e integraciones."}
+              {enterprisePlan ? getLocalizedPlan(enterprisePlan).description : t("plans.enterpriseBody")}
             </p>
           </div>
           <div className="mt-5 space-y-4">
             <p className="text-sm text-slate-300">
-              Si el cliente necesita mas volumen, mas acompanamiento o una propuesta adaptada a su operacion, lo podes canalizar desde aca.
+              {t("plans.enterpriseCopy")}
             </p>
             {enterprisePlan ? (
               <ul className="space-y-2 text-sm text-slate-300">
-                {enterprisePlan.featureList.map((feature) => (
+                {getLocalizedPlan(enterprisePlan).featureList.map((feature) => (
                   <li key={feature} className="flex gap-2">
                     <span className="mt-1 h-2 w-2 rounded-full bg-cyan-300" />
                     <span>{feature}</span>
@@ -294,11 +347,11 @@ export default function PricingPage() {
               </ul>
             ) : null}
             <form className="space-y-3" onSubmit={handleEnterpriseSubmit}>
-              <input name="company" required placeholder="Empresa" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-              <input name="contact" required placeholder="Contacto" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-              <input name="email" type="email" required placeholder="Email" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-              <input name="phone" placeholder="Telefono / WhatsApp" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-              <textarea name="message" rows={4} placeholder="Contanos cantidad de animales, tipo de operacion o que queres mostrarle al cliente" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <input name="company" required placeholder={t("plans.form.company")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <input name="contact" required placeholder={t("plans.form.contact")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <input name="email" type="email" required placeholder={t("plans.form.email")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <input name="phone" placeholder={t("plans.form.phone")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <textarea name="message" rows={4} placeholder={t("plans.form.message")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
               <button type="submit" disabled={contactState === "sending"} className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-100 disabled:opacity-70">
                 {contactState === "sending" ? t("plans.contactSending") : t("plans.contactSubmit")}
               </button>
