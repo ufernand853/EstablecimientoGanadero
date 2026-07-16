@@ -4,23 +4,9 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BASE_PATH, withBasePath } from "../lib/base-path";
 import { getApiUrl } from "../lib/api-url";
+import { LanguageSelector } from "./language-selector";
+import { useI18n } from "../lib/i18n";
 import { canSeeLink, isCommercialDemoUser } from "../lib/roles";
-
-const topLevelLinks = [
-  { href: withBasePath("/"), label: "Inicio" },
-  { href: withBasePath("/operations"), label: "Registrar" },
-  { href: withBasePath("/animals"), label: "Consultar" },
-  { href: withBasePath("/dashboard"), label: "Reportes" },
-  { href: withBasePath("/supervision"), label: "Supervision" },
-  { href: withBasePath("/gestion/tareas"), label: "Tareas" },
-  { href: withBasePath("/commands"), label: "Modo IA" },
-  { href: withBasePath("/traceability"), label: "Trazabilidad" },
-  { href: withBasePath("/insumos"), label: "Insumos" },
-  { href: withBasePath("/licencia"), label: "Licencia" },
-  { href: withBasePath("/admin/users"), label: "Usuarios" },
-  { href: withBasePath("/admin/planes"), label: "Planes SaaS" },
-  { href: withBasePath("/admin/ai-settings"), label: "Configuracion" },
-];
 
 const stripBasePath = (href: string) => {
   if (!BASE_PATH) return href;
@@ -29,11 +15,26 @@ const stripBasePath = (href: string) => {
 };
 
 export function AppHeader() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<string | null>(null);
   const [sessionUser, setSessionUser] = useState<{ fullName?: string; email?: string } | null>(null);
+  const topLevelLinks = [
+    { href: withBasePath("/"), label: t("header.home") },
+    { href: withBasePath("/operations"), label: t("header.register") },
+    { href: withBasePath("/animals"), label: t("header.consult") },
+    { href: withBasePath("/dashboard"), label: t("header.reports") },
+    { href: withBasePath("/supervision"), label: t("header.supervision") },
+    { href: withBasePath("/gestion/tareas"), label: t("header.tasks") },
+    { href: withBasePath("/commands"), label: t("header.ai") },
+    { href: withBasePath("/traceability"), label: t("header.traceability") },
+    { href: withBasePath("/insumos"), label: t("header.supplies") },
+    { href: withBasePath("/licencia"), label: t("header.license") },
+    { href: withBasePath("/admin/planes"), label: t("header.plans") },
+    { href: withBasePath("/admin/ai-settings"), label: t("header.settings") },
+  ];
   const homePath = withBasePath("/");
   const normalizedPath = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   const isHome = normalizedPath === homePath || normalizedPath === BASE_PATH;
@@ -94,16 +95,17 @@ export function AppHeader() {
             className="rounded-md border border-slate-700 bg-slate-900/50 p-1.5 transition hover:border-emerald-500"
             aria-label="Linsse"
           >
-            <img src={withBasePath("/linsse-logo.svg")} alt="Logo de Linsse" className="h-8 w-auto" />
+            <img src={withBasePath("/linsse-logo.svg")} alt={t("header.brandAlt")} className="h-8 w-auto" />
           </a>
           <h1 className="text-2xl font-semibold">Gestion Ganadera</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
+          <LanguageSelector />
           {sessionUser ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2 text-right">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Usuario logueado</p>
-              <p className="text-sm font-semibold text-white">{sessionUser.fullName ?? "Cuenta general"}</p>
-              <p className="text-xs text-slate-400">{sessionUser.email ?? "Sin email"}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{t("header.loggedUser")}</p>
+              <p className="text-sm font-semibold text-white">{sessionUser.fullName ?? t("header.generalAccount")}</p>
+              <p className="text-xs text-slate-400">{sessionUser.email ?? t("header.noEmail")}</p>
             </div>
           ) : null}
           <button
@@ -111,7 +113,7 @@ export function AppHeader() {
             onClick={handleLogout}
             className="rounded-xl border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
           >
-            Salir
+            {t("header.logout")}
           </button>
         </div>
         <div className="grid w-full grid-cols-3 gap-2 md:max-w-xl">
@@ -126,7 +128,7 @@ export function AppHeader() {
             className="flex h-11 w-full items-center justify-center rounded bg-emerald-500 px-3 text-sm font-semibold text-slate-950"
             href={withBasePath("/")}
           >
-            {"Inicio"}
+            {t("header.home")}
           </a>
           <button
             type="button"
@@ -137,7 +139,7 @@ export function AppHeader() {
           </button>
         </div>
       </div>
-      {isCampo ? null : <p className="text-sm text-slate-300">Accesos rapidos para gestionar la operacion diaria.</p>}
+      {isCampo ? null : <p className="text-sm text-slate-300">{t("header.quickAccess")}</p>}
       {sessionNotice && !isDemoUser ? (
         <div className="rounded border border-amber-700 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
           {sessionNotice}
@@ -147,7 +149,7 @@ export function AppHeader() {
         <div className="overflow-hidden rounded-2xl border border-slate-800">
           <img
             src="https://images.unsplash.com/photo-1500595046743-cd271d694d30?auto=format&fit=crop&w=1600&q=80"
-            alt="Imagen realista de un establecimiento ganadero con praderas y animales"
+            alt={t("header.heroAlt")}
             className="h-52 w-full object-cover md:h-64"
             loading="lazy"
           />

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getApiUrl } from "../lib/api-url";
+import { useI18n } from "../lib/i18n";
 import { ScanWizard, type ScanContext, type Paddock } from "./ScanWizard";
 import { offlineFetch, processQueue, getPendingCount } from "./offline-queue";
 
@@ -165,6 +166,7 @@ const formatTaskOptionLabel = (task: FieldTask) => {
 };
 
 export default function CampoPage() {
+  const { voiceLocale } = useI18n();
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [input, setInput] = useState("");
@@ -362,7 +364,7 @@ export default function CampoPage() {
     if (!SR) { setVoiceError("Tu navegador no soporta voz."); return; }
 
     const rec = new SR();
-    rec.lang = "es-AR";
+    rec.lang = voiceLocale;
     rec.continuous = false;
     rec.interimResults = false;
 
