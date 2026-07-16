@@ -36,7 +36,19 @@ type I18nContextValue = {
   voiceLocale: string;
 };
 
-const I18nContext = createContext<I18nContextValue | null>(null);
+const defaultDictionary = dictionaries[DEFAULT_LANGUAGE];
+
+const defaultContextValue: I18nContextValue = {
+  language: DEFAULT_LANGUAGE,
+  setLanguage: () => {
+    // no-op fallback when provider is not mounted yet
+  },
+  t: (key: TranslationKey) => defaultDictionary[key],
+  locale: defaultDictionary["locale.format"] ?? "es-UY",
+  voiceLocale: defaultDictionary["voice.locale"] ?? "es-AR",
+};
+
+const I18nContext = createContext<I18nContextValue>(defaultContextValue);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(DEFAULT_LANGUAGE);
@@ -76,9 +88,5 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 }
 
 export function useI18n() {
-  const context = useContext(I18nContext);
-  if (!context) {
-    throw new Error("useI18n must be used within LanguageProvider");
-  }
-  return context;
+  return useContext(I18nContext);
 }
