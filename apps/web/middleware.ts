@@ -4,6 +4,18 @@ import { NextResponse } from "next/server";
 const PUBLIC_ROUTES = ["/login", "/planes", "/registro", "/pago", "/api"];
 const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|avif|svg|txt|xml|webmanifest)$/i;
 const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/licencia", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
+const READONLY_ALLOWED_PREFIXES = [
+  "/",
+  "/dashboard",
+  "/animals",
+  "/traceability",
+  "/licencia",
+  "/api",
+  "/_next",
+  "/favicon",
+  "/robots.txt",
+  "/sitemap.xml",
+];
 const SUPERVISOR_ALLOWED_PREFIXES = [
   "/",
   "/supervision",
@@ -108,6 +120,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(campoUrl);
   }
 
+  if (sessionRole === "READONLY" && !isAllowedPath(pathname, READONLY_ALLOWED_PREFIXES)) {
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = withBasePath("/dashboard");
+    dashboardUrl.search = "";
+    return NextResponse.redirect(dashboardUrl);
+  }
+
   if (sessionRole === "SUPERVISOR" && !isAllowedPath(pathname, SUPERVISOR_ALLOWED_PREFIXES)) {
     const supervisionUrl = request.nextUrl.clone();
     supervisionUrl.pathname = withBasePath("/supervision");
@@ -115,7 +134,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(supervisionUrl);
   }
 
-  if (pathname === "/" && (sessionRole === "OPERATOR" || sessionRole === "SUPERVISOR")) {
+  if (pathname === "/" && (sessionRole === "OPERATOR" || sessionRole === "SUPERVISOR" || sessionRole === "READONLY")) {
     const roleHomeUrl = request.nextUrl.clone();
     roleHomeUrl.pathname = withBasePath(getHomePathForRole(sessionRole));
     roleHomeUrl.search = "";

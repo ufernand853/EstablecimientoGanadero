@@ -59,6 +59,13 @@ const ACTION_OPTIONS: TraceabilityEventType[] = [
   "OBSERVACION",
 ];
 
+const normalizeTraceabilityEventType = (value: string): TraceabilityEventType => {
+  if (value === "PREÃ‘EZ_CONFIRMADA") return "PREÑEZ_CONFIRMADA";
+  return value as TraceabilityEventType;
+};
+
+const getEventLabel = (type: string) => EVENT_LABELS[normalizeTraceabilityEventType(type)] ?? type;
+
 function buildAiSummary(events: TraceabilityEvent[], caravan: string) {
   if (!events.length) {
     return `No se encontraron eventos para la caravana ${caravan}.`;
@@ -74,7 +81,7 @@ function buildAiSummary(events: TraceabilityEvent[], caravan: string) {
     insemination ? `Figura una inseminación el ${new Date(insemination.occurredAt).toLocaleDateString("es-UY")}.` : "No figura inseminación registrada.",
     pregnancy ? `La preñez fue confirmada el ${new Date(pregnancy.occurredAt).toLocaleDateString("es-UY")}.` : "No hay confirmación de preñez en el período filtrado.",
     pendingVaccination ? "Tiene al menos una tarea sanitaria pendiente." : "No se detectan pendientes sanitarias activas.",
-    `El último evento es ${EVENT_LABELS[latest.type].toLowerCase()} (${new Date(latest.occurredAt).toLocaleString("es-UY")}).`,
+    `El último evento es ${getEventLabel(latest.type).toLowerCase()} (${new Date(latest.occurredAt).toLocaleString("es-UY")}).`,
   ].join(" ");
 }
 
@@ -84,7 +91,7 @@ function mapApiEventToLocal(e: Record<string, unknown>): TraceabilityEvent {
   return {
     id: e.id as string,
     caravan: e.earTag as string,
-    type: e.type as TraceabilityEventType,
+    type: normalizeTraceabilityEventType(String(e.type ?? "")),
     occurredAt: e.occurredAt as string,
     source,
     user: (e.createdBy as string) || "Sistema",
@@ -158,7 +165,7 @@ export default function TraceabilityPilotPage() {
 
     setEvents((current) => [nextEvent, ...current]);
     setCaravanSearch(normalizedCaravan);
-    setMessage(`Se registró ${EVENT_LABELS[type].toLowerCase()} para ${normalizedCaravan} (origen ${source}).`);
+    setMessage(`Se registró ${getEventLabel(type).toLowerCase()} para ${normalizedCaravan} (origen ${source}).`);
 
     if (establishmentId) {
       try {
@@ -210,7 +217,7 @@ export default function TraceabilityPilotPage() {
     }));
 
     setEvents((current) => [...nextEvents, ...current]);
-    setMessage(`Se aplicó ${EVENT_LABELS[selectedAction].toLowerCase()} a ${nextEvents.length} lecturas RFID válidas.`);
+    setMessage(`Se aplicó ${getEventLabel(selectedAction).toLowerCase()} a ${nextEvents.length} lecturas RFID válidas.`);
 
     if (establishmentId) {
       await Promise.allSettled(
@@ -322,7 +329,7 @@ export default function TraceabilityPilotPage() {
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <select className="rounded bg-slate-800 p-2 text-sm" value={selectedAction} onChange={(event) => setSelectedAction(event.target.value as TraceabilityEventType)}>
             {ACTION_OPTIONS.map((action) => (
-              <option key={action} value={action}>{EVENT_LABELS[action]}</option>
+              <option key={action} value={action}>{getEventLabel(action)}</option>
             ))}
           </select>
           <input
@@ -349,7 +356,7 @@ export default function TraceabilityPilotPage() {
           <div className="mt-3 space-y-2">
             {filteredEvents.map((event) => (
               <div key={event.id} className="rounded border border-slate-800 bg-slate-950/50 p-3">
-                <p className="text-sm font-semibold text-emerald-300">{event.caravan} · {EVENT_LABELS[event.type]}</p>
+                <p className="text-sm font-semibold text-emerald-300">{event.caravan} · {getEventLabel(event.type)}</p>
                 <p className="text-xs text-slate-400">
                   {new Date(event.occurredAt).toLocaleString("es-UY")} · {event.user} · origen {event.source}
                 </p>
@@ -368,7 +375,7 @@ export default function TraceabilityPilotPage() {
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-300">
               {filteredEvents.slice(0, 5).map((event) => (
                 <li key={`evidence-${event.id}`}>
-                  {new Date(event.occurredAt).toLocaleDateString("es-UY")}: {EVENT_LABELS[event.type]} ({event.source})
+                  {new Date(event.occurredAt).toLocaleDateString("es-UY")}: {getEventLabel(event.type)} ({event.source})
                 </li>
               ))}
               {filteredEvents.length === 0 ? <li>No hay evidencia disponible para el filtro actual.</li> : null}

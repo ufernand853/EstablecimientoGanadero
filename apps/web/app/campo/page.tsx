@@ -50,6 +50,13 @@ const EVENT_LABELS: Record<TraceabilityEventType, string> = {
   OBSERVACION: "Observación",
 };
 
+const normalizeTraceabilityEventType = (value: string): TraceabilityEventType => {
+  if (value === "PREÃ‘EZ_CONFIRMADA") return "PREÑEZ_CONFIRMADA";
+  return value as TraceabilityEventType;
+};
+
+const getEventLabel = (type: string) => EVENT_LABELS[normalizeTraceabilityEventType(type)] ?? type;
+
 type RecentEvent = {
   id: string;
   earTag: string;
@@ -483,7 +490,7 @@ export default function CampoPage() {
         "/traceability/events",
         "POST",
         pendingEvent,
-        `${EVENT_LABELS[pendingEvent.type]} ${pendingEvent.earTag}`,
+        `${getEventLabel(pendingEvent.type)} ${pendingEvent.earTag}`,
       );
 
       if (result.ok) {
@@ -495,7 +502,7 @@ export default function CampoPage() {
             await fetch(`${API_URL}/tasks/${selectedTaskId}/complete`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ notes: `Cerrada al confirmar ${EVENT_LABELS[pendingEvent.type]} de ${pendingEvent.earTag}` }),
+              body: JSON.stringify({ notes: `Cerrada al confirmar ${getEventLabel(pendingEvent.type)} de ${pendingEvent.earTag}` }),
             });
             setSelectedTaskId("");
           } catch {
@@ -505,8 +512,8 @@ export default function CampoPage() {
         setFeedback({
           kind: "success",
           text: result.queued
-            ? `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} en cola (sin conexión).`
-            : `${pendingEvent.earTag} — ${EVENT_LABELS[pendingEvent.type]} guardado.`,
+            ? `${pendingEvent.earTag} — ${getEventLabel(pendingEvent.type)} en cola (sin conexión).`
+            : `${pendingEvent.earTag} — ${getEventLabel(pendingEvent.type)} guardado.`,
         });
         if (!result.queued) {
           refreshRecentEvents();
@@ -930,7 +937,7 @@ export default function CampoPage() {
                 <div key={ev.id} className="flex items-baseline justify-between rounded-lg bg-slate-800 px-3 py-2">
                   <div>
                     <span className="text-sm font-semibold text-emerald-300">{ev.earTag}</span>
-                    <span className="ml-2 text-sm text-slate-200">{EVENT_LABELS[ev.type]}</span>
+                    <span className="ml-2 text-sm text-slate-200">{getEventLabel(ev.type)}</span>
                     {ev.notes ? <span className="ml-2 text-xs text-slate-400">{ev.notes}</span> : null}
                   </div>
                   <time className="ml-4 shrink-0 text-xs text-slate-500">
@@ -1046,7 +1053,7 @@ export default function CampoPage() {
         <div className="mx-4 mt-4 rounded-xl border-2 border-emerald-700 bg-slate-900 p-5">
           <p className="text-xs uppercase tracking-widest text-emerald-400">Confirmar acción</p>
           <p className="mt-3 text-2xl font-bold text-white">{pendingEvent.earTag}</p>
-          <p className="mt-1 text-lg text-emerald-300">{EVENT_LABELS[pendingEvent.type]}</p>
+          <p className="mt-1 text-lg text-emerald-300">{getEventLabel(pendingEvent.type)}</p>
           {pendingEvent.paddockName ? <p className="mt-1 text-sm text-slate-300">Potrero: {pendingEvent.paddockName}</p> : null}
           {pendingEvent.product ? <p className="mt-1 text-sm text-slate-300">Producto: {pendingEvent.product}{pendingEvent.dose ? ` · ${pendingEvent.dose}` : ""}</p> : null}
           {pendingEvent.notes ? <p className="mt-1 text-sm text-slate-400">{pendingEvent.notes}</p> : null}

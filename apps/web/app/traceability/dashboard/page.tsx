@@ -82,6 +82,14 @@ const EVENT_TYPE_CONFIG: Record<TraceabilityEventType, { label: string; color: s
   OBSERVACION:         { label: "Observación",         color: "bg-slate-500" },
 };
 
+const normalizeTraceabilityEventType = (value: string): TraceabilityEventType => {
+  if (value === "PREÃ‘EZ_CONFIRMADA") return "PREÑEZ_CONFIRMADA";
+  return value as TraceabilityEventType;
+};
+
+const getEventTypeConfig = (type: string) =>
+  EVENT_TYPE_CONFIG[normalizeTraceabilityEventType(type)] ?? { label: type, color: "bg-slate-500" };
+
 const SEX_LABELS: Record<string, string> = {
   MACHO: "Macho",
   HEMBRA: "Hembra",
@@ -366,7 +374,7 @@ export default function TraceabilityDashboardPage() {
             ) : (
               <ul className="mt-4 space-y-3">
                 {dashboard.eventsByType.map((row) => {
-                  const cfg = EVENT_TYPE_CONFIG[row.type as TraceabilityEventType];
+                  const cfg = getEventTypeConfig(row.type);
                   const pct = Math.round((row.count / maxCount) * 100);
                   return (
                     <li key={row.type} className="space-y-1">
@@ -439,7 +447,7 @@ export default function TraceabilityDashboardPage() {
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Historial</p>
                     <ul className="max-h-52 space-y-2 overflow-y-auto pr-1">
                       {selectedAnimal.events.map((ev) => {
-                        const cfg = EVENT_TYPE_CONFIG[ev.type];
+                        const cfg = getEventTypeConfig(ev.type);
                         return (
                           <li key={ev.id} className="flex items-start gap-3">
                             <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${cfg?.color ?? "bg-slate-500"}`} />
@@ -514,7 +522,7 @@ export default function TraceabilityDashboardPage() {
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {dashboard.recentEvents.map((ev) => {
-                  const cfg = EVENT_TYPE_CONFIG[ev.type];
+                  const cfg = getEventTypeConfig(ev.type);
                   const isSelected = selectedAnimal?.earTag === ev.earTag;
                   return (
                     <tr
