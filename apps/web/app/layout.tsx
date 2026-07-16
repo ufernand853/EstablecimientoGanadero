@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppHeader } from "./components/app-header";
+import { LanguageProvider } from "./lib/i18n";
 import { SWRegister } from "./sw-register";
 
 const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim() ?? "";
@@ -30,11 +31,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="es">
       <body className="min-h-screen">
-        <SWRegister />
-        <div className="mx-auto max-w-6xl px-6 py-8">
-          <AppHeader />
-          {children}
-        </div>
+        <LanguageProvider>
+          <SWRegister />
+          <div className="mx-auto max-w-6xl px-6 py-8">
+            <AppHeader />
+            {children}
+          </div>
+        </LanguageProvider>
       </body>
     </html>
   );

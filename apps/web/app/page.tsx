@@ -4,19 +4,27 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { getApiUrl } from "./lib/api-url";
 import { withBasePath } from "./lib/base-path";
+import { useI18n } from "./lib/i18n";
+import type { TranslationKey } from "./lib/i18n/es";
 import { canSeeLink, isCommercialDemoUser } from "./lib/roles";
 
 const API_URL = getApiUrl();
 
-const menuGroups = [
+type MenuGroup = {
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  links: Array<{ href: string; label: string }>;
+};
+
+const menuGroups: MenuGroup[] = [
   {
-    title: "Inicio",
-    description: "Resumen y seguimiento general de la operacion.",
+    titleKey: "home.group.start.title",
+    descriptionKey: "home.group.start.description",
     links: [{ href: withBasePath("/dashboard"), label: "Panel de control" }, { href: withBasePath("/supervision"), label: "Supervision" }],
   },
   {
-    title: "Registrar",
-    description: "Altas, cargas y acciones operativas del dia a dia.",
+    titleKey: "home.group.register.title",
+    descriptionKey: "home.group.register.description",
     links: [
       { href: withBasePath("/operations"), label: "Operaciones" },
       { href: withBasePath("/shipments"), label: "Embarques" },
@@ -27,8 +35,8 @@ const menuGroups = [
     ],
   },
   {
-    title: "Consultar",
-    description: "Busquedas y estado actual de establecimientos y animales.",
+    titleKey: "home.group.consult.title",
+    descriptionKey: "home.group.consult.description",
     links: [
       { href: withBasePath("/establishments"), label: "Establecimientos" },
       { href: withBasePath("/paddocks"), label: "Potreros" },
@@ -39,8 +47,8 @@ const menuGroups = [
     ],
   },
   {
-    title: "Reportes",
-    description: "Analisis, historicos y cambios recientes.",
+    titleKey: "home.group.reports.title",
+    descriptionKey: "home.group.reports.description",
     links: [
       { href: withBasePath("/dashboard"), label: "Indicadores" },
       { href: withBasePath("/commands/changes"), label: "Cambios IA" },
@@ -48,16 +56,16 @@ const menuGroups = [
     ],
   },
   {
-    title: "Modo IA",
-    description: "Interfaz de lenguaje natural para operaciones de lote y consultas.",
+    titleKey: "home.group.ai.title",
+    descriptionKey: "home.group.ai.description",
     links: [
       { href: withBasePath("/commands"), label: "Modo IA completo" },
       { href: withBasePath("/campo"), label: "Modo Campo (operario)" },
     ],
   },
   {
-    title: "Configuracion",
-    description: "Parametros del sistema, maestros y API.",
+    titleKey: "home.group.settings.title",
+    descriptionKey: "home.group.settings.description",
     links: [
       { href: withBasePath("/masters/herd-categories"), label: "Categorias" },
       { href: withBasePath("/masters/consignors"), label: "Consignatarios" },
@@ -68,6 +76,7 @@ const menuGroups = [
 ];
 
 export default function HomePage() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
@@ -93,10 +102,12 @@ export default function HomePage() {
       menuGroups
         .map((group) => ({
           ...group,
+          title: t(group.titleKey),
+          description: t(group.descriptionKey),
           links: group.links.filter((link) => canSeeLink(sessionRole, link.href, sessionEmail)),
         }))
         .filter((group) => group.links.length > 0),
-    [sessionEmail, sessionRole],
+    [sessionEmail, sessionRole, t],
   );
 
   const isDemoUser = isCommercialDemoUser(sessionEmail);
@@ -104,41 +115,35 @@ export default function HomePage() {
   return (
     <main className="space-y-6">
       <section className="rounded-lg bg-slate-900 p-6 shadow">
-        <h2 className="text-xl font-semibold">Inicio</h2>
+        <h2 className="text-xl font-semibold">{t("home.title")}</h2>
         <p className="mt-2 text-slate-300">
           {isDemoUser
-            ? "Recorrido comercial simplificado para mostrar la operacion diaria y la gestion del establecimiento."
-            : "Acceso completo a las funciones del establecimiento segun tu rol."}
+            ? t("home.demoBody")
+            : t("home.fullBody")}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <a
             className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
             href={withBasePath("/campo")}
           >
-            Ir a modo campo
+            {t("home.fieldMode")}
           </a>
           <a
             className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-emerald-500"
             href={withBasePath("/traceability/dashboard")}
           >
-            Ir a modo gestion
+            {t("home.managementMode")}
           </a>
         </div>
         {isDemoUser ? (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <article className="rounded-xl border border-emerald-800/70 bg-emerald-950/20 p-5">
-              <h3 className="text-base font-semibold text-emerald-300">Modo Campo</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-200">
-                Pensado para el operario o capataz en el terreno. Permite registrar caravanas, ejecutar tareas,
-                cargar novedades y trabajar con una interfaz rapida desde el celular.
-              </p>
+              <h3 className="text-base font-semibold text-emerald-300">{t("home.demoFieldTitle")}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">{t("home.demoFieldBody")}</p>
             </article>
             <article className="rounded-xl border border-sky-800/70 bg-sky-950/20 p-5">
-              <h3 className="text-base font-semibold text-sky-300">Modo Gestion</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-200">
-                Enfocado en supervision y toma de decisiones. Reune indicadores, trazabilidad, tareas, stock e
-                historial para ordenar la operacion y mostrar resultados.
-              </p>
+              <h3 className="text-base font-semibold text-sky-300">{t("home.demoManagementTitle")}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-200">{t("home.demoManagementBody")}</p>
             </article>
           </div>
         ) : null}

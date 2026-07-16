@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "../lib/api-url";
 import { withBasePath } from "../lib/base-path";
+import { useI18n } from "../lib/i18n";
 
 const API_URL = getApiUrl();
 
@@ -283,6 +284,7 @@ declare global {
 }
 
 export default function CommandsPage() {
+  const { t, locale, voiceLocale } = useI18n();
   const messageIdRef = useRef(0);
   const createMessageId = () => {
     messageIdRef.current += 1;
@@ -433,7 +435,7 @@ export default function CommandsPage() {
 
   const startVoiceInput = async () => {
     if (!speechAvailable) {
-      setError("Tu navegador no soporta reconocimiento de voz.");
+      setError(t("voice.notSupported"));
       return;
     }
     setError(null);
@@ -448,12 +450,12 @@ export default function CommandsPage() {
 
     const RecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!RecognitionCtor) {
-      setError("No se pudo inicializar el reconocimiento de voz.");
+      setError(t("voice.initError"));
       return;
     }
 
     const recognition = new RecognitionCtor();
-    recognition.lang = "es-AR";
+    recognition.lang = voiceLocale;
     recognition.interimResults = false;
     recognition.continuous = false;
     recognition.onresult = (event) => {
@@ -1164,7 +1166,7 @@ export default function CommandsPage() {
               <p className="font-semibold text-slate-200">Si detecta: {behavior.trigger}</p>
               <p className="mt-1 text-slate-300">Debe responder: {behavior.expectedBehavior}</p>
               {behavior.notes && <p className="mt-1 text-slate-400">Notas: {behavior.notes}</p>}
-              <p className="mt-1 text-slate-500">{new Date(behavior.createdAt).toLocaleString("es-AR")}</p>
+              <p className="mt-1 text-slate-500">{new Date(behavior.createdAt).toLocaleString(locale)}</p>
             </article>
           ))}
         </div>
@@ -1187,7 +1189,7 @@ export default function CommandsPage() {
               <article key={log.id} className="rounded border border-slate-800 bg-slate-900 p-2">
                 <p className="font-semibold text-slate-200">{log.stage} · {log.intent ?? "SIN_INTENT"}</p>
                 <p className="text-slate-300">{log.message}</p>
-                <p className="text-slate-500">{new Date(log.createdAt).toLocaleString("es-AR")}</p>
+                <p className="text-slate-500">{new Date(log.createdAt).toLocaleString(locale)}</p>
               </article>
             ))}
           </div>
