@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { Suspense, FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { LanguageSelector } from "../components/language-selector";
 import { getApiUrl } from "../lib/api-url";
-import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
 import { withBasePath } from "../lib/base-path";
+import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
+import { useI18n } from "../lib/i18n";
 
 const API_URL = getApiUrl();
 
@@ -18,6 +20,7 @@ type RegisterResult = {
 };
 
 function RegisterPageContent() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const requestedPlan = searchParams.get("plan") ?? "PRO";
   const initialPlan = requestedPlan === "BASIC" || requestedPlan === "PRO" ? requestedPlan : "PRO";
@@ -39,16 +42,16 @@ function RegisterPageContent() {
       try {
         const response = await fetch(`${API_URL}/public/plans`, { cache: "no-store" });
         const data = (await response.json()) as PublicPlan[];
-        if (!response.ok) throw new Error("No se pudieron cargar los planes.");
+        if (!response.ok) throw new Error(t("register.loadError"));
         setPlans(data.filter((plan) => !plan.isDemo));
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar los planes.");
+        setError(loadError instanceof Error ? loadError.message : t("register.loadError"));
       } finally {
         setLoading(false);
       }
     };
-    loadPlans();
-  }, []);
+    void loadPlans();
+  }, [t]);
 
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.code === form.planCode) ?? null,
@@ -67,13 +70,13 @@ function RegisterPageContent() {
         body: JSON.stringify(form),
       });
       const data = (await response.json()) as RegisterResult & { message?: string };
-      if (!response.ok) throw new Error(data.message ?? "No se pudo crear la cuenta.");
+      if (!response.ok) throw new Error(data.message ?? t("register.createError"));
       setResult(data);
       if (data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "No se pudo crear la cuenta.");
+      setError(submitError instanceof Error ? submitError.message : t("register.createError"));
     } finally {
       setSubmitting(false);
     }
@@ -82,16 +85,16 @@ function RegisterPageContent() {
   return (
     <main className="grid gap-6 py-6 lg:grid-cols-[1fr,1.1fr]">
       <section className="rounded-[1.75rem] border border-emerald-900/60 bg-gradient-to-br from-emerald-950 via-slate-950 to-lime-950 p-6 shadow-2xl shadow-emerald-950/40">
-        <Link href={withBasePath("/planes")} className="text-sm font-semibold text-emerald-200 transition hover:text-white">
-          ← Volver a planes
-        </Link>
+        <div className="flex items-start justify-between gap-4">
+          <Link href={withBasePath("/planes")} className="text-sm font-semibold text-emerald-200 transition hover:text-white">
+            {"<- "}{t("public.backToPlans")}
+          </Link>
+          <LanguageSelector />
+        </div>
         <div className="mt-6 space-y-4">
-          <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">
-            Alta comercial
-          </span>
-          <h1 className="text-3xl font-black tracking-tight text-white">Creá la cuenta del establecimiento</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">{t("register.title")}</h1>
           <p className="text-sm leading-7 text-slate-200">
-            Registrá el establecimiento, definí la cuenta general de acceso y dejá listo el plan elegido para comenzar a operar.
+            {t("register.body")}
           </p>
           {selectedPlan ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-slate-100">
@@ -106,9 +109,9 @@ function RegisterPageContent() {
       </section>
 
       <section className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
-        <h2 className="text-xl font-bold text-white">Datos de la cuenta</h2>
-        <p className="mt-2 text-sm text-slate-300">La cuenta queda lista con un único acceso general para empezar a trabajar y después sumar la información real del establecimiento.</p>
-        {loading ? <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">Cargando planes...</p> : null}
+        <h2 className="text-xl font-bold text-white">{t("register.accountTitle")}</h2>
+        <p className="mt-2 text-sm text-slate-300">{t("register.accountBody")}</p>
+        {loading ? <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">{t("plans.loading")}</p> : null}
         {error ? <p className="mt-5 rounded-2xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{error}</p> : null}
         {result ? (
           <div className="mt-5 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-100">
@@ -119,10 +122,10 @@ function RegisterPageContent() {
           </div>
         ) : null}
         <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
-          <input required value={form.companyName} onChange={(event) => setForm((current) => ({ ...current, companyName: event.target.value }))} placeholder="Nombre del establecimiento o empresa" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-          <input required value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nombre del responsable" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-          <input required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email de acceso y facturación" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-          <input required type="password" minLength={8} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Contraseña inicial" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+          <input required value={form.companyName} onChange={(event) => setForm((current) => ({ ...current, companyName: event.target.value }))} placeholder={t("register.company")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+          <input required value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} placeholder={t("register.owner")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+          <input required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder={t("register.email")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+          <input required type="password" minLength={8} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder={t("register.password")} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
           <select value={form.planCode} onChange={(event) => setForm((current) => ({ ...current, planCode: event.target.value }))} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400">
             {plans.filter((plan) => plan.code !== "ENTERPRISE").map((plan) => (
               <option key={plan.code} value={plan.code}>
@@ -131,7 +134,7 @@ function RegisterPageContent() {
             ))}
           </select>
           <button type="submit" disabled={submitting || loading} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-70">
-            {submitting ? "Creando cuenta..." : "Crear cuenta"}
+            {submitting ? t("register.creating") : t("register.submit")}
           </button>
         </form>
       </section>

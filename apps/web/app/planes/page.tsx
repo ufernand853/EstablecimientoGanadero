@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { LanguageSelector } from "../components/language-selector";
 import { getApiUrl } from "../lib/api-url";
-import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
 import { withBasePath } from "../lib/base-path";
+import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
+import { useI18n } from "../lib/i18n";
 
 const API_URL = getApiUrl();
 const WHATSAPP_URL = "https://wa.me/59898682749?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Linsse%20Ganader%C3%ADa%20y%20sus%20planes";
@@ -18,23 +20,16 @@ const VISUALS: Record<string, { accent: string; badge: string }> = {
 const COMMERCIAL_PILLARS = [
   {
     title: "Trazabilidad que se entiende",
-    text: "Consultá el historial por caravana, registrá movimientos y seguí cada animal con una lectura simple y clara.",
+    text: "Consulta el historial por caravana, registra movimientos y segui cada animal con una lectura simple y clara.",
   },
   {
     title: "Trabajo real en campo",
-    text: "El operario puede cargar datos desde modo campo y el responsable ve todo ordenado en modo gestión.",
+    text: "El operario puede cargar datos desde modo campo y el responsable ve todo ordenado en modo gestion.",
   },
   {
     title: "Sanidad, insumos y tareas",
-    text: "Planificá vacunaciones, tratamientos, vencimientos y tareas programadas sin depender de planillas sueltas.",
+    text: "Planifica vacunaciones, tratamientos, vencimientos y tareas programadas sin depender de planillas sueltas.",
   },
-];
-
-const FEATURE_STORIES = [
-  "Lectura y consulta de caravanas con foco en trazabilidad individual.",
-  "Seguimiento de movimientos, pesajes, tratamientos, partos y bajas.",
-  "Tareas programadas visibles tanto en campo como en gestión.",
-  "Gestión sanitaria e insumos con alertas y control de lotes.",
 ];
 
 function MiniScreen({
@@ -76,6 +71,7 @@ function MiniScreen({
 }
 
 export default function PricingPage() {
+  const { t } = useI18n();
   const [plans, setPlans] = useState<PublicPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,19 +83,20 @@ export default function PricingPage() {
       try {
         const response = await fetch(`${API_URL}/public/plans`, { cache: "no-store" });
         const data = (await response.json()) as PublicPlan[];
-        if (!response.ok) throw new Error("No se pudieron cargar los planes.");
+        if (!response.ok) throw new Error(t("plans.loadError"));
         setPlans(data);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar los planes.");
+        setError(loadError instanceof Error ? loadError.message : t("plans.loadError"));
       } finally {
         setLoading(false);
       }
     };
-    loadPlans();
-  }, []);
+    void loadPlans();
+  }, [t]);
 
   const selfServicePlans = useMemo(() => plans.filter((plan) => plan.isSelfService), [plans]);
   const enterprisePlan = useMemo(() => plans.find((plan) => plan.code === "ENTERPRISE") ?? null, [plans]);
+  const featureStories = [t("plans.feature.1"), t("plans.feature.2"), t("plans.feature.3"), t("plans.feature.4")];
 
   async function handleEnterpriseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -114,11 +111,11 @@ export default function PricingPage() {
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error((data as { message?: string }).message ?? "No se pudo enviar la consulta.");
+      if (!response.ok) throw new Error((data as { message?: string }).message ?? t("plans.contactError"));
       event.currentTarget.reset();
       setContactState("sent");
     } catch (submitError) {
-      setContactError(submitError instanceof Error ? submitError.message : "No se pudo enviar la consulta.");
+      setContactError(submitError instanceof Error ? submitError.message : t("plans.contactError"));
       setContactState("idle");
     }
   }
@@ -128,21 +125,24 @@ export default function PricingPage() {
       <section className="overflow-hidden rounded-[2rem] border border-emerald-900/60 bg-[radial-gradient(circle_at_top_left,rgba(52,211,153,0.2),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(253,224,71,0.12),transparent_24%),linear-gradient(135deg,#022c22_0%,#020617_42%,#14532d_100%)] px-6 py-10 shadow-2xl shadow-emerald-950/40 md:px-10">
         <div className="grid gap-8 lg:grid-cols-[1.2fr,0.8fr]">
           <div className="space-y-5">
-            <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">
-              Linsse Ganaderia
-            </span>
+            <div className="flex items-start justify-between gap-4">
+              <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">
+                {t("plans.brand")}
+              </span>
+              <LanguageSelector />
+            </div>
             <h1 className="max-w-3xl text-4xl font-black tracking-tight text-white md:text-5xl">
-              Menos planillas, más control del rodeo y una trazabilidad clara para toda la operación.
+              {t("plans.heroTitle")}
             </h1>
             <p className="max-w-2xl text-sm leading-7 text-slate-200 md:text-base">
-              Una herramienta pensada para ordenar el trabajo diario, mejorar la gestión sanitaria, organizar tareas y dar más valor a la información del establecimiento.
+              {t("plans.heroBody")}
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
                 href={withBasePath("/registro?plan=PRO")}
                 className="rounded-full bg-emerald-400 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
               >
-                Empezar ahora
+                {t("plans.startNow")}
               </Link>
               <a
                 href={WHATSAPP_URL}
@@ -150,7 +150,7 @@ export default function PricingPage() {
                 rel="noreferrer"
                 className="rounded-full border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-400"
               >
-                Conectar por WhatsApp
+                {t("plans.whatsapp")}
               </a>
             </div>
           </div>
@@ -169,23 +169,23 @@ export default function PricingPage() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-800 bg-slate-900/60 p-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Funcionalidades</p>
-            <h2 className="mt-2 text-2xl font-black text-white">Lo que resuelve la plataforma desde el primer dia</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">{t("plans.features")}</p>
+            <h2 className="mt-2 text-2xl font-black text-white">{t("plans.featuresTitle")}</h2>
           </div>
           <Link
             href={withBasePath("/login")}
             className="inline-flex items-center justify-center rounded-full border border-emerald-400 px-5 py-3 text-sm font-bold text-emerald-100 transition hover:bg-emerald-400 hover:text-slate-950"
           >
-            Ir a login
+            {t("plans.goLogin")}
           </Link>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {FEATURE_STORIES.map((item) => (
-          <article key={item} className="rounded-[1.5rem] border border-slate-800 bg-slate-900/75 p-5 text-sm leading-6 text-slate-200 shadow-lg shadow-slate-950/20">
-            {item}
-          </article>
-        ))}
+          {featureStories.map((item) => (
+            <article key={item} className="rounded-[1.5rem] border border-slate-800 bg-slate-900/75 p-5 text-sm leading-6 text-slate-200 shadow-lg shadow-slate-950/20">
+              {item}
+            </article>
+          ))}
         </div>
       </section>
 
@@ -193,9 +193,9 @@ export default function PricingPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Vista de producto</p>
-            <h2 className="mt-2 text-3xl font-black text-white">Una operación más ordenada, con menos planillas sueltas</h2>
+            <h2 className="mt-2 text-3xl font-black text-white">Una operacion mas ordenada, con menos planillas sueltas</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
-              Mostrá de forma simple cómo la información queda disponible para registrar, consultar y controlar sin perder tiempo entre herramientas separadas.
+              Mostra de forma simple como la informacion queda disponible para registrar, consultar y controlar sin perder tiempo entre herramientas separadas.
             </p>
           </div>
         </div>
@@ -204,7 +204,7 @@ export default function PricingPage() {
           <MiniScreen
             badge="Registro"
             title="Carga rapida, lectura clara"
-            description="Pensado para registrar novedades, consultar caravanas y confirmar acciones sin fricción durante la operación diaria."
+            description="Pensado para registrar novedades, consultar caravanas y confirmar acciones sin friccion durante la operacion diaria."
             lines={[
               "Buscar caravana o pegar lectura del lector",
               "Registrar tratamiento, pesaje o baja en segundos",
@@ -215,7 +215,7 @@ export default function PricingPage() {
           <MiniScreen
             badge="Control"
             title="Panel para decidir mejor"
-            description="El responsable visualiza trazabilidad, sanidad, tareas, stock e insumos en una sola vista, con información ordenada para seguir el establecimiento."
+            description="El responsable visualiza trazabilidad, sanidad, tareas, stock e insumos en una sola vista, con informacion ordenada para seguir el establecimiento."
             lines={[
               "Historial por caravana y por lote",
               "Tareas programadas y seguimiento operativo",
@@ -228,7 +228,7 @@ export default function PricingPage() {
 
       <section className="grid gap-5 xl:grid-cols-[1.6fr,1fr]">
         <div className="grid gap-5 md:grid-cols-2">
-          {loading ? <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 text-slate-300">Cargando planes...</div> : null}
+          {loading ? <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 text-slate-300">{t("plans.loading")}</div> : null}
           {error ? <div className="rounded-3xl border border-rose-900 bg-rose-950/40 p-6 text-rose-200">{error}</div> : null}
           {selfServicePlans.map((plan) => {
             const visual = VISUALS[plan.code] ?? VISUALS.PRO;
@@ -276,12 +276,12 @@ export default function PricingPage() {
             </span>
             <h2 className="mt-8 text-2xl font-black">{enterprisePlan?.name ?? "Plan Empresa"}</h2>
             <p className="mt-2 text-sm font-medium text-slate-900/80">
-              {enterprisePlan?.description ?? "Implementación acompañada, configuraciones a medida e integraciones."}
+              {enterprisePlan?.description ?? "Implementacion acompanada, configuraciones a medida e integraciones."}
             </p>
           </div>
           <div className="mt-5 space-y-4">
             <p className="text-sm text-slate-300">
-              Si el cliente necesita más volumen, más acompañamiento o una propuesta adaptada a su operación, lo podés canalizar desde acá.
+              Si el cliente necesita mas volumen, mas acompanamiento o una propuesta adaptada a su operacion, lo podes canalizar desde aca.
             </p>
             {enterprisePlan ? (
               <ul className="space-y-2 text-sm text-slate-300">
@@ -298,12 +298,12 @@ export default function PricingPage() {
               <input name="contact" required placeholder="Contacto" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
               <input name="email" type="email" required placeholder="Email" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
               <input name="phone" placeholder="Telefono / WhatsApp" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
-              <textarea name="message" rows={4} placeholder="Contanos cantidad de animales, tipo de operación o qué querés mostrarle al cliente" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
+              <textarea name="message" rows={4} placeholder="Contanos cantidad de animales, tipo de operacion o que queres mostrarle al cliente" className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400" />
               <button type="submit" disabled={contactState === "sending"} className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-100 disabled:opacity-70">
-                {contactState === "sending" ? "Enviando..." : "Solicitar contacto comercial"}
+                {contactState === "sending" ? t("plans.contactSending") : t("plans.contactSubmit")}
               </button>
             </form>
-            {contactState === "sent" ? <p className="rounded-2xl border border-emerald-900 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">Consulta registrada. Te contactaremos para coordinar la demo.</p> : null}
+            {contactState === "sent" ? <p className="rounded-2xl border border-emerald-900 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">{t("plans.contactSent")}</p> : null}
             {contactError ? <p className="rounded-2xl border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{contactError}</p> : null}
           </div>
         </aside>
