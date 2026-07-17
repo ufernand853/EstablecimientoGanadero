@@ -52,6 +52,7 @@ const registerSubscriptionSchema = z.object({
   companyName: z.string().min(2),
   password: z.string().min(8),
   planCode: z.string().min(2).default("PRO"),
+  billingProvider: z.enum(["mercadopago", "dodo"]).optional(),
 });
 
 const enterpriseContactSchema = z.object({
@@ -575,6 +576,8 @@ type SubscriptionPlan = {
   ctaLabel: string;
   featureList: string[];
   sortOrder: number;
+  availableProviders?: ("mercadopago" | "dodo")[];
+  defaultProvider?: "mercadopago" | "dodo" | null;
 };
 
 type Subscription = {
@@ -604,7 +607,9 @@ type BillingCheckout = {
   status: "PENDING_PAYMENT" | "COMPLETED" | "FAILED";
   tenantId: string | null;
   provider: string | null;
+  providerCustomerId?: string | null;
   providerSubscriptionId: string | null;
+  providerPaymentId?: string | null;
   checkoutUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -836,6 +841,16 @@ const MERCADOPAGO_PENDING_URL = process.env.MERCADOPAGO_PENDING_URL ?? `${PUBLIC
 const MERCADOPAGO_FAILURE_URL = process.env.MERCADOPAGO_FAILURE_URL ?? `${PUBLIC_APP_URL}/pago/error`;
 const MERCADOPAGO_NOTIFICATION_URL = process.env.MERCADOPAGO_NOTIFICATION_URL ?? `${PUBLIC_APP_URL}/api/proxy/webhooks/mercadopago`;
 const MERCADOPAGO_PAYER_EMAIL_OVERRIDE = process.env.MERCADOPAGO_PAYER_EMAIL_OVERRIDE ?? "";
+const DODO_PAYMENTS_API_KEY = process.env.DODO_PAYMENTS_API_KEY ?? "";
+const DODO_PAYMENTS_ENVIRONMENT = process.env.DODO_PAYMENTS_ENVIRONMENT ?? "live_mode";
+const DODO_PAYMENTS_API_BASE =
+  DODO_PAYMENTS_ENVIRONMENT === "test_mode" ? "https://test.dodopayments.com" : "https://live.dodopayments.com";
+const DODO_PAYMENTS_WEBHOOK_SECRET = process.env.DODO_PAYMENTS_WEBHOOK_SECRET ?? "";
+const DODO_PAYMENTS_RETURN_URL = process.env.DODO_PAYMENTS_RETURN_URL ?? `${PUBLIC_APP_URL}/pago/exitoso`;
+const DODO_BASIC_PRODUCT_ID = process.env.DODO_BASIC_PRODUCT_ID ?? "";
+const DODO_PRO_PRODUCT_ID = process.env.DODO_PRO_PRODUCT_ID ?? "";
+const DODO_BR_SEMESTRAL_PIX_PRODUCT_ID = process.env.DODO_BR_SEMESTRAL_PIX_PRODUCT_ID ?? "";
+const DODO_BR_ANUAL_PIX_PRODUCT_ID = process.env.DODO_BR_ANUAL_PIX_PRODUCT_ID ?? "";
 const PERPETUAL_ACCESS_EMAILS = new Set(
   (process.env.PERPETUAL_ACCESS_EMAILS ?? "ufernand853@gmail.com")
     .split(",")
@@ -1644,8 +1659,38 @@ const resolveSubscriptionStatus = (subscription: Subscription) => {
 const hasPerpetualAccess = (email: string) => PERPETUAL_ACCESS_EMAILS.has(email.toLowerCase());
 
 const isMercadoPagoConfigured = () => Boolean(MERCADOPAGO_ACCESS_TOKEN);
+const isDodoConfigured = () => Boolean(DODO_PAYMENTS_API_KEY);
 
 const buildPublicUrl = (path: string) => new URL(path, PUBLIC_APP_URL).toString();
+
+const getDodoProductIdForPlan = (planCode: string) => {
+  switch (planCode) {
+    case "BASIC":
+      return DODO_BASIC_PRODUCT_ID;
+    case "PRO":
+      return DODO_PRO_PRODUCT_ID;
+    case "BR_SEMESTRAL_PIX":
+      return DODO_BR_SEMESTRAL_PIX_PRODUCT_ID;
+    case "BR_ANUAL_PIX":
+      return DODO_BR_ANUAL_PIX_PRODUCT_ID;
+    default:
+      return "";
+  }
+};
+
+const resolveAvailableProviders = (plan: Pick<SubscriptionPlan, "code" | "currency" | "isDemo">) => {
+  if (plan.isDemo || plan.code === "ENTERPRISE") return [] as ("mercadopago" | "dodo")[];
+  if (plan.currency === "BRL") {
+    return ["mercadopago", "dodo"] as ("mercadopago" | "dodo")[];
+  }
+  return isDodoConfigured() ? (["mercadopago", "dodo"] as ("mercadopago" | "dodo")[]) : (["mercadopago"] as ("mercadopago" | "dodo")[]);
+};
+
+const resolveDefaultProvider = (plan: Pick<SubscriptionPlan, "currency">, availableProviders: ("mercadopago" | "dodo")[]) => {
+  if (!availableProviders.length) return null;
+  if (plan.currency === "BRL" && availableProviders.includes("mercadopago")) return "mercadopago";
+  return availableProviders[0] ?? null;
+};
 
 const mapMercadoPagoStatus = (status: string | null | undefined): Subscription["status"] => {
   switch (status) {
@@ -1740,6 +1785,74 @@ const createMercadoPagoSubscription = async (input: {
 const fetchMercadoPagoSubscription = async (preapprovalId: string) =>
   mercadoPagoRequest<MercadoPagoPreapproval>(`/preapproval/${encodeURIComponent(preapprovalId)}`);
 
+type DodoCheckoutSession = {
+  session_id?: string;
+  checkout_url?: string | null;
+  customer_id?: string | null;
+  payment_id?: string | null;
+  subscription_id?: string | null;
+};
+
+const dodoRequest = async <T>(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) => {
+  if (!DODO_PAYMENTS_API_KEY) {
+    throw new Error("Dodo Payments no está configurado.");
+  }
+
+  const response = await fetch(`${DODO_PAYMENTS_API_BASE}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${DODO_PAYMENTS_API_KEY}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof data === "object" && data && "message" in data
+        ? String((data as { message?: string }).message)
+        : "Dodo Payments rechazó la solicitud.";
+    throw new Error(message);
+  }
+
+  return data as T;
+};
+
+const createDodoCheckout = async (input: {
+  referenceId: string;
+  companyName: string;
+  email: string;
+  fullName: string;
+  plan: SubscriptionPlan;
+}) => {
+  const productId = getDodoProductIdForPlan(input.plan.code);
+  if (!productId) {
+    throw new Error(`Falta configurar el producto de Dodo para el plan ${input.plan.code}.`);
+  }
+
+  const body: Record<string, unknown> = {
+    product_cart: [{ product_id: productId, quantity: 1 }],
+    billing_currency: input.plan.currency,
+    return_url: DODO_PAYMENTS_RETURN_URL,
+    customer: {
+      email: input.email,
+      name: input.fullName,
+    },
+    metadata: {
+      referenceId: input.referenceId,
+      planCode: input.plan.code,
+      companyName: input.companyName,
+      source: "establecimiento-ganadero",
+    },
+    allowed_payment_method_types:
+      input.plan.currency === "BRL" ? ["pix", "credit", "debit"] : ["credit", "debit"],
+  };
+
+  return dodoRequest<DodoCheckoutSession>("/checkouts", { method: "POST", body });
+};
+
 const ensureDefaultPlans = async () => {
   const { subscriptionPlans } = await getCollections();
   const defaultPlans: SubscriptionPlan[] = [
@@ -1774,6 +1887,54 @@ const ensureDefaultPlans = async () => {
       ctaLabel: "Contratar",
       featureList: ["Hasta 1000 animales", "Sanidad, insumos y tareas programadas", "Trazabilidad con historial por caravana", "Alertas y reportes operativos"],
       sortOrder: 20,
+    },
+    {
+      id: randomUUID(),
+      code: "BR_PRO_MENSAL",
+      name: "Plano Pro Brasil",
+      billingPeriodDays: 30,
+      amountCents: 79900,
+      currency: "BRL",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+      animalLimit: 1000,
+      description: "Assinatura mensal para o mercado brasileiro com cobranca recorrente e checkout local.",
+      ctaLabel: "Assinar",
+      featureList: ["Ate 1000 animais", "Sanidade, insumos e tarefas programadas", "Rastreabilidade com historico por brinco", "Checkout Brasil com recorrencia"],
+      sortOrder: 22,
+    },
+    {
+      id: randomUUID(),
+      code: "BR_SEMESTRAL_PIX",
+      name: "Plano Semestral Pix",
+      billingPeriodDays: 180,
+      amountCents: 419400,
+      currency: "BRL",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+      animalLimit: 1000,
+      description: "Pagamento semestral para clientes do Brasil com Pix e renovacao manual.",
+      ctaLabel: "Contratar com Pix",
+      featureList: ["6 meses prepagos", "Pix, cartao de credito ou debito", "Renovacao manual", "Ate 1000 animais"],
+      sortOrder: 23,
+    },
+    {
+      id: randomUUID(),
+      code: "BR_ANUAL_PIX",
+      name: "Plano Anual Pix",
+      billingPeriodDays: 365,
+      amountCents: 799000,
+      currency: "BRL",
+      trialDays: 0,
+      isDemo: false,
+      active: true,
+      animalLimit: 1000,
+      description: "Pagamento anual para clientes do Brasil com Pix e renovacao manual.",
+      ctaLabel: "Contratar com Pix",
+      featureList: ["12 meses prepagos", "Pix, cartao de credito ou debito", "Renovacao manual", "Ate 1000 animais"],
+      sortOrder: 24,
     },
     {
       id: randomUUID(),
@@ -6560,7 +6721,9 @@ app.get("/public/plans", async () => {
   await ensureDefaultPlans();
   const { subscriptionPlans } = await getCollections();
   const plans = await subscriptionPlans.find({ active: true }).sort({ sortOrder: 1, amountCents: 1 }).toArray();
-  return plans.map((plan) => ({
+  return plans.map((plan) => {
+    const availableProviders = resolveAvailableProviders(plan);
+    return {
     code: plan.code,
     name: plan.name,
     priceAmount: plan.amountCents > 0 ? Number((plan.amountCents / 100).toFixed(2)) : null,
@@ -6574,7 +6737,10 @@ app.get("/public/plans", async () => {
     featureList: plan.featureList,
     isDemo: plan.isDemo,
     isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE",
-  }));
+    availableProviders,
+    defaultProvider: resolveDefaultProvider(plan, availableProviders),
+  };
+  });
 });
 
 app.post("/public/enterprise-contact", async (request, reply) => {
@@ -6669,6 +6835,11 @@ app.post("/auth/register-subscription", async (request, reply) => {
   if (existingUser) {
     return reply.status(409).send({ code: "EMAIL_IN_USE", message: "Ese correo ya se encuentra registrado." });
   }
+  const availableProviders = resolveAvailableProviders(plan);
+  const requestedProvider = body.data.billingProvider ?? resolveDefaultProvider(plan, availableProviders);
+  if (!requestedProvider || !availableProviders.includes(requestedProvider)) {
+    return reply.status(400).send({ code: "INVALID_PROVIDER", message: "La pasarela seleccionada no está disponible para este plan." });
+  }
   const now = new Date().toISOString();
   const checkout: BillingCheckout = {
     id: randomUUID(),
@@ -6680,15 +6851,20 @@ app.post("/auth/register-subscription", async (request, reply) => {
     passwordHash: hashPassword(body.data.password),
     status: "PENDING_PAYMENT",
     tenantId: null,
-    provider: null,
+    provider: requestedProvider,
+    providerCustomerId: null,
     providerSubscriptionId: null,
+    providerPaymentId: null,
     checkoutUrl: null,
     createdAt: now,
     updatedAt: now,
     kind: "SUBSCRIPTION",
   };
 
-  if (isMercadoPagoConfigured() && plan.amountCents > 0) {
+  if (requestedProvider === "mercadopago" && plan.amountCents > 0) {
+    if (!isMercadoPagoConfigured()) {
+      return reply.status(503).send({ code: "MERCADOPAGO_UNAVAILABLE", message: "Mercado Pago no está configurado." });
+    }
     try {
       const mpSubscription = await createMercadoPagoSubscription({
         referenceId: checkout.referenceId,
@@ -6696,13 +6872,36 @@ app.post("/auth/register-subscription", async (request, reply) => {
         email: checkout.email,
         plan,
       });
-      checkout.provider = "mercadopago";
       checkout.providerSubscriptionId = mpSubscription.id;
       checkout.checkoutUrl = getMercadoPagoCheckoutUrl(mpSubscription);
     } catch (error) {
       return reply.status(503).send({
         code: "MERCADOPAGO_UNAVAILABLE",
         message: error instanceof Error ? error.message : "No se pudo crear la suscripción en Mercado Pago.",
+      });
+    }
+  }
+
+  if (requestedProvider === "dodo" && plan.amountCents > 0) {
+    if (!isDodoConfigured()) {
+      return reply.status(503).send({ code: "DODO_UNAVAILABLE", message: "Dodo Payments no está configurado." });
+    }
+    try {
+      const dodoCheckout = await createDodoCheckout({
+        referenceId: checkout.referenceId,
+        companyName: checkout.companyName,
+        email: checkout.email,
+        fullName: checkout.fullName,
+        plan,
+      });
+      checkout.providerCustomerId = dodoCheckout.customer_id ?? null;
+      checkout.providerSubscriptionId = dodoCheckout.subscription_id ?? null;
+      checkout.providerPaymentId = dodoCheckout.payment_id ?? null;
+      checkout.checkoutUrl = dodoCheckout.checkout_url ?? null;
+    } catch (error) {
+      return reply.status(503).send({
+        code: "DODO_UNAVAILABLE",
+        message: error instanceof Error ? error.message : "No se pudo crear el checkout en Dodo Payments.",
       });
     }
   }
@@ -6715,6 +6914,7 @@ app.post("/auth/register-subscription", async (request, reply) => {
     webhookUrl: "/billing/webhook",
     checkoutUrl: checkout.checkoutUrl,
     provider: checkout.provider,
+    availableProviders,
     providerSubscriptionId: checkout.providerSubscriptionId,
     mercadoPago: {
       configured: isMercadoPagoConfigured(),
@@ -6730,8 +6930,10 @@ app.post("/auth/register-subscription", async (request, reply) => {
       animalLimit: plan.animalLimit,
     },
     message: checkout.checkoutUrl
-      ? "Cuenta creada. Redirigí al cliente a Mercado Pago para activar la suscripción."
-      : "Checkout pendiente creado. Envía `referenceId` a la pasarela y confirma por webhook.",
+      ? requestedProvider === "dodo"
+        ? "Cuenta creada. Redirig? al cliente a Dodo Payments para completar el pago."
+        : "Cuenta creada. Redirig? al cliente a Mercado Pago para activar la suscripci?n."
+      : "Checkout pendiente creado. Env?a `referenceId` a la pasarela y confirma por webhook.",
   });
 });
 
@@ -7024,6 +7226,104 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
   });
 
   return reply.send({ received: true, status: "authorized", tenantId });
+});
+
+app.post("/webhooks/dodo", async (request, reply) => {
+  const payload = (request.body ?? {}) as Record<string, unknown>;
+  const payloadType = typeof payload.type === "string" ? payload.type : null;
+  if (!payloadType) {
+    return reply.status(400).send({ code: "DODO_TYPE_MISSING", message: "Webhook de Dodo sin tipo de evento." });
+  }
+
+  const data = typeof payload.data === "object" && payload.data ? payload.data as Record<string, unknown> : {};
+  const nestedObject = typeof data.object === "object" && data.object ? data.object as Record<string, unknown> : {};
+  const metadataSource =
+    typeof nestedObject.metadata === "object" && nestedObject.metadata
+      ? nestedObject.metadata as Record<string, unknown>
+      : typeof data.metadata === "object" && data.metadata
+        ? data.metadata as Record<string, unknown>
+        : {};
+
+  const referenceId =
+    typeof metadataSource.referenceId === "string"
+      ? metadataSource.referenceId
+      : typeof metadataSource.reference_id === "string"
+        ? metadataSource.reference_id
+        : null;
+
+  if (!referenceId) {
+    return reply.status(400).send({ code: "DODO_REFERENCE_MISSING", message: "Webhook de Dodo sin referenceId en metadata." });
+  }
+
+  const providerEventId =
+    typeof request.headers["webhook-id"] === "string"
+      ? request.headers["webhook-id"]
+      : typeof nestedObject.payment_id === "string"
+        ? nestedObject.payment_id
+        : typeof data.payment_id === "string"
+          ? data.payment_id
+          : typeof nestedObject.subscription_id === "string"
+            ? nestedObject.subscription_id
+            : typeof data.subscription_id === "string"
+              ? data.subscription_id
+              : `${payloadType}:${referenceId}`;
+
+  const normalizedEventType =
+    payloadType === "payment.succeeded" || payloadType === "payment.failed" || payloadType === "subscription.cancelled"
+      ? payloadType
+      : payloadType === "subscription.active" || payloadType === "subscription.renewed"
+        ? "payment.succeeded"
+        : payloadType === "subscription.failed"
+          ? "payment.failed"
+          : null;
+
+  if (!normalizedEventType) {
+    return reply.send({ received: true, ignored: true, type: payloadType });
+  }
+
+  const normalizedEvent = {
+    provider: "dodo",
+    providerEventId,
+    eventType: normalizedEventType,
+    referenceId,
+    email:
+      typeof nestedObject.customer_email === "string"
+        ? nestedObject.customer_email
+        : typeof data.customer_email === "string"
+          ? data.customer_email
+          : undefined,
+    amountCents:
+      typeof nestedObject.total_amount === "number"
+        ? nestedObject.total_amount
+        : typeof data.total_amount === "number"
+          ? data.total_amount
+          : undefined,
+    currency:
+      typeof nestedObject.currency === "string"
+        ? nestedObject.currency
+        : typeof data.currency === "string"
+          ? data.currency
+          : undefined,
+    occurredAt: typeof payload.timestamp === "string" ? payload.timestamp : undefined,
+    metadata: metadataSource,
+  };
+
+  const rawBody = JSON.stringify(normalizedEvent);
+  const signature = createHmac("sha256", BILLING_WEBHOOK_SECRET).update(rawBody).digest("hex");
+  const injected = await app.inject({
+    method: "POST",
+    url: "/billing/webhook",
+    headers: {
+      "content-type": "application/json",
+      "x-webhook-signature": signature,
+    },
+    payload: normalizedEvent,
+  });
+
+  return reply
+    .status(injected.statusCode)
+    .type("application/json")
+    .send(injected.body ? JSON.parse(injected.body) : { received: true });
 });
 
 app.post("/billing/webhook", async (request, reply) => {
