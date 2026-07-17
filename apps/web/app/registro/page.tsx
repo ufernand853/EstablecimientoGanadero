@@ -17,6 +17,7 @@ type RegisterResult = {
   webhookUrl: string;
   message: string;
   checkoutUrl?: string | null;
+  provider?: "mercadopago" | "dodo" | null;
 };
 
 function RegisterPageContent() {
@@ -31,6 +32,7 @@ function RegisterPageContent() {
     email: "",
     password: "",
     planCode: initialPlan,
+    billingProvider: "mercadopago" as "mercadopago" | "dodo",
   });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -57,6 +59,17 @@ function RegisterPageContent() {
     () => plans.find((plan) => plan.code === form.planCode) ?? null,
     [plans, form.planCode],
   );
+
+  useEffect(() => {
+    if (!selectedPlan) return;
+    const availableProviders = selectedPlan.availableProviders ?? ["mercadopago"];
+    const nextProvider = availableProviders.includes(form.billingProvider)
+      ? form.billingProvider
+      : (selectedPlan.defaultProvider ?? availableProviders[0] ?? "mercadopago");
+    if (nextProvider !== form.billingProvider) {
+      setForm((current) => ({ ...current, billingProvider: nextProvider }));
+    }
+  }, [selectedPlan, form.billingProvider]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -133,6 +146,15 @@ function RegisterPageContent() {
               </option>
             ))}
           </select>
+          {selectedPlan && (selectedPlan.availableProviders?.length ?? 0) > 1 ? (
+            <select value={form.billingProvider} onChange={(event) => setForm((current) => ({ ...current, billingProvider: event.target.value as "mercadopago" | "dodo" }))} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400">
+              {(selectedPlan.availableProviders ?? []).map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider === "mercadopago" ? "Mercado Pago recurrente" : "Dodo Payments"}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button type="submit" disabled={submitting || loading} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-70">
             {submitting ? t("register.creating") : t("register.submit")}
           </button>

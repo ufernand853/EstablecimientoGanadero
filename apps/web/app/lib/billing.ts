@@ -12,6 +12,8 @@ export type PublicPlan = {
   featureList: string[];
   isDemo: boolean;
   isSelfService: boolean;
+  availableProviders?: ("mercadopago" | "dodo")[];
+  defaultProvider?: "mercadopago" | "dodo" | null;
 };
 
 export type LicenseResponse = {
