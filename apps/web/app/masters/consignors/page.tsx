@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getApiUrl } from "../../lib/api-url";
+import { useI18n } from "../../lib/i18n";
 
 const API_URL = getApiUrl();
 
@@ -19,6 +20,7 @@ type Consignor = {
 };
 
 export default function ConsignorsPage() {
+  const { t } = useI18n();
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
   const [consignors, setConsignors] = useState<Consignor[]>([]);
@@ -43,8 +45,8 @@ export default function ConsignorsPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setError("No se pudieron cargar consignatarios."));
-  }, []);
+    load().catch(() => setError(t("masters.loadError")));
+  }, [t]);
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -64,7 +66,7 @@ export default function ConsignorsPage() {
       }),
     });
     if (!response.ok) {
-      setError("No se pudo crear consignatario.");
+      setError(t("masters.saveError"));
       return;
     }
     setName("");
@@ -88,20 +90,20 @@ export default function ConsignorsPage() {
   return (
     <main className="space-y-6">
       <header className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Consignatarios</h2>
+        <h2 className="text-xl font-semibold">{t("masters.consignors.title")}</h2>
         <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(e) => load(e.target.value)}>
           {establishments.map((est) => <option key={est.id} value={est.id}>{est.name}</option>)}
         </select>
       </header>
       <section className="rounded-lg bg-slate-900 p-4">
         <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreate}>
-          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Dirección" value={address} onChange={(e) => setAddress(e.target.value)} />
-          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Contacto" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-          <input className="rounded bg-slate-800 p-2 text-sm" placeholder="Celular / Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">Crear</button>
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.form.name")} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.form.address")} value={address} onChange={(e) => setAddress(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.form.contact")} value={contactName} onChange={(e) => setContactName(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.form.phone")} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder={t("masters.form.email")} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input className="rounded bg-slate-800 p-2 text-sm md:col-span-2" placeholder={t("masters.form.notes")} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">{t("masters.create")}</button>
         </form>
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </section>
@@ -111,18 +113,18 @@ export default function ConsignorsPage() {
             <div>
               <p className="font-semibold">{consignor.name}</p>
               <p className="text-xs text-slate-400">
-                {consignor.address || "Sin dirección"} · {consignor.contactName || "Sin contacto"} · {consignor.phone || "Sin teléfono"}
+                {consignor.address || t("masters.consignors.emptyAddress")} · {consignor.contactName || t("masters.consignors.emptyContact")} · {consignor.phone || t("masters.consignors.emptyPhone")}
               </p>
               {(consignor.email || consignor.notes) && (
                 <p className="text-xs text-slate-500">{consignor.email || consignor.notes}</p>
               )}
             </div>
             <button className="rounded bg-slate-700 px-3 py-1 text-xs" onClick={() => toggleStatus(consignor)}>
-              {consignor.status}
+              {consignor.status === "ACTIVE" ? t("masters.status.active") : t("masters.status.inactive")}
             </button>
           </div>
         ))}
-        {consignors.length === 0 && <p className="text-sm text-slate-400">Sin consignatarios.</p>}
+        {consignors.length === 0 && <p className="text-sm text-slate-400">{t("masters.consignors.emptyList")}</p>}
       </section>
     </main>
   );

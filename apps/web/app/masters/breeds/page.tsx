@@ -7,18 +7,18 @@ import { useI18n } from "../../lib/i18n";
 const API_URL = getApiUrl();
 
 type Establishment = { id: string; name: string };
-type HerdCategory = {
+type Breed = {
   id: string;
   establishmentId: string;
   name: string;
   status: "ACTIVE" | "INACTIVE";
 };
 
-export default function HerdCategoriesPage() {
+export default function BreedsPage() {
   const { t } = useI18n();
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [establishmentId, setEstablishmentId] = useState("");
-  const [categories, setCategories] = useState<HerdCategory[]>([]);
+  const [breeds, setBreeds] = useState<Breed[]>([]);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -29,11 +29,9 @@ export default function HerdCategoriesPage() {
     const current = selectedEstablishmentId || establishmentId || estData.establishments[0]?.id || "";
     if (!current) return;
     setEstablishmentId(current);
-    const categoriesResp = await fetch(`${API_URL}/herd-categories?establishmentId=${current}`, {
-      cache: "no-store",
-    });
-    const categoriesData = (await categoriesResp.json()) as { categories: HerdCategory[] };
-    setCategories(categoriesData.categories);
+    const response = await fetch(`${API_URL}/breeds?establishmentId=${current}`, { cache: "no-store" });
+    const data = (await response.json()) as { breeds: Breed[] };
+    setBreeds(data.breeds);
   };
 
   useEffect(() => {
@@ -44,25 +42,24 @@ export default function HerdCategoriesPage() {
     event.preventDefault();
     if (!name.trim()) return;
     setError(null);
-    const response = await fetch(`${API_URL}/herd-categories`, {
+    const response = await fetch(`${API_URL}/breeds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ establishmentId, name: name.trim(), status: "ACTIVE" }),
     });
     if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { message?: string } | null;
-      setError(data?.message ?? t("masters.saveError"));
+      setError(t("masters.saveError"));
       return;
     }
     setName("");
     await load(establishmentId);
   };
 
-  const toggleStatus = async (category: HerdCategory) => {
-    const response = await fetch(`${API_URL}/herd-categories/${category.id}`, {
+  const toggleStatus = async (breed: Breed) => {
+    const response = await fetch(`${API_URL}/breeds/${breed.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: category.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" }),
+      body: JSON.stringify({ status: breed.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" }),
     });
     if (response.ok) await load(establishmentId);
   };
@@ -70,28 +67,28 @@ export default function HerdCategoriesPage() {
   return (
     <main className="space-y-6">
       <header className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{t("masters.categories.title")}</h2>
+        <h2 className="text-xl font-semibold">{t("masters.breeds.title")}</h2>
         <select className="rounded bg-slate-800 p-2 text-sm" value={establishmentId} onChange={(e) => load(e.target.value)}>
           {establishments.map((est) => <option key={est.id} value={est.id}>{est.name}</option>)}
         </select>
       </header>
       <section className="rounded-lg bg-slate-900 p-4">
         <form className="flex gap-3" onSubmit={handleCreate}>
-          <input className="flex-1 rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.categories.placeholder")} value={name} onChange={(e) => setName(e.target.value.toUpperCase())} />
+          <input className="flex-1 rounded bg-slate-800 p-2 text-sm" placeholder={t("masters.breeds.placeholder")} value={name} onChange={(e) => setName(e.target.value.toUpperCase())} />
           <button className="rounded bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950" type="submit">{t("masters.create")}</button>
         </form>
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </section>
       <section className="rounded-lg bg-slate-900 p-4 grid gap-2">
-        {categories.map((category) => (
-          <div key={category.id} className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <p className="font-semibold">{category.name}</p>
-            <button className="rounded bg-slate-700 px-3 py-1 text-xs" onClick={() => toggleStatus(category)}>
-              {category.status === "ACTIVE" ? t("masters.status.active") : t("masters.status.inactive")}
+        {breeds.map((breed) => (
+          <div key={breed.id} className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <p className="font-semibold">{breed.name}</p>
+            <button className="rounded bg-slate-700 px-3 py-1 text-xs" onClick={() => toggleStatus(breed)}>
+              {breed.status}
             </button>
           </div>
         ))}
-        {categories.length === 0 && <p className="text-sm text-slate-400">{t("masters.empty")}</p>}
+        {breeds.length === 0 && <p className="text-sm text-slate-400">{t("masters.empty")}</p>}
       </section>
     </main>
   );
