@@ -13,64 +13,67 @@ const API_URL = getApiUrl();
 type MenuGroup = {
   titleKey: TranslationKey;
   descriptionKey: TranslationKey;
-  links: Array<{ href: string; label: string }>;
+  links: Array<{ href: string; labelKey: TranslationKey }>;
 };
 
 const menuGroups: MenuGroup[] = [
   {
     titleKey: "home.group.start.title",
     descriptionKey: "home.group.start.description",
-    links: [{ href: withBasePath("/dashboard"), label: "Panel de control" }, { href: withBasePath("/supervision"), label: "Supervision" }],
+    links: [{ href: withBasePath("/dashboard"), labelKey: "home.link.dashboard" }, { href: withBasePath("/supervision"), labelKey: "home.link.supervision" }],
   },
   {
     titleKey: "home.group.register.title",
     descriptionKey: "home.group.register.description",
     links: [
-      { href: withBasePath("/operations"), label: "Operaciones" },
-      { href: withBasePath("/shipments"), label: "Embarques" },
-      { href: withBasePath("/incidents"), label: "Incidentes" },
-      { href: withBasePath("/slaughter-shipments"), label: "Consignaciones" },
-      { href: withBasePath("/insemination"), label: "Reproduccion" },
-      { href: withBasePath("/traceability"), label: "Trazabilidad" },
+      { href: withBasePath("/operations"), labelKey: "home.link.operations" },
+      { href: withBasePath("/shipments"), labelKey: "home.link.shipments" },
+      { href: withBasePath("/incidents"), labelKey: "home.link.incidents" },
+      { href: withBasePath("/slaughter-shipments"), labelKey: "home.link.slaughterShipments" },
+      { href: withBasePath("/insemination"), labelKey: "home.link.insemination" },
+      { href: withBasePath("/traceability"), labelKey: "home.link.traceability" },
     ],
   },
   {
     titleKey: "home.group.consult.title",
     descriptionKey: "home.group.consult.description",
     links: [
-      { href: withBasePath("/establishments"), label: "Establecimientos" },
-      { href: withBasePath("/paddocks"), label: "Potreros" },
-      { href: withBasePath("/herds"), label: "Stock" },
-      { href: withBasePath("/animals"), label: "Animales" },
-      { href: withBasePath("/health"), label: "Gestion sanitaria" },
-      { href: withBasePath("/insumos"), label: "Insumos" },
+      { href: withBasePath("/establishments"), labelKey: "home.link.establishments" },
+      { href: withBasePath("/paddocks"), labelKey: "home.link.paddocks" },
+      { href: withBasePath("/herds"), labelKey: "home.link.herds" },
+      { href: withBasePath("/animals"), labelKey: "home.link.animals" },
+      { href: withBasePath("/health"), labelKey: "home.link.health" },
+      { href: withBasePath("/insumos"), labelKey: "home.link.supplies" },
     ],
   },
   {
     titleKey: "home.group.reports.title",
     descriptionKey: "home.group.reports.description",
     links: [
-      { href: withBasePath("/dashboard"), label: "Indicadores" },
-      { href: withBasePath("/commands/changes"), label: "Cambios IA" },
-      { href: withBasePath("/traceability/dashboard"), label: "Panel trazabilidad" },
+      { href: withBasePath("/dashboard"), labelKey: "home.link.indicators" },
+      { href: withBasePath("/commands/changes"), labelKey: "home.link.aiChanges" },
+      { href: withBasePath("/traceability/dashboard"), labelKey: "home.link.traceabilityDashboard" },
     ],
   },
   {
     titleKey: "home.group.ai.title",
     descriptionKey: "home.group.ai.description",
     links: [
-      { href: withBasePath("/commands"), label: "Modo IA completo" },
-      { href: withBasePath("/campo"), label: "Modo Campo (operario)" },
+      { href: withBasePath("/commands"), labelKey: "home.link.aiFull" },
+      { href: withBasePath("/campo"), labelKey: "home.link.fieldMode" },
     ],
   },
   {
     titleKey: "home.group.settings.title",
     descriptionKey: "home.group.settings.description",
     links: [
-      { href: withBasePath("/masters/herd-categories"), label: "Categorias" },
-      { href: withBasePath("/masters/consignors"), label: "Consignatarios" },
-      { href: withBasePath("/masters/slaughterhouses"), label: "Frigorificos" },
-      { href: withBasePath("/admin/ai-settings"), label: "API y ajustes IA" },
+      { href: withBasePath("/masters"), labelKey: "home.link.masters" },
+      { href: withBasePath("/masters/herd-categories"), labelKey: "masters.categories.title" },
+      { href: withBasePath("/masters/breeds"), labelKey: "masters.breeds.title" },
+      { href: withBasePath("/masters/movement-types"), labelKey: "masters.movementTypes.title" },
+      { href: withBasePath("/masters/consignors"), labelKey: "masters.consignors.title" },
+      { href: withBasePath("/masters/slaughterhouses"), labelKey: "masters.slaughterhouses.title" },
+      { href: withBasePath("/admin/ai-settings"), labelKey: "home.link.aiSettings" },
     ],
   },
 ];
@@ -104,7 +107,9 @@ export default function HomePage() {
           ...group,
           title: t(group.titleKey),
           description: t(group.descriptionKey),
-          links: group.links.filter((link) => canSeeLink(sessionRole, link.href, sessionEmail)),
+          links: group.links
+            .filter((link) => canSeeLink(sessionRole, link.href, sessionEmail))
+            .map((link) => ({ ...link, label: t(link.labelKey) })),
         }))
         .filter((group) => group.links.length > 0),
     [sessionEmail, sessionRole, t],

@@ -322,6 +322,8 @@ type HerdMovement = {
   establishmentId: string;
   fromPaddockId: string;
   toPaddockId: string;
+  movementTypeId: string | null;
+  movementType: string | null;
   category: string;
   quantity: number;
   occurredAt: string;
@@ -384,6 +386,24 @@ type Slaughterhouse = {
 };
 
 type HerdCategoryMaster = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type BreedMaster = {
+  id: string;
+  establishmentId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type MovementTypeMaster = {
   id: string;
   establishmentId: string;
   name: string;
@@ -625,6 +645,23 @@ const DEFAULT_HERD_CATEGORY_NAMES = [
   "TOROS",
   "REPRODUCTORES",
   "RECRIA",
+] as const;
+
+const DEFAULT_BREED_NAMES = [
+  "ANGUS",
+  "HEREFORD",
+  "BRAFORD",
+  "BRANGUS",
+  "HOLANDO",
+  "CRUZA",
+] as const;
+
+const DEFAULT_MOVEMENT_TYPE_NAMES = [
+  "TRASLADO INTERNO",
+  "CAMBIO DE POTRERO",
+  "AJUSTE DE STOCK",
+  "VENTA",
+  "INGRESO",
 ] as const;
 
 type BillingEvent = {
@@ -870,6 +907,8 @@ const getCollections = async () => {
     consignors: db.collection<Consignor>("consignors"),
     slaughterhouses: db.collection<Slaughterhouse>("slaughterhouses"),
     herdCategories: db.collection<HerdCategoryMaster>("herd_categories"),
+    breeds: db.collection<BreedMaster>("breeds"),
+    movementTypes: db.collection<MovementTypeMaster>("movement_types"),
     healthEvents: db.collection<HealthEvent>("health_events"),
     animals: db.collection<Animal>("animals"),
     animalPhotos: db.collection<AnimalPhoto>("animal_photos"),
@@ -2011,6 +2050,79 @@ const ensureDefaultHerdCategories = async (establishmentId: string, nowIso = new
   }
 };
 
+const ensureDefaultBreeds = async (establishmentId: string, nowIso = new Date().toISOString()) => {
+  const { breeds } = await getCollections();
+  for (const name of DEFAULT_BREED_NAMES) {
+    await breeds.updateOne(
+      { establishmentId, name },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: { id: randomUUID(), establishmentId, name, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+};
+
+const ensureDefaultMovementTypes = async (establishmentId: string, nowIso = new Date().toISOString()) => {
+  const { movementTypes } = await getCollections();
+  for (const name of DEFAULT_MOVEMENT_TYPE_NAMES) {
+    await movementTypes.updateOne(
+      { establishmentId, name },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: { id: randomUUID(), establishmentId, name, createdAt: nowIso },
+      },
+      { upsert: true },
+    );
+  }
+};
+
+const ensureEstablishmentMasters = async (establishmentId: string, nowIso = new Date().toISOString()) => {
+  const { consignors, slaughterhouses } = await getCollections();
+  await Promise.all([
+    ensureDefaultHerdCategories(establishmentId, nowIso),
+    ensureDefaultBreeds(establishmentId, nowIso),
+    ensureDefaultMovementTypes(establishmentId, nowIso),
+    consignors.updateOne(
+      { establishmentId, name: "Consignatario base" },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: {
+          id: randomUUID(),
+          establishmentId,
+          name: "Consignatario base",
+          address: null,
+          contactName: null,
+          phone: null,
+          email: null,
+          notes: "Carga inicial automática.",
+          createdAt: nowIso,
+        },
+      },
+      { upsert: true },
+    ),
+    slaughterhouses.updateOne(
+      { establishmentId, name: "Frigorifico base" },
+      {
+        $set: { status: "ACTIVE", updatedAt: nowIso },
+        $setOnInsert: {
+          id: randomUUID(),
+          establishmentId,
+          name: "Frigorifico base",
+          address: null,
+          contactName: null,
+          phone: null,
+          email: null,
+          notes: "Carga inicial automática.",
+          createdAt: nowIso,
+        },
+      },
+      { upsert: true },
+    ),
+  ]);
+};
+
 const TEST_TENANT_ID = "test-tenant";
 const TEST_ESTABLISHMENT_ID = "00000000-0000-4000-8000-000000000301";
 const TEST_USERS: Array<{ email: string; fullName: string; password: string; role: Membership["role"] }> = [
@@ -2668,12 +2780,15 @@ const loadContext = async (establishmentId?: string) => {
 
 const loadEstablishments = async () => {
   const { establishments } = await getCollections();
-  return establishments.find().toArray();
+  const docs = await establishments.find().toArray();
+  await Promise.all(docs.map((establishment) => ensureEstablishmentMasters(establishment.id)));
+  return docs;
 };
 
 const insertEstablishment = async (establishment: Establishment) => {
   const { establishments } = await getCollections();
   await establishments.insertOne(establishment);
+  await ensureEstablishmentMasters(establishment.id, establishment.createdAt);
 };
 
 const updateEstablishment = async (id: string, data: Partial<Establishment>) => {
@@ -2682,7 +2797,7 @@ const updateEstablishment = async (id: string, data: Partial<Establishment>) => 
 };
 
 const deleteEstablishment = async (id: string) => {
-  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories, healthEvents, animals, animalPhotos } = await getCollections();
+  const { establishments, paddocks, herds, movements, consignors, slaughterhouses, herdCategories, breeds, movementTypes, healthEvents, animals, animalPhotos } = await getCollections();
   const paddockDocs = await paddocks.find({ establishmentId: id }).toArray();
   const paddockIds = paddockDocs.map((paddock) => paddock.id);
   if (paddockIds.length) {
@@ -2699,6 +2814,8 @@ const deleteEstablishment = async (id: string) => {
     consignors.deleteMany({ establishmentId: id }),
     slaughterhouses.deleteMany({ establishmentId: id }),
     herdCategories.deleteMany({ establishmentId: id }),
+    breeds.deleteMany({ establishmentId: id }),
+    movementTypes.deleteMany({ establishmentId: id }),
     healthEvents.deleteMany({ establishmentId: id }),
     animals.deleteMany({ establishmentId: id }),
     establishments.deleteOne({ id }),
@@ -3426,6 +3543,28 @@ const herdCategoryUpdateSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
+const breedSchema = z.object({
+  establishmentId: z.string().uuid(),
+  name: z.string().min(2),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const breedUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const movementTypeSchema = z.object({
+  establishmentId: z.string().uuid(),
+  name: z.string().min(2),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const movementTypeUpdateSchema = z.object({
+  name: z.string().min(2).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
 const animalSchema = z.object({
   establishmentId: z.string().uuid(),
   earTag: z.string().min(2),
@@ -3448,6 +3587,7 @@ const animalPhotoSchema = z.object({
   caption: z.string().min(1).optional().nullable(),
   takenAt: z.string().datetime().optional().nullable(),
 });
+
 
 const healthEventSchema = z.object({
   establishmentId: z.string().uuid(),
@@ -6071,6 +6211,7 @@ const movementSchema = z.object({
   fromPaddockId: z.string().uuid(),
   toPaddockId: z.string().uuid().optional(),
   toPaddockName: z.string().min(2).max(200).optional(),
+  movementTypeId: z.string().uuid().optional().nullable(),
   category: z.string().min(2),
   quantity: z.number().int().positive(),
   occurredAt: z.string().datetime().optional(),
@@ -6101,7 +6242,7 @@ app.post("/movements", async (request, reply) => {
       issues: body.error.issues,
     });
   }
-  const { establishmentId, fromPaddockId, toPaddockId, toPaddockName, category, quantity, occurredAt } =
+  const { establishmentId, fromPaddockId, toPaddockId, toPaddockName, movementTypeId, category, quantity, occurredAt } =
     body.data;
 
   const fromPaddock = await findPaddockById(fromPaddockId);
@@ -6134,6 +6275,14 @@ app.post("/movements", async (request, reply) => {
   }
 
   const now = new Date().toISOString();
+  let movementType: MovementTypeMaster | null = null;
+  if (movementTypeId) {
+    const { movementTypes } = await getCollections();
+    movementType = await movementTypes.findOne({ id: movementTypeId, establishmentId, status: "ACTIVE" });
+    if (!movementType) {
+      return reply.status(404).send({ code: "NOT_FOUND", message: "Tipo de movimiento no encontrado." });
+    }
+  }
   const fromHerd = await findHerdByPaddockCategory(fromPaddockId, category);
   if (!fromHerd || fromHerd.count < quantity) {
     return reply.status(409).send({
@@ -6149,6 +6298,8 @@ app.post("/movements", async (request, reply) => {
     establishmentId,
     fromPaddockId,
     toPaddockId: targetPaddock.id,
+    movementTypeId: movementType?.id ?? null,
+    movementType: movementType?.name ?? null,
     category,
     quantity,
     occurredAt: occurredAt ?? now,
@@ -6434,6 +6585,112 @@ app.delete("/herd-categories/:id", async (request, reply) => {
     return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
   }
   await herdCategories.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
+});
+
+app.get("/breeds", async (request) => {
+  const { establishmentId, status } = request.query as { establishmentId?: string; status?: "ACTIVE" | "INACTIVE" };
+  const { breeds } = await getCollections();
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (status) filter.status = status;
+  const list = await breeds.find(filter).sort({ name: 1 }).toArray();
+  return { breeds: list };
+});
+
+app.post("/breeds", async (request, reply) => {
+  const body = breedSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  const now = new Date().toISOString();
+  const breed: BreedMaster = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    name: body.data.name.trim().toUpperCase(),
+    status: body.data.status ?? "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { breeds } = await getCollections();
+  await breeds.insertOne(breed);
+  return reply.status(201).send(breed);
+});
+
+app.patch("/breeds/:id", async (request, reply) => {
+  const body = breedUpdateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { breeds } = await getCollections();
+  const existing = await breeds.findOne({ id: request.params.id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Raza no encontrada." });
+  const updated = {
+    ...existing,
+    ...body.data,
+    name: body.data.name ? body.data.name.trim().toUpperCase() : existing.name,
+    updatedAt: new Date().toISOString(),
+  };
+  await breeds.updateOne({ id: request.params.id }, { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } });
+  return reply.send(updated);
+});
+
+app.delete("/breeds/:id", async (request, reply) => {
+  const { breeds } = await getCollections();
+  const existing = await breeds.findOne({ id: request.params.id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Raza no encontrada." });
+  await breeds.deleteOne({ id: request.params.id });
+  return reply.status(204).send();
+});
+
+app.get("/movement-types", async (request) => {
+  const { establishmentId, status } = request.query as { establishmentId?: string; status?: "ACTIVE" | "INACTIVE" };
+  const { movementTypes } = await getCollections();
+  const filter: Record<string, unknown> = {};
+  if (establishmentId) filter.establishmentId = establishmentId;
+  if (status) filter.status = status;
+  const list = await movementTypes.find(filter).sort({ name: 1 }).toArray();
+  return { movementTypes: list };
+});
+
+app.post("/movement-types", async (request, reply) => {
+  const body = movementTypeSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const establishment = await findEstablishmentById(body.data.establishmentId);
+  if (!establishment) return reply.status(404).send({ code: "NOT_FOUND", message: "Establecimiento no encontrado." });
+  const now = new Date().toISOString();
+  const movementType: MovementTypeMaster = {
+    id: randomUUID(),
+    establishmentId: body.data.establishmentId,
+    name: body.data.name.trim().toUpperCase(),
+    status: body.data.status ?? "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { movementTypes } = await getCollections();
+  await movementTypes.insertOne(movementType);
+  return reply.status(201).send(movementType);
+});
+
+app.patch("/movement-types/:id", async (request, reply) => {
+  const body = movementTypeUpdateSchema.safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  const { movementTypes } = await getCollections();
+  const existing = await movementTypes.findOne({ id: request.params.id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Tipo de movimiento no encontrado." });
+  const updated = {
+    ...existing,
+    ...body.data,
+    name: body.data.name ? body.data.name.trim().toUpperCase() : existing.name,
+    updatedAt: new Date().toISOString(),
+  };
+  await movementTypes.updateOne({ id: request.params.id }, { $set: { name: updated.name, status: updated.status, updatedAt: updated.updatedAt } });
+  return reply.send(updated);
+});
+
+app.delete("/movement-types/:id", async (request, reply) => {
+  const { movementTypes } = await getCollections();
+  const existing = await movementTypes.findOne({ id: request.params.id });
+  if (!existing) return reply.status(404).send({ code: "NOT_FOUND", message: "Tipo de movimiento no encontrado." });
+  await movementTypes.deleteOne({ id: request.params.id });
   return reply.status(204).send();
 });
 

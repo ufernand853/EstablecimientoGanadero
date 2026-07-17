@@ -15,7 +15,10 @@ export const canSeeLink = (_role: string | null, pathname: string, email?: strin
       "/admin/planes",
       "/admin/ai-settings",
       "/admin/users",
+      "/masters",
       "/masters/herd-categories",
+      "/masters/breeds",
+      "/masters/movement-types",
       "/masters/consignors",
       "/masters/slaughterhouses",
     ]);
