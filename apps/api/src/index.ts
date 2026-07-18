@@ -95,10 +95,22 @@ const adminUserCreateSchema = z.object({
 });
 
 const adminUserUpdateSchema = z.object({
+  email: z.string().email().optional(),
   fullName: z.string().min(2).optional(),
   password: z.string().min(8).optional(),
   role: z.enum(["OWNER", "ADMIN", "SUPERVISOR", "OPERATOR", "READONLY"]).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+
+const adminCustomerAccessSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2),
+  password: z.string().min(8).optional(),
+  role: z.enum(["OWNER", "ADMIN", "SUPERVISOR", "OPERATOR", "READONLY"]).default("OWNER"),
+});
+
+const adminResetPasswordSchema = z.object({
+  password: z.string().min(8).optional(),
 });
 
 const adminPlanUpdateSchema = z.object({
@@ -895,6 +907,7 @@ const PERPETUAL_ACCESS_EMAILS = new Set(
     .filter(Boolean),
 );
 const DEMO_READONLY_EMAILS = new Set(["prueba@linsse.com"]);
+const PLATFORM_ADMIN_EMAILS = new Set(["admin@linsse.com"]);
 const READONLY_DEMO_MESSAGE = "Esta cuenta demo es solo lectura. Podes recorrer la plataforma, pero no modificar datos.";
 
 const getCollections = async () => {
@@ -7756,12 +7769,168 @@ const hasLegacyAdminCookie = (request: { headers: Record<string, unknown> }) => 
 
 const ensureAdminAccess = async (request: { headers: Record<string, unknown> }) => {
   if (hasLegacyAdminCookie(request)) {
-    return { session: null as Awaited<ReturnType<typeof getSessionFromRequest>> | null };
+    return { session: null as Awaited<ReturnType<typeof getSessionFromRequest>> | null, isPlatformAdmin: true };
   }
   const session = await getSessionFromRequest(request);
   if (!session) return null;
   if (session.membership.role !== "OWNER" && session.membership.role !== "ADMIN") return null;
-  return { session };
+  return { session, isPlatformAdmin: PLATFORM_ADMIN_EMAILS.has(session.user.email.toLowerCase()) };
+};
+
+type AdminCustomerRow = {
+  tenantId: string;
+  tenantName: string;
+  tenantStatus: Tenant["status"];
+  establishmentIds: string[];
+  establishmentNames: string[];
+  primaryEstablishmentId: string | null;
+  primaryEstablishmentName: string | null;
+  userCount: number;
+  users: Array<{
+    id: string;
+    email: string;
+    fullName: string;
+    status: UserAccount["status"];
+    role: Membership["role"];
+    lastLoginAt: string | null;
+  }>;
+  planCode: string | null;
+  subscriptionStatus: Subscription["status"] | "MISSING";
+  provider: string | null;
+  currentPeriodEnd: string | null;
+  createdAt: string;
+  lastActivityAt: string | null;
+  latestCheckout: {
+    email: string;
+    status: BillingCheckout["status"];
+    provider: string | null;
+    createdAt: string;
+  } | null;
+  alerts: string[];
+};
+
+const loadAdminCustomerRows = async (tenantId?: string | null) => {
+  const { tenants, tenantEstablishments, establishments, memberships, users, subscriptions, billingCheckouts, accessLogs } = await getCollections();
+  const tenantDocs = await tenants.find(tenantId ? { id: tenantId } : {}).sort({ createdAt: -1 }).toArray();
+  const tenantIds = tenantDocs.map((tenant) => tenant.id);
+
+  const [tenantEstablishmentDocs, establishmentDocs, membershipDocs, subscriptionDocs, checkoutDocs, accessLogDocs] = await Promise.all([
+    tenantIds.length ? tenantEstablishments.find({ tenantId: { $in: tenantIds } }).toArray() : [],
+    tenantIds.length ? establishments.find({ tenantId: { $in: tenantIds } }).toArray() : [],
+    tenantIds.length ? memberships.find({ tenantId: { $in: tenantIds } }).toArray() : [],
+    tenantIds.length ? subscriptions.find({ tenantId: { $in: tenantIds } }).toArray() : [],
+    tenantIds.length ? billingCheckouts.find({ tenantId: { $in: tenantIds } }).toArray() : [],
+    tenantIds.length ? accessLogs.find({ tenantId: { $in: tenantIds } }).sort({ createdAt: -1 }).toArray() : [],
+  ]);
+
+  const userIds = Array.from(new Set(membershipDocs.map((membership) => membership.userId)));
+  const userDocs = userIds.length ? await users.find({ id: { $in: userIds } }).toArray() : [];
+  const usersById = new Map(userDocs.map((user) => [user.id, user]));
+
+  const establishmentsByTenant = new Map<string, Establishment[]>();
+  for (const establishment of establishmentDocs) {
+    const current = establishmentsByTenant.get(establishment.tenantId) ?? [];
+    current.push(establishment);
+    establishmentsByTenant.set(establishment.tenantId, current);
+  }
+
+  for (const relation of tenantEstablishmentDocs) {
+    if (establishmentDocs.some((item) => item.id === relation.establishmentId)) continue;
+    const current = establishmentsByTenant.get(relation.tenantId) ?? [];
+    establishmentsByTenant.set(relation.tenantId, current);
+  }
+
+  const membershipsByTenant = new Map<string, Membership[]>();
+  for (const membership of membershipDocs) {
+    const current = membershipsByTenant.get(membership.tenantId) ?? [];
+    current.push(membership);
+    membershipsByTenant.set(membership.tenantId, current);
+  }
+
+  const subscriptionByTenant = new Map<string, Subscription>();
+  for (const subscription of subscriptionDocs) {
+    const current = subscriptionByTenant.get(subscription.tenantId);
+    if (!current || current.updatedAt < subscription.updatedAt) {
+      subscriptionByTenant.set(subscription.tenantId, subscription);
+    }
+  }
+
+  const checkoutByTenant = new Map<string, BillingCheckout>();
+  for (const checkout of checkoutDocs) {
+    if (!checkout.tenantId) continue;
+    const current = checkoutByTenant.get(checkout.tenantId);
+    if (!current || current.updatedAt < checkout.updatedAt) {
+      checkoutByTenant.set(checkout.tenantId, checkout);
+    }
+  }
+
+  const accessLogByTenant = new Map<string, AccessLog>();
+  for (const log of accessLogDocs) {
+    if (!log.tenantId) continue;
+    if (!accessLogByTenant.has(log.tenantId)) {
+      accessLogByTenant.set(log.tenantId, log);
+    }
+  }
+
+  return tenantDocs.map<AdminCustomerRow>((tenant) => {
+    const tenantMemberships = membershipsByTenant.get(tenant.id) ?? [];
+    const tenantUsers = tenantMemberships
+      .map((membership) => {
+        const user = usersById.get(membership.userId);
+        if (!user) return null;
+        return {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          status: user.status,
+          role: membership.role,
+          lastLoginAt: user.lastLoginAt ?? null,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => left.email.localeCompare(right.email));
+
+    const tenantEstablishmentsList = (establishmentsByTenant.get(tenant.id) ?? []).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    const subscription = subscriptionByTenant.get(tenant.id) ?? null;
+    const latestCheckout = checkoutByTenant.get(tenant.id) ?? null;
+    const latestAccess = accessLogByTenant.get(tenant.id) ?? null;
+
+    const alerts: string[] = [];
+    if (tenantUsers.length === 0) alerts.push("Sin acceso creado");
+    if (!subscription) alerts.push("Sin suscripcion");
+    if (tenantEstablishmentsList.length === 0) alerts.push("Sin establecimientos asociados");
+    if (latestCheckout && latestCheckout.status !== "COMPLETED") alerts.push("Checkout incompleto");
+    if (tenantUsers.some((user) => user.status !== "ACTIVE")) alerts.push("Hay usuarios inactivos");
+
+    return {
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      tenantStatus: tenant.status,
+      establishmentIds: tenantEstablishmentsList.map((item) => item.id),
+      establishmentNames: tenantEstablishmentsList.map((item) => item.name),
+      primaryEstablishmentId: tenantEstablishmentsList[0]?.id ?? null,
+      primaryEstablishmentName: tenantEstablishmentsList[0]?.name ?? null,
+      userCount: tenantUsers.length,
+      users: tenantUsers,
+      planCode: subscription?.planCode ?? null,
+      subscriptionStatus: subscription?.status ?? "MISSING",
+      provider: subscription?.provider ?? latestCheckout?.provider ?? null,
+      currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
+      createdAt: tenant.createdAt,
+      lastActivityAt: latestAccess?.createdAt ?? tenantUsers.map((user) => user.lastLoginAt).filter(Boolean).sort().at(-1) ?? null,
+      latestCheckout: latestCheckout
+        ? {
+            email: latestCheckout.email,
+            status: latestCheckout.status,
+            provider: latestCheckout.provider,
+            createdAt: latestCheckout.createdAt,
+          }
+        : null,
+      alerts,
+    };
+  });
 };
 
 app.get("/admin/users", async (request, reply) => {
@@ -7792,6 +7961,17 @@ app.get("/admin/users", async (request, reply) => {
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
   return reply.send({ users: rows });
+});
+
+app.get("/admin/customers", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+
+  const tenantId = access.isPlatformAdmin ? null : access.session?.membership.tenantId ?? null;
+  const customers = await loadAdminCustomerRows(tenantId);
+  return reply.send({ customers });
 });
 
 app.get("/admin/activity", async (request, reply) => {
@@ -7893,6 +8073,73 @@ app.post("/admin/users", async (request, reply) => {
   return reply.status(201).send({ ok: true, userId });
 });
 
+app.post("/admin/customers/:tenantId/access", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+
+  const params = request.params as { tenantId: string };
+  if (!access.isPlatformAdmin && access.session?.membership.tenantId !== params.tenantId) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "No podes administrar este cliente." });
+  }
+
+  const body = adminCustomerAccessSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const { tenants, users, memberships } = await getCollections();
+  const tenant = await tenants.findOne({ id: params.tenantId });
+  if (!tenant) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Cliente no encontrado." });
+  }
+
+  const email = body.data.email.toLowerCase();
+  const existingUser = await users.findOne({ email });
+  if (existingUser) {
+    const existingMembership = await memberships.findOne({ tenantId: params.tenantId, userId: existingUser.id });
+    if (existingMembership) {
+      return reply.status(409).send({ code: "USER_EXISTS", message: "Ese correo ya tiene acceso a este cliente." });
+    }
+
+    await memberships.insertOne({
+      id: randomUUID(),
+      tenantId: params.tenantId,
+      userId: existingUser.id,
+      role: body.data.role,
+      createdAt: new Date().toISOString(),
+    });
+
+    return reply.status(201).send({ ok: true, userId: existingUser.id, reusedExistingUser: true });
+  }
+
+  const now = new Date().toISOString();
+  const generatedPassword = body.data.password ?? `Linsse${randomUUID().slice(0, 8)}!`;
+  const userId = randomUUID();
+
+  await users.insertOne({
+    id: userId,
+    email,
+    fullName: body.data.fullName.trim(),
+    passwordHash: hashPassword(generatedPassword),
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt: now,
+    lastLoginAt: null,
+  });
+
+  await memberships.insertOne({
+    id: randomUUID(),
+    tenantId: params.tenantId,
+    userId,
+    role: body.data.role,
+    createdAt: now,
+  });
+
+  return reply.status(201).send({ ok: true, userId, temporaryPassword: body.data.password ? null : generatedPassword });
+});
+
 app.patch("/admin/users/:userId", async (request, reply) => {
   const access = await ensureAdminAccess(request);
   if (!access || !access.session) {
@@ -7908,6 +8155,14 @@ app.patch("/admin/users/:userId", async (request, reply) => {
   if (!membership) return reply.status(404).send({ code: "NOT_FOUND", message: "Usuario no encontrado." });
   const now = new Date().toISOString();
   const userUpdate: Record<string, unknown> = { updatedAt: now };
+  if (body.data.email) {
+    const normalizedEmail = body.data.email.toLowerCase();
+    const existingEmail = await users.findOne({ email: normalizedEmail, id: { $ne: params.userId } });
+    if (existingEmail) {
+      return reply.status(409).send({ code: "EMAIL_IN_USE", message: "Ese correo ya esta registrado." });
+    }
+    userUpdate.email = normalizedEmail;
+  }
   if (body.data.fullName) userUpdate.fullName = body.data.fullName.trim();
   if (body.data.password) userUpdate.passwordHash = hashPassword(body.data.password);
   if (body.data.status) userUpdate.status = body.data.status;
@@ -7916,6 +8171,42 @@ app.patch("/admin/users/:userId", async (request, reply) => {
     await memberships.updateOne({ id: membership.id }, { $set: { role: body.data.role } });
   }
   return reply.send({ ok: true });
+});
+
+app.post("/admin/customers/:tenantId/users/:userId/reset-password", async (request, reply) => {
+  const access = await ensureAdminAccess(request);
+  if (!access) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "Solo administradores." });
+  }
+
+  const params = request.params as { tenantId: string; userId: string };
+  if (!access.isPlatformAdmin && access.session?.membership.tenantId !== params.tenantId) {
+    return reply.status(403).send({ code: "FORBIDDEN", message: "No podes administrar este cliente." });
+  }
+
+  const body = adminResetPasswordSchema.safeParse(request.body);
+  if (!body.success) {
+    return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
+  }
+
+  const { memberships, users } = await getCollections();
+  const membership = await memberships.findOne({ tenantId: params.tenantId, userId: params.userId });
+  if (!membership) {
+    return reply.status(404).send({ code: "NOT_FOUND", message: "Usuario no encontrado para este cliente." });
+  }
+
+  const temporaryPassword = body.data.password ?? `Linsse${randomUUID().slice(0, 8)}!`;
+  await users.updateOne(
+    { id: params.userId },
+    {
+      $set: {
+        passwordHash: hashPassword(temporaryPassword),
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  );
+
+  return reply.send({ ok: true, temporaryPassword });
 });
 
 app.patch("/admin/plans/:planCode", async (request, reply) => {
