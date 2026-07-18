@@ -32,6 +32,7 @@ export function AppHeader() {
     { href: withBasePath("/traceability"), label: t("header.traceability") },
     { href: withBasePath("/insumos"), label: t("header.supplies") },
     { href: withBasePath("/licencia"), label: t("header.license") },
+    { href: withBasePath("/admin/users"), label: t("header.customers") },
     { href: withBasePath("/admin/planes"), label: t("header.plans") },
     { href: withBasePath("/admin/ai-settings"), label: t("header.settings") },
   ];

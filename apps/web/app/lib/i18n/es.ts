@@ -13,6 +13,7 @@ export const es = {
   "header.supplies": "Insumos",
   "header.license": "Licencia",
   "header.plans": "Planes SaaS",
+  "header.customers": "Clientes",
   "header.settings": "Configuracion",
   "header.loggedUser": "Usuario logueado",
   "header.generalAccount": "Cuenta general",
