@@ -879,6 +879,7 @@ const SESSION_COOKIE_NAME = "eg_session";
 const SESSION_SECRET = process.env.SESSION_SECRET ?? "eg-dev-session-secret-change-me";
 const BILLING_WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "eg-dev-webhook-secret-change-me";
 const DEMO_TRIAL_DAYS = 5;
+const SELF_SERVICE_TRIAL_DAYS = 7;
 const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL ?? "https://ganaderia.linsse.com";
 const MERCADOPAGO_ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN ?? "";
 const MERCADOPAGO_PUBLIC_KEY = process.env.MERCADOPAGO_PUBLIC_KEY ?? "";
@@ -1708,6 +1709,99 @@ const resolveSubscriptionStatus = (subscription: Subscription) => {
   return { canAccess: true, statusLabel: subscription.status, daysLeft };
 };
 
+const provisionCheckoutAccess = async (checkout: BillingCheckout, plan: SubscriptionPlan) => {
+  const { users, tenants, memberships, subscriptions, establishments, tenantEstablishments } = await getCollections();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const tenantId = checkout.tenantId ?? randomUUID();
+  const trialDays = Math.max(0, plan.trialDays);
+  const currentPeriodEnd = new Date(now.getTime() + Math.max(1, trialDays) * 86400000).toISOString();
+  const existingUser = await users.findOne({ email: checkout.email });
+  const effectiveUserId = existingUser?.id ?? randomUUID();
+
+  if (!checkout.tenantId) {
+    await tenants.insertOne({
+      id: tenantId,
+      name: checkout.companyName,
+      status: "ACTIVE",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    const establishmentId = randomUUID();
+    await establishments.insertOne({
+      id: establishmentId,
+      name: checkout.companyName,
+      timezone: "UTC-3",
+      mapImageUrl: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await ensureDefaultHerdCategories(establishmentId, nowIso);
+    await tenantEstablishments.updateOne(
+      { tenantId, establishmentId },
+      { $set: { tenantId, establishmentId } },
+      { upsert: true },
+    );
+  }
+
+  if (!existingUser) {
+    await users.insertOne({
+      id: effectiveUserId,
+      email: checkout.email,
+      fullName: checkout.fullName,
+      passwordHash: checkout.passwordHash,
+      status: "ACTIVE",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      lastLoginAt: null,
+    });
+  }
+
+  await memberships.updateOne(
+    { tenantId, userId: effectiveUserId },
+    {
+      $setOnInsert: {
+        id: randomUUID(),
+        tenantId,
+        userId: effectiveUserId,
+        role: "OWNER",
+        createdAt: nowIso,
+      },
+    },
+    { upsert: true },
+  );
+
+  await subscriptions.updateMany(
+    { tenantId, status: { $in: ["ACTIVE", "TRIALING", "PAST_DUE", "PENDING"] } },
+    { $set: { status: "CANCELLED", cancelAt: nowIso, updatedAt: nowIso } },
+  );
+
+  await subscriptions.insertOne({
+    id: randomUUID(),
+    tenantId,
+    planCode: plan.code,
+    status: trialDays > 0 ? "TRIALING" : "ACTIVE",
+    provider: checkout.provider ?? "internal",
+    providerCustomerId: checkout.providerCustomerId ?? null,
+    providerSubscriptionId: checkout.providerSubscriptionId ?? null,
+    currentPeriodStart: nowIso,
+    currentPeriodEnd,
+    graceUntil: null,
+    cancelAt: null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  await users.updateOne({ id: effectiveUserId }, { $set: { updatedAt: nowIso } });
+
+  return {
+    tenantId,
+    userId: effectiveUserId,
+    currentPeriodEnd,
+    status: (trialDays > 0 ? "TRIALING" : "ACTIVE") as Subscription["status"],
+  };
+};
+
 const hasPerpetualAccess = (email: string) => PERPETUAL_ACCESS_EMAILS.has(email.toLowerCase());
 
 const isMercadoPagoConfigured = () => Boolean(MERCADOPAGO_ACCESS_TOKEN);
@@ -1915,7 +2009,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 30,
       amountCents: 76050,
       currency: "UYU",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: 250,
@@ -1931,7 +2025,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 30,
       amountCents: 388050,
       currency: "UYU",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: 1000,
@@ -1947,7 +2041,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 30,
       amountCents: 79900,
       currency: "BRL",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: 1000,
@@ -1963,7 +2057,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 180,
       amountCents: 419400,
       currency: "BRL",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: 1000,
@@ -1979,7 +2073,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 365,
       amountCents: 799000,
       currency: "BRL",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: 1000,
@@ -1995,7 +2089,7 @@ const ensureDefaultPlans = async () => {
       billingPeriodDays: 30,
       amountCents: 0,
       currency: "UYU",
-      trialDays: 0,
+      trialDays: SELF_SERVICE_TRIAL_DAYS,
       isDemo: false,
       active: true,
       animalLimit: null,
@@ -7044,12 +7138,16 @@ app.get("/billing/license", async (request, reply) => {
   }
 
   await ensureDefaultPlans();
-  const { subscriptionPlans, subscriptions, tenantEstablishments, animals, tenants } = await getCollections();
-  const [plan, latestSubscription, links, tenant] = await Promise.all([
+  const { subscriptionPlans, subscriptions, tenantEstablishments, animals, tenants, billingCheckouts } = await getCollections();
+  const [plan, latestSubscription, links, tenant, latestPendingCheckout] = await Promise.all([
     subscriptionPlans.findOne({ code: session.subscription.planCode }),
     subscriptions.findOne({ tenantId: session.membership.tenantId }, { sort: { updatedAt: -1 } }),
     tenantEstablishments.find({ tenantId: session.membership.tenantId }).toArray(),
     tenants.findOne({ id: session.membership.tenantId }),
+    billingCheckouts.findOne(
+      { tenantId: session.membership.tenantId, status: "PENDING_PAYMENT", kind: "SUBSCRIPTION" },
+      { sort: { updatedAt: -1 } },
+    ),
   ]);
 
   const establishmentIds = links.map((link) => link.establishmentId);
@@ -7087,6 +7185,18 @@ app.get("/billing/license", async (request, reply) => {
       currentPeriodStart: latestSubscription.currentPeriodStart,
       currentPeriodEnd: latestSubscription.currentPeriodEnd,
     } : null,
+    activation: {
+      isTrialing: latestSubscription?.status === "TRIALING",
+      trialDaysLeft: latestSubscription
+        ? Math.max(0, Math.ceil((new Date(latestSubscription.currentPeriodEnd).getTime() - Date.now()) / 86400000))
+        : null,
+      pendingCheckout: latestPendingCheckout ? {
+        referenceId: latestPendingCheckout.referenceId,
+        provider: latestPendingCheckout.provider,
+        checkoutUrl: latestPendingCheckout.checkoutUrl,
+        updatedAt: latestPendingCheckout.updatedAt,
+      } : null,
+    },
   });
 });
 
@@ -7130,6 +7240,15 @@ app.post("/auth/register-subscription", async (request, reply) => {
     updatedAt: now,
     kind: "SUBSCRIPTION",
   };
+
+  let activatedAccess:
+    | {
+        tenantId: string;
+        userId: string;
+        currentPeriodEnd: string;
+        status: Subscription["status"];
+      }
+    | null = null;
 
   if (requestedProvider === "mercadopago" && plan.amountCents > 0) {
     if (!isMercadoPagoConfigured()) {
@@ -7176,6 +7295,13 @@ app.post("/auth/register-subscription", async (request, reply) => {
     }
   }
 
+  if (plan.trialDays > 0) {
+    activatedAccess = await provisionCheckoutAccess(checkout, plan);
+    checkout.tenantId = activatedAccess.tenantId;
+    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER" });
+    setSessionCookie(reply, token);
+  }
+
   await billingCheckouts.insertOne(checkout);
   return reply.status(201).send({
     checkoutId: checkout.id,
@@ -7199,11 +7325,19 @@ app.post("/auth/register-subscription", async (request, reply) => {
       currency: plan.currency,
       animalLimit: plan.animalLimit,
     },
-    message: checkout.checkoutUrl
-      ? requestedProvider === "dodo"
-        ? "Cuenta creada. Redirig? al cliente a Dodo Payments para completar el pago."
-        : "Cuenta creada. Redirig? al cliente a Mercado Pago para activar la suscripci?n."
-      : "Checkout pendiente creado. Env?a `referenceId` a la pasarela y confirma por webhook.",
+    activated: Boolean(activatedAccess),
+    tenantId: activatedAccess?.tenantId ?? null,
+    trialEndsAt: activatedAccess?.currentPeriodEnd ?? null,
+    nextPath: activatedAccess ? "/dashboard" : null,
+    message: activatedAccess
+      ? checkout.checkoutUrl
+        ? `Cuenta creada y acceso habilitado por ${plan.trialDays} días. Podés completar el pago ahora o más adelante desde la suscripción.`
+        : `Cuenta creada y acceso habilitado por ${plan.trialDays} días.`
+      : checkout.checkoutUrl
+        ? requestedProvider === "dodo"
+          ? "Cuenta creada. Redirigí al cliente a Dodo Payments para completar el pago."
+          : "Cuenta creada. Redirigí al cliente a Mercado Pago para activar la suscripción."
+        : "Checkout pendiente creado. Enviá `referenceId` a la pasarela y confirmá por webhook.",
   });
 });
 
@@ -7305,7 +7439,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
   }
 
   await ensureDefaultPlans();
-  const { billingEvents, billingCheckouts, users, tenants, memberships, subscriptions, subscriptionPlans, establishments, tenantEstablishments } = await getCollections();
+  const { billingEvents, billingCheckouts, subscriptions, subscriptionPlans } = await getCollections();
   const existingEvent = await billingEvents.findOne({ provider: "mercadopago", providerEventId: externalId, eventType });
   if (existingEvent) {
     return reply.send({ received: true, duplicated: true, status: existingEvent.status });
@@ -7665,58 +7799,20 @@ app.post("/billing/webhook", async (request, reply) => {
   const now = new Date();
   const nowIso = now.toISOString();
   const end = new Date(now.getTime() + plan.billingPeriodDays * 86400000).toISOString();
-  const tenantId = checkout.tenantId ?? randomUUID();
-  const userId = randomUUID();
-  const existingUser = await users.findOne({ email: checkout.email });
-  const effectiveUserId = existingUser?.id ?? userId;
-
-  if (!checkout.tenantId) {
-    await tenants.insertOne({
-      id: tenantId,
-      name: checkout.companyName,
-      status: "ACTIVE",
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    });
-    const establishmentId = randomUUID();
-    await establishments.insertOne({
-      id: establishmentId,
-      name: checkout.companyName,
-      timezone: "UTC-3",
-      mapImageUrl: null,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    });
-    await ensureDefaultHerdCategories(establishmentId, nowIso);
-    await tenantEstablishments.updateOne(
-      { tenantId, establishmentId },
-      { $set: { tenantId, establishmentId } },
-      { upsert: true },
-    );
-    if (!existingUser) {
-      await users.insertOne({
-        id: effectiveUserId,
-        email: checkout.email,
-        fullName: checkout.fullName,
-        passwordHash: checkout.passwordHash,
-        status: "ACTIVE",
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        lastLoginAt: null,
-      });
-    }
-    await memberships.insertOne({
-      id: randomUUID(),
-      tenantId,
-      userId: effectiveUserId,
-      role: "OWNER",
-      createdAt: nowIso,
-    });
+  let tenantId = checkout.tenantId;
+  if (!tenantId) {
+    const provisioned = await provisionCheckoutAccess(checkout, plan);
+    tenantId = provisioned.tenantId;
   }
+
+  await subscriptions.updateMany(
+    { tenantId: tenantId!, status: { $in: ["ACTIVE", "TRIALING", "PAST_DUE", "PENDING"] } },
+    { $set: { status: "CANCELLED", cancelAt: nowIso, updatedAt: nowIso } },
+  );
 
   await subscriptions.insertOne({
     id: randomUUID(),
-    tenantId,
+    tenantId: tenantId!,
     planCode: plan.code,
     status: plan.isDemo ? "TRIALING" : "ACTIVE",
     provider: event.provider,
@@ -7735,7 +7831,7 @@ app.post("/billing/webhook", async (request, reply) => {
     {
       $set: {
         status: "COMPLETED",
-        tenantId,
+        tenantId: tenantId!,
         updatedAt: nowIso,
       },
     },
@@ -7755,7 +7851,7 @@ app.post("/billing/webhook", async (request, reply) => {
   return reply.send({
     ok: true,
     status: "activated",
-    tenantId,
+    tenantId: tenantId!,
     email: checkout.email,
     expiresAt: end,
   });

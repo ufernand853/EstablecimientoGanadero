@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
 import { isCommercialDemoUser } from "../lib/roles";
+import { LicenseResponse } from "../lib/billing";
+import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -45,6 +48,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [license, setLicense] = useState<LicenseResponse | null>(null);
 
   const activeEstablishment = establishments[0] ?? null;
 
@@ -117,6 +121,14 @@ export default function DashboardPage() {
       })
       .then((data) => setSessionEmail(data?.user?.email ?? null))
       .catch(() => setSessionEmail(null));
+
+    fetch(`${API_URL}/billing/license`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<LicenseResponse>;
+      })
+      .then((data) => setLicense(data ?? null))
+      .catch(() => setLicense(null));
   }, []);
 
   const isDemoUser = isCommercialDemoUser(sessionEmail);
@@ -171,6 +183,42 @@ export default function DashboardPage() {
           {error}
         </section>
       )}
+
+      {license?.activation.isTrialing ? (
+        <section className="rounded-xl border border-sky-800/70 bg-sky-950/30 p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">Prueba activa</p>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white">
+                Acceso completo habilitado por {license.activation.trialDaysLeft ?? 0} día{license.activation.trialDaysLeft === 1 ? "" : "s"}
+              </h3>
+              <p className="mt-1 text-sm text-slate-200">
+                La prueba vence el{" "}
+                {license.subscription?.currentPeriodEnd
+                  ? new Date(license.subscription.currentPeriodEnd).toLocaleDateString("es-UY")
+                  : "-"}
+                . Activá la suscripción antes de esa fecha para seguir sin cortes.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {license.activation.pendingCheckout?.checkoutUrl ? (
+                <a
+                  href={license.activation.pendingCheckout.checkoutUrl}
+                  className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
+                >
+                  Activar suscripción
+                </a>
+              ) : null}
+              <Link
+                href={withBasePath("/licencia")}
+                className="rounded-xl border border-slate-600 px-4 py-3 text-sm font-semibold text-white transition hover:border-sky-400"
+              >
+                Ver detalles
+              </Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {isDemoUser ? (
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">

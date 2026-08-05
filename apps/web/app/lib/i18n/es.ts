@@ -12,6 +12,7 @@ export const es = {
   "header.traceability": "Trazabilidad",
   "header.supplies": "Insumos",
   "header.license": "Licencia",
+  "header.masters": "Maestros",
   "header.plans": "Planes SaaS",
   "header.customers": "Clientes",
   "header.settings": "Configuracion",

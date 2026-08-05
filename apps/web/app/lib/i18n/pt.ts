@@ -14,6 +14,7 @@ export const pt: TranslationDictionary = {
   "header.traceability": "Rastreabilidade",
   "header.supplies": "Insumos",
   "header.license": "Licença",
+  "header.masters": "Cadastros",
   "header.plans": "Planos SaaS",
   "header.customers": "Clientes",
   "header.settings": "Configuração",

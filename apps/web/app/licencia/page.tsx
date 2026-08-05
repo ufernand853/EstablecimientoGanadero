@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getApiUrl } from "../lib/api-url";
 import { LicenseResponse, formatAnimalLimit, formatMoney } from "../lib/billing";
+import { withBasePath } from "../lib/base-path";
 
 const API_URL = getApiUrl();
 
@@ -30,6 +32,7 @@ export default function LicensePage() {
   const usagePercent = data?.usage.animalLimit
     ? Math.min(100, Math.round((data.usage.usedAnimals / data.usage.animalLimit) * 100))
     : null;
+  const trialEndsAt = data?.subscription?.currentPeriodEnd ? new Date(data.subscription.currentPeriodEnd).toLocaleDateString("es-UY") : null;
 
   return (
     <main className="space-y-6 py-6">
@@ -47,7 +50,39 @@ export default function LicensePage() {
       {error ? <div className="rounded-[1.75rem] border border-rose-900 bg-rose-950/40 p-6 text-rose-200">{error}</div> : null}
 
       {data ? (
-        <section className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
+        <>
+          {data.activation.isTrialing ? (
+            <section className="rounded-[1.75rem] border border-sky-800/60 bg-sky-950/30 p-6 shadow-xl shadow-slate-950/20">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Prueba activa</p>
+              <h2 className="mt-3 text-2xl font-black text-white">
+                Tenés acceso completo durante {data.activation.trialDaysLeft ?? 0} día{data.activation.trialDaysLeft === 1 ? "" : "s"}
+              </h2>
+              <p className="mt-2 text-sm text-slate-200">
+                La prueba vence el {trialEndsAt ?? "-"}.
+                {data.activation.pendingCheckout?.checkoutUrl
+                  ? " Si querés, ya podés activar la suscripción ahora y continuar sin interrupciones."
+                  : " Cuando confirmes el pago, la prueba se transformará en suscripción activa."}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {data.activation.pendingCheckout?.checkoutUrl ? (
+                  <a
+                    href={data.activation.pendingCheckout.checkoutUrl}
+                    className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
+                  >
+                    Activar suscripción
+                  </a>
+                ) : null}
+                <Link
+                  href={withBasePath("/planes")}
+                  className="rounded-xl border border-slate-600 px-4 py-3 text-sm font-semibold text-white transition hover:border-sky-400"
+                >
+                  Ver planes
+                </Link>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
           <article className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
@@ -112,7 +147,8 @@ export default function LicensePage() {
               ) : null}
             </div>
           </aside>
-        </section>
+          </section>
+        </>
       ) : null}
     </main>
   );
