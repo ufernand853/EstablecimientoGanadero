@@ -22,6 +22,16 @@ Puertos usados:
 - API: `3201`
 - Web: `3200`
 
+
+Verificacion de puertos en el server:
+
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+./deploy/verify-ports.sh
+```
+
+El script compara los puertos esperados (`API_PORT=3201`, `WEB_PORT=3200` por defecto), los procesos que realmente estan escuchando, los healthchecks locales y los `proxy_pass` efectivos de Nginx. Si despues de un `git pull` vuelve a fallar, revisa especialmente que `/etc/nginx/sites-enabled/ganaderia.linsse.com.conf` siga apuntando a `3201`/`3200` y no a `3001`/`3000`.
+
 Logs:
 
 - `/home/adminuser/EstablecimientoGanadero/api.log`
