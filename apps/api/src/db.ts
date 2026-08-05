@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
-import { MongoClient } from "mongodb";
+import { MongoClient, MongoServerSelectionError } from "mongodb";
 
 const loadEnvironment = () => {
   let currentDir = process.cwd();
@@ -58,21 +58,48 @@ const getDbNameFromUri = (uri: string) => {
   return dbNameMatch?.[1] ? decodeURIComponent(dbNameMatch[1]) : null;
 };
 
+const parsePositiveInteger = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const MONGODB_URI = buildMongoUri();
 const MONGODB_DB =
   process.env.MONGODB_DB ?? getDbNameFromUri(MONGODB_URI) ?? "establecimiento_ganadero";
+
+const MONGODB_SERVER_SELECTION_TIMEOUT_MS = parsePositiveInteger(
+  process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+  5000,
+);
 
 let client: MongoClient | null = null;
 
 export const getMongoClient = () => {
   if (!client) {
-    client = new MongoClient(MONGODB_URI);
+    client = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+    });
   }
   return client;
 };
 
 export const getDb = async () => {
   const mongoClient = getMongoClient();
-  await mongoClient.connect();
+
+  try {
+    await mongoClient.connect();
+  } catch (error) {
+    if (error instanceof MongoServerSelectionError) {
+      throw new Error(
+        `No se pudo conectar a MongoDB en ${MONGODB_URI}. ` +
+          "Verifica que MongoDB esté levantado, que MONGODB_URI/MONGODB_DB apunten al servicio correcto " +
+          `y que el puerto sea accesible. Timeout: ${MONGODB_SERVER_SELECTION_TIMEOUT_MS}ms.`,
+        { cause: error },
+      );
+    }
+
+    throw error;
+  }
+
   return mongoClient.db(MONGODB_DB);
 };

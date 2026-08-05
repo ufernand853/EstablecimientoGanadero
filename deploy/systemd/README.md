@@ -14,6 +14,8 @@ cd /home/adminuser/EstablecimientoGanadero
 Este script:
 
 - genera `eg-api.service` y `eg-web.service` temporalmente,
+- configura la API en `PORT=3201`,
+- configura la web en `PORT=3200` y `API_INTERNAL_URL=http://127.0.0.1:3201`,
 - los copia a `/etc/systemd/system/`,
 - hace `daemon-reload`,
 - y ejecuta `enable --now` para ambos servicios.
@@ -77,10 +79,19 @@ npm --workspace apps/web run build
 sudo systemctl restart eg-api.service eg-web.service
 ```
 
+Si `systemctl status eg-api.service` muestra una unidad vieja con `PORT=3001`/`PORT=3000`, reinstala las unidades generadas por el repo y reinicia:
+
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+sudo ./deploy/systemd/install-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
+sudo systemctl daemon-reload
+sudo systemctl restart eg-api.service eg-web.service
+```
+
 ## Notas
 
-- API usa `npm --workspace apps/api run start`.
-- Web usa `npm --workspace apps/web run start` y requiere build previo.
+- API usa `npm --workspace apps/api run start` en `PORT=3201`.
+- Web usa `npm --workspace apps/web run start` en `PORT=3200`, requiere build previo y consume la API mediante `API_INTERNAL_URL=http://127.0.0.1:3201`.
 - `eg-web.service` usa `Wants=eg-api.service` (dependencia blanda), para evitar que web falle si API no inicia.
 - Si quieres acoplamiento estricto, cambia `Wants` por `Requires` y agrega `After=network.target eg-api.service`.
 - `EnvironmentFile=-.../.env` usa prefijo `-` para no fallar si falta el `.env`.
