@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
-import { isCommercialDemoUser } from "../lib/roles";
-import { LicenseResponse } from "../lib/billing";
 import { withBasePath } from "../lib/base-path";
+import { LicenseResponse, formatLicenseDate, formatTrialDays } from "../lib/billing";
+import { isCommercialDemoUser } from "../lib/roles";
 
 const API_URL = getApiUrl();
 
@@ -110,7 +110,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    loadDashboardData();
+    void loadDashboardData();
   }, [pathname]);
 
   useEffect(() => {
@@ -170,7 +170,7 @@ export default function DashboardPage() {
         <h2 className="text-xl font-semibold">Dashboard</h2>
         <button
           className="rounded bg-slate-700 px-4 py-2 text-sm"
-          onClick={loadDashboardData}
+          onClick={() => void loadDashboardData()}
           disabled={loading}
           type="button"
         >
@@ -190,14 +190,10 @@ export default function DashboardPage() {
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-white">
-                Acceso completo habilitado por {license.activation.trialDaysLeft ?? 0} día{license.activation.trialDaysLeft === 1 ? "" : "s"}
+                Acceso completo habilitado por {formatTrialDays(license.activation.trialDaysLeft)}
               </h3>
               <p className="mt-1 text-sm text-slate-200">
-                La prueba vence el{" "}
-                {license.subscription?.currentPeriodEnd
-                  ? new Date(license.subscription.currentPeriodEnd).toLocaleDateString("es-UY")
-                  : "-"}
-                . Activá la suscripción antes de esa fecha para seguir sin cortes.
+                La prueba vence el {formatLicenseDate(license.subscription?.currentPeriodEnd)}. Activa la suscripcion antes de esa fecha para seguir sin cortes.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -206,7 +202,7 @@ export default function DashboardPage() {
                   href={license.activation.pendingCheckout.checkoutUrl}
                   className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
                 >
-                  Activar suscripción
+                  Activar suscripcion
                 </a>
               ) : null}
               <Link

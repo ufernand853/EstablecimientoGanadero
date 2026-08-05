@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { LanguageSelector } from "../components/language-selector";
 import { getApiUrl } from "../lib/api-url";
 import { withBasePath } from "../lib/base-path";
-import { PublicPlan, formatAnimalLimit, formatPlanPrice } from "../lib/billing";
+import { PublicPlan, formatAnimalLimit, formatPlanPrice, formatTrialDays } from "../lib/billing";
 import { useI18n } from "../lib/i18n";
 
 const API_URL = getApiUrl();
@@ -50,7 +50,7 @@ function RegisterPageContent() {
         const response = await fetch(`${API_URL}/public/plans`, { cache: "no-store" });
         const data = (await response.json()) as PublicPlan[];
         if (!response.ok) throw new Error(t("register.loadError"));
-        setPlans(data.filter((plan) => !plan.isDemo));
+        setPlans(data.filter((plan) => !plan.isDemo && plan.isSelfService));
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : t("register.loadError"));
       } finally {
@@ -126,6 +126,11 @@ function RegisterPageContent() {
               <p className="mt-2 text-sm text-slate-300">{selectedPlan.description}</p>
               <p className="mt-4 text-2xl font-black text-white">{formatPlanPrice(selectedPlan)}</p>
               <p className="mt-1 text-sm text-emerald-200">{formatAnimalLimit(selectedPlan.animalLimit)}</p>
+              {selectedPlan.trialDays > 0 ? (
+                <div className="mt-4 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                  Empezas con {formatTrialDays(selectedPlan.trialDays)} de prueba completa. El acceso se habilita al crear la cuenta.
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -134,6 +139,11 @@ function RegisterPageContent() {
       <section className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
         <h2 className="text-xl font-bold text-white">{t("register.accountTitle")}</h2>
         <p className="mt-2 text-sm text-slate-300">{t("register.accountBody")}</p>
+        {selectedPlan?.trialDays ? (
+          <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            La cuenta entra con {formatTrialDays(selectedPlan.trialDays)} de prueba y despues podes completar la suscripcion sin perder el acceso.
+          </div>
+        ) : null}
         {loading ? <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">{t("plans.loading")}</p> : null}
         {error ? <p className="mt-5 rounded-2xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{error}</p> : null}
         {result ? (

@@ -1592,13 +1592,14 @@ const getSessionFromRequest = async (request: { headers: Record<string, unknown>
   if (!token) return null;
   const claims = verifySessionToken(token);
   if (!claims) return null;
-  const { users, memberships, subscriptions } = await getCollections();
-  const [user, membership, subscription] = await Promise.all([
+  const { users, memberships, subscriptions, billingCheckouts } = await getCollections();
+  const [user, membership, latestSubscription] = await Promise.all([
     users.findOne({ id: claims.userId, status: "ACTIVE" }),
     memberships.findOne({ userId: claims.userId, tenantId: claims.tenantId }),
     subscriptions.findOne({ tenantId: claims.tenantId }, { sort: { updatedAt: -1 } }),
   ]);
-  if (!user || !membership || !subscription) return null;
+  if (!user || !membership || !latestSubscription) return null;
+  const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
   return { user, membership, subscription };
 };
 
@@ -1661,11 +1662,27 @@ const appendDemoActivityLog = async (entry: Omit<DemoActivityLog, "id" | "create
 };
 
 app.addHook("preHandler", async (request, reply) => {
+  const path = getRequestPath(request);
+  const session = await getSessionFromRequest(request);
+  if (
+    session
+    && !path.startsWith("/auth/login")
+    && !path.startsWith("/auth/logout")
+    && !path.startsWith("/auth/session")
+    && !path.startsWith("/billing/license")
+    && !path.startsWith("/webhooks/")
+    && path !== "/health"
+  ) {
+    const access = resolveSubscriptionStatus(session.subscription);
+    const perpetualAccess = hasPerpetualAccess(session.user.email);
+    if (!access.canAccess && !perpetualAccess) {
+      return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripci�n vencida. Renov� para continuar." });
+    }
+  }
+
   const method = request.method.toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return;
-  const path = getRequestPath(request);
   if (path === "/auth/logout") return;
-  const session = await getSessionFromRequest(request);
   if (!session || !isReadOnlyDemoSession(session)) return;
   return reply.status(403).send({ code: "READ_ONLY_DEMO", message: READONLY_DEMO_MESSAGE });
 });
@@ -1707,6 +1724,34 @@ const resolveSubscriptionStatus = (subscription: Subscription) => {
   }
   const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / 86400000));
   return { canAccess: true, statusLabel: subscription.status, daysLeft };
+};
+
+const normalizeSubscriptionLifecycle = async (subscription: Subscription) => {
+  if (subscription.status === "CANCELLED" || subscription.status === "EXPIRED") {
+    return subscription;
+  }
+
+  const periodEnd = new Date(subscription.currentPeriodEnd);
+  const graceUntil = subscription.graceUntil ? new Date(subscription.graceUntil) : null;
+  const now = Date.now();
+  if (periodEnd.getTime() >= now || (graceUntil && graceUntil.getTime() > now)) {
+    return subscription;
+  }
+
+  const nowIso = new Date().toISOString();
+  const { subscriptions } = await getCollections();
+  await subscriptions.updateOne(
+    { id: subscription.id, status: { $nin: ["CANCELLED", "EXPIRED"] } },
+    { $set: { status: "EXPIRED", updatedAt: nowIso, cancelAt: subscription.cancelAt ?? nowIso, graceUntil: null } },
+  );
+
+  return {
+    ...subscription,
+    status: "EXPIRED" as const,
+    updatedAt: nowIso,
+    cancelAt: subscription.cancelAt ?? nowIso,
+    graceUntil: null,
+  };
 };
 
 const provisionCheckoutAccess = async (checkout: BillingCheckout, plan: SubscriptionPlan) => {
@@ -1827,9 +1872,15 @@ const getDodoProductIdForPlan = (planCode: string) => {
 const resolveAvailableProviders = (plan: Pick<SubscriptionPlan, "code" | "currency" | "isDemo">) => {
   if (plan.isDemo || plan.code === "ENTERPRISE") return [] as ("mercadopago" | "dodo")[];
   if (plan.currency === "BRL") {
-    return ["mercadopago", "dodo"] as ("mercadopago" | "dodo")[];
+    return [
+      ...(isMercadoPagoConfigured() ? (["mercadopago"] as const) : []),
+      ...(isDodoConfigured() ? (["dodo"] as const) : []),
+    ];
   }
-  return isDodoConfigured() ? (["mercadopago", "dodo"] as ("mercadopago" | "dodo")[]) : (["mercadopago"] as ("mercadopago" | "dodo")[]);
+  return [
+    ...(isMercadoPagoConfigured() ? (["mercadopago"] as const) : []),
+    ...(isDodoConfigured() ? (["dodo"] as const) : []),
+  ];
 };
 
 const resolveDefaultProvider = (plan: Pick<SubscriptionPlan, "currency">, availableProviders: ("mercadopago" | "dodo")[]) => {
@@ -7100,7 +7151,7 @@ app.get("/public/plans", async () => {
     ctaLabel: plan.ctaLabel,
     featureList: plan.featureList,
     isDemo: plan.isDemo,
-    isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE",
+    isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE" && availableProviders.length > 0,
     availableProviders,
     defaultProvider: resolveDefaultProvider(plan, availableProviders),
   };
@@ -7139,7 +7190,7 @@ app.get("/billing/license", async (request, reply) => {
 
   await ensureDefaultPlans();
   const { subscriptionPlans, subscriptions, tenantEstablishments, animals, tenants, billingCheckouts } = await getCollections();
-  const [plan, latestSubscription, links, tenant, latestPendingCheckout] = await Promise.all([
+  const [plan, rawLatestSubscription, links, tenant, latestPendingCheckout] = await Promise.all([
     subscriptionPlans.findOne({ code: session.subscription.planCode }),
     subscriptions.findOne({ tenantId: session.membership.tenantId }, { sort: { updatedAt: -1 } }),
     tenantEstablishments.find({ tenantId: session.membership.tenantId }).toArray(),
@@ -7149,6 +7200,7 @@ app.get("/billing/license", async (request, reply) => {
       { sort: { updatedAt: -1 } },
     ),
   ]);
+  const latestSubscription = rawLatestSubscription ? await normalizeSubscriptionLifecycle(rawLatestSubscription) : null;
 
   const establishmentIds = links.map((link) => link.establishmentId);
   const usedAnimals = establishmentIds.length > 0
@@ -8361,8 +8413,8 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organización asociada." });
   }
-  const subscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
-  if (!subscription) {
+  const latestSubscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
+  if (!latestSubscription) {
     await appendAccessLog({
       email: user.email,
       userId: user.id,
@@ -8375,9 +8427,14 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
   }
+  const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
   const access = resolveSubscriptionStatus(subscription);
   const perpetualAccess = hasPerpetualAccess(user.email);
   if (!access.canAccess && !perpetualAccess) {
+    const pendingCheckout = await billingCheckouts.findOne(
+      { tenantId: membership.tenantId, status: "PENDING_PAYMENT", kind: "SUBSCRIPTION" },
+      { sort: { updatedAt: -1 } },
+    );
     await appendAccessLog({
       email: user.email,
       userId: user.id,
@@ -8388,7 +8445,17 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Suscripcion sin acceso.",
     });
-    return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
+    return reply.status(402).send({
+      code: "SUBSCRIPTION_EXPIRED",
+      message: "Suscripción vencida. Renová para continuar.",
+      renewal: pendingCheckout
+        ? {
+            provider: pendingCheckout.provider,
+            checkoutUrl: pendingCheckout.checkoutUrl,
+            referenceId: pendingCheckout.referenceId,
+          }
+        : null,
+    });
   }
   const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role });
   setSessionCookie(reply, token);
@@ -8575,3 +8642,5 @@ const start = async () => {
 };
 
 start();
+
+
