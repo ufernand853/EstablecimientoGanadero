@@ -46,6 +46,16 @@ export type LicenseResponse = {
     currentPeriodStart: string;
     currentPeriodEnd: string;
   } | null;
+  activation: {
+    isTrialing: boolean;
+    trialDaysLeft: number | null;
+    pendingCheckout: {
+      referenceId: string;
+      provider: string | null;
+      checkoutUrl: string | null;
+      updatedAt: string;
+    } | null;
+  };
 };
 
 export function formatMoney(currency: string, amount: number | null) {

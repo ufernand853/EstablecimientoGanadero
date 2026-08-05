@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { LanguageSelector } from "../components/language-selector";
 import { getApiUrl } from "../lib/api-url";
 import { withBasePath } from "../lib/base-path";
@@ -18,10 +19,14 @@ type RegisterResult = {
   message: string;
   checkoutUrl?: string | null;
   provider?: "mercadopago" | "dodo" | null;
+  nextPath?: string | null;
+  activated?: boolean;
+  trialEndsAt?: string | null;
 };
 
 function RegisterPageContent() {
   const { t } = useI18n();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const requestedPlan = searchParams.get("plan") ?? "PRO";
   const initialPlan = requestedPlan === "BASIC" || requestedPlan === "PRO" ? requestedPlan : "PRO";
@@ -85,6 +90,11 @@ function RegisterPageContent() {
       const data = (await response.json()) as RegisterResult & { message?: string };
       if (!response.ok) throw new Error(data.message ?? t("register.createError"));
       setResult(data);
+      if (data.nextPath) {
+        router.push(withBasePath(data.nextPath));
+        router.refresh();
+        return;
+      }
       if (data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       }
