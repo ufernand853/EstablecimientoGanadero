@@ -76,3 +76,13 @@ export function formatAnimalLimit(animalLimit: number | null) {
   if (animalLimit == null) return "Animales ilimitados";
   return `Hasta ${animalLimit.toLocaleString("es-UY")} animales`;
 }
+
+export function formatTrialDays(days: number | null) {
+  if (days == null) return "sin datos";
+  return `${days} dia${days === 1 ? "" : "s"}`;
+}
+
+export function formatLicenseDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("es-UY");
+}

@@ -16,11 +16,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [renewalUrl, setRenewalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setRenewalUrl(null);
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
@@ -38,7 +40,11 @@ export default function LoginPage() {
         return;
       }
 
-      const data = await response.json().catch(() => ({ message: t("login.invalidCredentials") }));
+      const data = await response.json().catch(() => ({ message: t("login.invalidCredentials") })) as {
+        message?: string;
+        renewal?: { checkoutUrl?: string | null };
+      };
+      setRenewalUrl(data.renewal?.checkoutUrl ?? null);
       setError(data.message ?? t("login.invalidCredentials"));
     } catch {
       setError(t("login.serverError"));
@@ -130,7 +136,19 @@ export default function LoginPage() {
                   autoComplete="current-password"
                 />
               </label>
-              {error ? <p className="rounded border border-rose-800 bg-rose-950/40 p-2 text-sm text-rose-300">{error}</p> : null}
+              {error ? (
+                <div className="rounded border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-300">
+                  <p>{error}</p>
+                  {renewalUrl ? (
+                    <a
+                      href={renewalUrl}
+                      className="mt-3 inline-flex rounded-lg bg-emerald-400 px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-emerald-300"
+                    >
+                      Reactivar suscripcion
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
               <button className="rounded bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-70" disabled={loading}>
                 {loading ? t("login.submitting") : t("login.submit")}
               </button>

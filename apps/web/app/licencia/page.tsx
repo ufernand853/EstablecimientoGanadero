@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getApiUrl } from "../lib/api-url";
-import { LicenseResponse, formatAnimalLimit, formatMoney } from "../lib/billing";
 import { withBasePath } from "../lib/base-path";
+import { LicenseResponse, formatAnimalLimit, formatLicenseDate, formatMoney, formatTrialDays } from "../lib/billing";
 
 const API_URL = getApiUrl();
 
@@ -26,13 +26,13 @@ export default function LicensePage() {
         setLoading(false);
       }
     };
-    loadLicense();
+    void loadLicense();
   }, []);
 
   const usagePercent = data?.usage.animalLimit
     ? Math.min(100, Math.round((data.usage.usedAnimals / data.usage.animalLimit) * 100))
     : null;
-  const trialEndsAt = data?.subscription?.currentPeriodEnd ? new Date(data.subscription.currentPeriodEnd).toLocaleDateString("es-UY") : null;
+  const trialEndsAt = formatLicenseDate(data?.subscription?.currentPeriodEnd);
 
   return (
     <main className="space-y-6 py-6">
@@ -42,7 +42,7 @@ export default function LicensePage() {
         </span>
         <h1 className="mt-4 text-3xl font-black tracking-tight text-white">Estado comercial del tenant</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-300">
-          Consultá plan, vencimiento, cantidad de establecimientos asociados y uso del cupo de animales contratado.
+          Consulta plan, vencimiento, cantidad de establecimientos asociados y uso del cupo de animales contratado.
         </p>
       </section>
 
@@ -55,13 +55,13 @@ export default function LicensePage() {
             <section className="rounded-[1.75rem] border border-sky-800/60 bg-sky-950/30 p-6 shadow-xl shadow-slate-950/20">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Prueba activa</p>
               <h2 className="mt-3 text-2xl font-black text-white">
-                Tenés acceso completo durante {data.activation.trialDaysLeft ?? 0} día{data.activation.trialDaysLeft === 1 ? "" : "s"}
+                Tienes acceso completo durante {formatTrialDays(data.activation.trialDaysLeft)}
               </h2>
               <p className="mt-2 text-sm text-slate-200">
-                La prueba vence el {trialEndsAt ?? "-"}.
+                La prueba vence el {trialEndsAt}.
                 {data.activation.pendingCheckout?.checkoutUrl
-                  ? " Si querés, ya podés activar la suscripción ahora y continuar sin interrupciones."
-                  : " Cuando confirmes el pago, la prueba se transformará en suscripción activa."}
+                  ? " Si quieres, ya puedes activar la suscripcion ahora y continuar sin interrupciones."
+                  : " Cuando confirmes el pago, la prueba se transformara en suscripcion activa."}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 {data.activation.pendingCheckout?.checkoutUrl ? (
@@ -69,7 +69,7 @@ export default function LicensePage() {
                     href={data.activation.pendingCheckout.checkoutUrl}
                     className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300"
                   >
-                    Activar suscripción
+                    Activar suscripcion
                   </a>
                 ) : null}
                 <Link
@@ -83,70 +83,73 @@ export default function LicensePage() {
           ) : null}
 
           <section className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
-          <article className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Empresa</p>
-                <h2 className="mt-3 text-2xl font-black text-white">{data.tenant.name}</h2>
-                <p className="mt-2 text-sm text-slate-300">Rol actual: {data.tenant.role}</p>
+            <article className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Empresa</p>
+                  <h2 className="mt-3 text-2xl font-black text-white">{data.tenant.name}</h2>
+                  <p className="mt-2 text-sm text-slate-300">Rol actual: {data.tenant.role}</p>
+                </div>
+                <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Plan</p>
+                  <h2 className="mt-3 text-2xl font-black text-white">{data.license?.name ?? "Sin plan"}</h2>
+                  <p className="mt-2 text-sm text-slate-300">{data.license?.description ?? "No hay datos de licencia."}</p>
+                </div>
+                <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Precio</p>
+                  <p className="mt-3 text-2xl font-black text-white">
+                    {data.license ? `${formatMoney(data.license.currency, data.license.amountCents / 100)}/mes` : "No disponible"}
+                  </p>
+                  <p className="mt-2 text-sm text-emerald-200">{data.license ? formatAnimalLimit(data.license.animalLimit) : ""}</p>
+                </div>
+                <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Suscripcion</p>
+                  <p className="mt-3 text-2xl font-black text-white">{data.subscription?.status ?? data.license?.status ?? "Sin datos"}</p>
+                  <p className="mt-2 text-sm text-slate-300">Vence: {formatLicenseDate(data.subscription?.currentPeriodEnd ?? data.license?.currentPeriodEnd ?? null)}</p>
+                  {data.activation.isTrialing ? (
+                    <p className="mt-2 text-sm text-sky-200">Restan {formatTrialDays(data.activation.trialDaysLeft)} de prueba.</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Plan</p>
-                <h2 className="mt-3 text-2xl font-black text-white">{data.license?.name ?? "Sin plan"}</h2>
-                <p className="mt-2 text-sm text-slate-300">{data.license?.description ?? "No hay datos de licencia."}</p>
-              </div>
-              <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Precio</p>
-                <p className="mt-3 text-2xl font-black text-white">
-                  {data.license ? `${formatMoney(data.license.currency, data.license.amountCents / 100)}/mes` : "No disponible"}
-                </p>
-                <p className="mt-2 text-sm text-emerald-200">{data.license ? formatAnimalLimit(data.license.animalLimit) : ""}</p>
-              </div>
-              <div className="rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Suscripción</p>
-                <p className="mt-3 text-2xl font-black text-white">{data.subscription?.status ?? data.license?.status ?? "Sin datos"}</p>
-                <p className="mt-2 text-sm text-slate-300">Vence: {data.subscription?.currentPeriodEnd ?? data.license?.currentPeriodEnd ?? "-"}</p>
-              </div>
-            </div>
 
-            {data.license?.featureList?.length ? (
-              <div className="mt-5 rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Funcionalidades incluidas</p>
-                <ul className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
-                  {data.license.featureList.map((feature) => (
-                    <li key={feature} className="flex gap-2">
-                      <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </article>
-
-          <aside className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Uso actual</p>
-            <p className="mt-3 text-4xl font-black text-white">{data.usage.usedAnimals.toLocaleString("es-UY")}</p>
-            <p className="mt-1 text-sm text-slate-300">animales activos cargados</p>
-            <div className="mt-5 rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
-              <p className="text-sm text-slate-300">Establecimientos asociados: {data.usage.establishments}</p>
-              <p className="mt-2 text-sm text-slate-300">Cupo contratado: {formatAnimalLimit(data.usage.animalLimit)}</p>
-              <p className="mt-2 text-sm text-slate-300">
-                Disponible: {data.usage.remainingAnimals == null ? "Sin límite" : `${data.usage.remainingAnimals.toLocaleString("es-UY")} animales`}
-              </p>
-              {usagePercent != null ? (
-                <div className="mt-4">
-                  <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    <span>Consumo</span>
-                    <span>{usagePercent}%</span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-800">
-                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-lime-300 to-amber-300" style={{ width: `${usagePercent}%` }} />
-                  </div>
+              {data.license?.featureList?.length ? (
+                <div className="mt-5 rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Funcionalidades incluidas</p>
+                  <ul className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+                    {data.license.featureList.map((feature) => (
+                      <li key={feature} className="flex gap-2">
+                        <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
-            </div>
-          </aside>
+            </article>
+
+            <aside className="rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/20">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Uso actual</p>
+              <p className="mt-3 text-4xl font-black text-white">{data.usage.usedAnimals.toLocaleString("es-UY")}</p>
+              <p className="mt-1 text-sm text-slate-300">animales activos cargados</p>
+              <div className="mt-5 rounded-[1.5rem] border border-slate-800 bg-slate-950/70 p-5">
+                <p className="text-sm text-slate-300">Establecimientos asociados: {data.usage.establishments}</p>
+                <p className="mt-2 text-sm text-slate-300">Cupo contratado: {formatAnimalLimit(data.usage.animalLimit)}</p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Disponible: {data.usage.remainingAnimals == null ? "Sin limite" : `${data.usage.remainingAnimals.toLocaleString("es-UY")} animales`}
+                </p>
+                {usagePercent != null ? (
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      <span>Consumo</span>
+                      <span>{usagePercent}%</span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+                      <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-lime-300 to-amber-300" style={{ width: `${usagePercent}%` }} />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </aside>
           </section>
         </>
       ) : null}
