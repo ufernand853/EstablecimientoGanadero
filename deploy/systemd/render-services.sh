@@ -9,6 +9,8 @@ set -euo pipefail
 USER_NAME="$(id -un)"
 PROJECT_DIR="$(pwd)"
 OUT_DIR="deploy/systemd/generated"
+API_PORT="${API_PORT:-3201}"
+WEB_PORT="${WEB_PORT:-3200}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +24,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --out-dir)
       OUT_DIR="$2"
+      shift 2
+      ;;
+    --api-port)
+      API_PORT="$2"
+      shift 2
+      ;;
+    --web-port)
+      WEB_PORT="$2"
       shift 2
       ;;
     *)
@@ -44,6 +54,7 @@ User=${USER_NAME}
 WorkingDirectory=${PROJECT_DIR}
 Environment=NODE_ENV=production
 EnvironmentFile=-${PROJECT_DIR}/.env
+Environment=PORT=${API_PORT}
 ExecStart=/usr/bin/env npm --workspace apps/api run start
 Restart=always
 RestartSec=5
@@ -66,7 +77,8 @@ User=${USER_NAME}
 WorkingDirectory=${PROJECT_DIR}
 Environment=NODE_ENV=production
 EnvironmentFile=-${PROJECT_DIR}/.env
-Environment=PORT=3100
+Environment=PORT=${WEB_PORT}
+Environment=API_INTERNAL_URL=http://127.0.0.1:${API_PORT}
 ExecStart=/usr/bin/env npm --workspace apps/web run start
 Restart=always
 RestartSec=5

@@ -27,10 +27,42 @@ Verificacion de puertos en el server:
 
 ```bash
 cd /home/adminuser/EstablecimientoGanadero
-./deploy/verify-ports.sh
+sudo ./deploy/verify-ports.sh
 ```
 
-El script compara los puertos esperados (`API_PORT=3201`, `WEB_PORT=3200` por defecto), los procesos que realmente estan escuchando, los healthchecks locales y los `proxy_pass` efectivos de Nginx. Si despues de un `git pull` vuelve a fallar, revisa especialmente que `/etc/nginx/sites-enabled/ganaderia.linsse.com.conf` siga apuntando a `3201`/`3200` y no a `3001`/`3000`.
+El script compara los puertos esperados (`API_PORT=3201`, `WEB_PORT=3200` por defecto), los procesos que realmente estan escuchando, los healthchecks locales directos a Node, los checks pasando por Nginx con `Host: ganaderia.linsse.com`, los checks publicos por HTTPS y los `proxy_pass` efectivos de Nginx. Si despues de un `git pull` vuelve a fallar, revisa especialmente que `/etc/nginx/sites-enabled/ganaderia.linsse.com.conf` siga apuntando a `3201`/`3200` y no a `3001`/`3000`.
+
+Si los checks directos a `127.0.0.1:3201` y `127.0.0.1:3200` funcionan pero los checks con Host o dominio fallan, el problema ya no esta en Node: revisa Nginx, DNS, certificado, firewall o si falta recargar Nginx. Para reinstalar la config del repo y recargar Nginx:
+
+```bash
+sudo cp deploy/nginx/ganaderia.linsse.com.conf /etc/nginx/sites-enabled/ganaderia.linsse.com.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+
+## Importante: no mezclar formas de levantar la app
+
+Hay dos formas posibles de operar el deploy:
+
+1. **Script manual `deploy/restart-ganaderia.sh`**: baja procesos `node`/`next` anteriores y levanta API/web con `nohup`.
+2. **Servicios systemd `eg-api.service` y `eg-web.service`**: Linux mantiene los procesos vivos y los reinicia si fallan.
+
+Usa una sola forma a la vez. Si `sudo systemctl status eg-api.service` muestra `activating (auto-restart)` o `failed`, pero `curl http://127.0.0.1:3201/health` responde `200`, significa que probablemente la app esta corriendo por el script manual y systemd quedo instalado/fallando aparte. En ese caso elegi una opcion:
+
+- Para seguir con el script manual: desactiva systemd para evitar ruido y reinicios paralelos.
+
+```bash
+sudo systemctl disable --now eg-api.service eg-web.service
+./deploy/restart-ganaderia.sh
+```
+
+- Para usar systemd: reinstala las unidades del repo y maneja los reinicios con `systemctl`.
+
+```bash
+sudo ./deploy/systemd/install-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
+sudo systemctl restart eg-api.service eg-web.service
+```
 
 Logs:
 
