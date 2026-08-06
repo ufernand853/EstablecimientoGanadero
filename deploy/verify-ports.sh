@@ -7,6 +7,7 @@ WEB_PORT="${WEB_PORT:-3200}"
 DOMAIN="${DOMAIN:-ganaderia.linsse.com}"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:${API_PORT}/health}"
 WEB_HEALTH_URL="${WEB_HEALTH_URL:-http://127.0.0.1:${WEB_PORT}/login}"
+WEB_DEPLOYMENT_URL="${WEB_DEPLOYMENT_URL:-http://127.0.0.1:${WEB_PORT}/api/deployment-info}"
 NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-enabled/ganaderia.linsse.com.conf}"
 APP_DIR="${APP_DIR:-/home/adminuser/EstablecimientoGanadero}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://${DOMAIN}/health}"
@@ -50,7 +51,10 @@ fi
 
 section "Healthchecks locales directos a Node"
 curl_check get "$API_HEALTH_URL"
+curl_check get "http://127.0.0.1:${API_PORT}/public/plans"
 curl_check head "$WEB_HEALTH_URL"
+curl_check get "$WEB_DEPLOYMENT_URL"
+curl_check head "http://127.0.0.1:${WEB_PORT}/registro"
 
 section "Healthchecks pasando por Nginx local HTTP con Host: ${DOMAIN}"
 curl_check get "http://127.0.0.1/health" -H "Host: ${DOMAIN}"
@@ -110,7 +114,10 @@ cat <<EOF_SUMMARY
 
 Resumen esperado:
 - La API debe escuchar en 127.0.0.1:${API_PORT} o 0.0.0.0:${API_PORT} y ${API_HEALTH_URL} debe responder 200.
+- /public/plans debe devolver BASIC y PRO con isSelfService=true; los planes con trial siguen disponibles aunque la pasarela todavia no este configurada.
 - La web debe escuchar en 127.0.0.1:${WEB_PORT} o 0.0.0.0:${WEB_PORT} y ${WEB_HEALTH_URL} debe responder.
+- ${WEB_DEPLOYMENT_URL} debe mostrar el mismo commit que git rev-parse HEAD; si difiere, hay un build o proceso viejo atendiendo el puerto.
+- /registro debe responder y mostrar la opcion de prueba/trial cuando la API devuelve planes con trialDays mayor que cero.
 - Nginx debe escuchar en 80/443 y nginx -T debe mostrar proxy_pass hacia http://127.0.0.1:${API_PORT}/health y http://127.0.0.1:${WEB_PORT}.
 - Si los checks directos a Node funcionan pero los checks con Host/dominio fallan, el problema esta en Nginx, DNS, certificado, firewall o en que no se recargo Nginx.
 - Si /etc/nginx tiene puertos distintos que deploy/nginx, copia la config correcta a sites-enabled y ejecuta: sudo nginx -t && sudo systemctl reload nginx

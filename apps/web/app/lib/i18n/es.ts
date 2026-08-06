@@ -109,6 +109,7 @@ export const es = {
   "register.accountTitle": "Datos de la cuenta",
   "register.accountBody": "La cuenta queda lista con un unico acceso general para empezar a trabajar y despues sumar la informacion real del establecimiento.",
   "register.loadError": "No se pudieron cargar los planes.",
+  "register.noPlans": "No hay planes disponibles para registro. Verifica la configuración de la API o la pasarela de pagos.",
   "register.createError": "No se pudo crear la cuenta.",
   "register.loading": "Cargando registro...",
   "register.company": "Nombre del establecimiento o empresa",
