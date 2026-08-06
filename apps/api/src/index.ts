@@ -136,7 +136,7 @@ const aiBehaviorSchema = z.object({
 const TRACEABILITY_EVENT_TYPES = [
   "ASIGNACION_POTRERO",
   "INSEMINACION",
-  "PREÑEZ_CONFIRMADA",
+  "PREÃ‘EZ_CONFIRMADA",
   "VACUNACION_PENDIENTE",
   "VACUNACION_REALIZADA",
   "DESPARASITACION",
@@ -291,11 +291,11 @@ type AIBehavior = {
   updatedAt: string;
 };
 const DEFAULT_AI_BEHAVIORS = [
-  { trigger: "mover {cantidad} {categoria} del potrero {origen} al potrero {destino}", expectedBehavior: "Detectar MOVE, pedir confirmación y ejecutar movimiento de lote." },
-  { trigger: "animal/es {estado} en potrero {potrero}", expectedBehavior: "Detectar INCIDENT_REPORT, pedir confirmación y registrar incidente con descripción y responsable." },
-  { trigger: "vacunamos/fueron vacunados {cantidad} {categoria} con {producto}", expectedBehavior: "Detectar VACCINATION, pedir confirmación y registrar evento sanitario." },
-  { trigger: "{cantidad} preñadas y {cantidad} vacías", expectedBehavior: "Detectar resumen reproductivo y responder con guía para registrar resultado reproductivo." },
-  { trigger: "entoramos potrero {potrero} con {cantidad} toros", expectedBehavior: "Detectar BREEDING_START, pedir confirmación y registrar evento de entore." },
+  { trigger: "mover {cantidad} {categoria} del potrero {origen} al potrero {destino}", expectedBehavior: "Detectar MOVE, pedir confirmaciÃ³n y ejecutar movimiento de lote." },
+  { trigger: "animal/es {estado} en potrero {potrero}", expectedBehavior: "Detectar INCIDENT_REPORT, pedir confirmaciÃ³n y registrar incidente con descripciÃ³n y responsable." },
+  { trigger: "vacunamos/fueron vacunados {cantidad} {categoria} con {producto}", expectedBehavior: "Detectar VACCINATION, pedir confirmaciÃ³n y registrar evento sanitario." },
+  { trigger: "{cantidad} preÃ±adas y {cantidad} vacÃ­as", expectedBehavior: "Detectar resumen reproductivo y responder con guÃ­a para registrar resultado reproductivo." },
+  { trigger: "entoramos potrero {potrero} con {cantidad} toros", expectedBehavior: "Detectar BREEDING_START, pedir confirmaciÃ³n y registrar evento de entore." },
 ] as const;
 
 type CommandContext = {
@@ -764,7 +764,7 @@ type SupplyMovement = {
 type TraceabilityEventType =
   | "ASIGNACION_POTRERO"
   | "INSEMINACION"
-  | "PREÑEZ_CONFIRMADA"
+  | "PREÃ‘EZ_CONFIRMADA"
   | "VACUNACION_PENDIENTE"
   | "VACUNACION_REALIZADA"
   | "DESPARASITACION"
@@ -1156,13 +1156,13 @@ const buildSupplyNotifications = (batches: Array<SupplyBatch & { supplyName?: st
         return { id: `expired-${batch.id}`, type: "SUPPLY_EXPIRED", severity: "CRITICAL", title: `${batch.supplyName ?? "Insumo"} vencido`, message: `Lote ${batch.batchNumber} vencido con ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
       }
       if (daysToExpire <= 7) {
-        return { id: `expires-7-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "CRITICAL", title: `${batch.supplyName ?? "Insumo"} vence en ${daysToExpire} día(s)`, message: `Lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
+        return { id: `expires-7-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "CRITICAL", title: `${batch.supplyName ?? "Insumo"} vence en ${daysToExpire} dÃ­a(s)`, message: `Lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
       }
       if (daysToExpire <= 15) {
-        return { id: `expires-15-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "WARNING", title: `${batch.supplyName ?? "Insumo"} vence pronto`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} día(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
+        return { id: `expires-15-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "WARNING", title: `${batch.supplyName ?? "Insumo"} vence pronto`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} dÃ­a(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
       }
       if (daysToExpire <= 30) {
-        return { id: `expires-30-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "INFO", title: `${batch.supplyName ?? "Insumo"} vence este mes`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} día(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
+        return { id: `expires-30-${batch.id}`, type: "SUPPLY_EXPIRING", severity: "INFO", title: `${batch.supplyName ?? "Insumo"} vence este mes`, message: `Lote ${batch.batchNumber} vence en ${daysToExpire} dÃ­a(s).`, dueDate: batch.expirationDate, sourceId: batch.id };
       }
       if (isLowStock) {
         return { id: `low-${batch.id}`, type: "SUPPLY_LOW_STOCK", severity: "WARNING", title: `${batch.supplyName ?? "Insumo"} con stock bajo`, message: `Lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit} disponibles.`, dueDate: batch.expirationDate, sourceId: batch.id };
@@ -1217,7 +1217,7 @@ const isTaskCreationPrompt = (normalized: string) => /\b(crea|crear|agendar|agen
   && /\b(tarea|actividad|recordatorio|revisar|verificar|chequeo|recorrida|tacto|pesaje)\b/.test(normalized);
 
 const extractTaskResponsibleFromText = (text: string) => {
-  const match = text.match(/(?:responsable\s*(?:es|:)?|asignad[oa]\s+a|asignar\s+a|para)\s+([a-záéíóúñ][a-záéíóúñ\s.'-]{1,80}?)(?=\s+(?:en|del|de la|de el|para el|mañana|manana|hoy|a las|urgente|alta|media|baja)\b|[,.;]|$)/i);
+  const match = text.match(/(?:responsable\s*(?:es|:)?|asignad[oa]\s+a|asignar\s+a|para)\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±][a-zÃ¡Ã©Ã­Ã³ÃºÃ±\s.'-]{1,80}?)(?=\s+(?:en|del|de la|de el|para el|maÃ±ana|manana|hoy|a las|urgente|alta|media|baja)\b|[,.;]|$)/i);
   const responsible = match?.[1]
     ?.replace(/\s+/g, " ")
     .trim();
@@ -1245,7 +1245,7 @@ const parseRelativeSchedule = (text: string) => {
 
 const inferTaskPriority = (text: string): TaskPriority => {
   const normalized = normalizeFieldText(text);
-  if (/\burgente\b|\bcritico\b|\bcrítica\b|\bcritica\b/.test(normalized)) return "URGENT";
+  if (/\burgente\b|\bcritico\b|\bcrÃ­tica\b|\bcritica\b/.test(normalized)) return "URGENT";
   if (/\balta\b|\bimportante\b|\bvigil/.test(normalized)) return "HIGH";
   if (/\bbaja\b/.test(normalized)) return "LOW";
   return "MEDIUM";
@@ -1254,15 +1254,15 @@ const inferTaskPriority = (text: string): TaskPriority => {
 const inferTaskType = (text: string): TaskType => {
   const normalized = normalizeFieldText(text);
   if (/vacun|sanidad|veterin|aftosa|brucel|tubercul/.test(normalized)) return "HEALTH";
-  if (/parto|preñ|prenez|tacto|cria|cría/.test(normalized)) return "REPRODUCTION";
+  if (/parto|preÃ±|prenez|tacto|cria|crÃ­a/.test(normalized)) return "REPRODUCTION";
   if (/potrero|alambr|agua|bebedero|aguada|pastura/.test(normalized)) return "PADDOCK_REVIEW";
   if (/peso|pesaj/.test(normalized)) return "WEIGHING";
-  if (/mover|traslad|rotacion|rotación/.test(normalized)) return "MOVEMENT";
+  if (/mover|traslad|rotacion|rotaciÃ³n/.test(normalized)) return "MOVEMENT";
   return "FIELD_CHECK";
 };
 
 const extractPaddockNameFromText = (text: string) => {
-  const match = text.match(/potrero\s+([a-záéíóúñ0-9\- ]{1,60})/i);
+  const match = text.match(/potrero\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9\- ]{1,60})/i);
   if (!match?.[1]) return null;
   const name = match[1].trim()
     .replace(/\s+(?:con(?:tra)?|para|de|y|o|sin|que)\b.*/i, "")
@@ -1300,7 +1300,7 @@ const buildDayStartSummary = async (establishmentId: string) => {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const [totalAnimals, pregnantFemales, pendingTasks, urgentTasks, recentActivities, recentEvents] = await Promise.all([
     animals.countDocuments({ establishmentId, status: "ACTIVO" }),
-    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÑEZ_CONFIRMADA" }).then((items) => items.length),
+    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÃ‘EZ_CONFIRMADA" }).then((items) => items.length),
     tasks.countDocuments({ establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }),
     tasks.countDocuments({ establishmentId, priority: "URGENT", status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }),
     activityFeed.find({ establishmentId }).sort({ occurredAt: -1 }).limit(10).toArray(),
@@ -1343,7 +1343,7 @@ const buildStockDetailAnswer = async (establishmentId: string) => {
 
   const categoryLines = Object.entries(byCategory)
     .sort((a, b) => b[1] - a[1])
-    .map(([category, count]) => `• ${category}: ${count} cabeza${count === 1 ? "" : "s"}`)
+    .map(([category, count]) => `â€¢ ${category}: ${count} cabeza${count === 1 ? "" : "s"}`)
     .join("\n");
 
   const paddockLines = Object.entries(byPaddock)
@@ -1353,15 +1353,15 @@ const buildStockDetailAnswer = async (establishmentId: string) => {
       const detail = rows
         .sort((a, b) => a.category.localeCompare(b.category, "es"))
         .map((row) => `${row.category}: ${row.count}`)
-        .join(" · ");
-      return `• ${paddock}: ${subtotal} (${detail})`;
+        .join(" Â· ");
+      return `â€¢ ${paddock}: ${subtotal} (${detail})`;
     })
     .join("\n");
 
   return [
     `Stock actual: ${total} cabeza${total === 1 ? "" : "s"}.`,
     "",
-    "Por categoría:",
+    "Por categorÃ­a:",
     categoryLines,
     "",
     "Por potrero:",
@@ -1389,10 +1389,10 @@ const buildAnimalTagsDetailAnswer = async (establishmentId: string) => {
   const dead = animalDocs.filter((animal) => animal.status === "MUERTO").length;
   const lines = animalDocs.slice(0, 40).map((animal) => {
     const latest = latestByEarTag.get(animal.earTag);
-    const lastEvent = latest ? ` · últ.: ${TRACEABILITY_EVENT_LABELS[latest.type] ?? latest.type}${latest.paddockName ? ` en ${latest.paddockName}` : ""}` : "";
-    return `• ${animal.earTag} · ${animal.category ?? "sin categoría"} · ${animal.sex} · ${animal.status}${lastEvent}`;
+    const lastEvent = latest ? ` Â· Ãºlt.: ${TRACEABILITY_EVENT_LABELS[latest.type] ?? latest.type}${latest.paddockName ? ` en ${latest.paddockName}` : ""}` : "";
+    return `â€¢ ${animal.earTag} Â· ${animal.category ?? "sin categorÃ­a"} Â· ${animal.sex} Â· ${animal.status}${lastEvent}`;
   });
-  const truncated = animalDocs.length > lines.length ? `\nMostrando ${lines.length} de ${animalDocs.length} caravanas. Usá una caravana específica para ver historial completo.` : "";
+  const truncated = animalDocs.length > lines.length ? `\nMostrando ${lines.length} de ${animalDocs.length} caravanas. UsÃ¡ una caravana especÃ­fica para ver historial completo.` : "";
   return [`Detalle de caravanas: ${animalDocs.length} registradas (${active} activas, ${sold} vendidas, ${dead} muertas).`, "", ...lines, truncated].filter(Boolean).join("\n");
 };
 
@@ -1406,10 +1406,10 @@ const buildAnimalTagsCountAnswer = async (establishmentId: string) => {
   ]);
 
   if (total === 0) {
-    return "Tenés 0 caravanas individuales registradas para este establecimiento.";
+    return "TenÃ©s 0 caravanas individuales registradas para este establecimiento.";
   }
 
-  return `Tenés ${total} caravana${total === 1 ? "" : "s"} registrada${total === 1 ? "" : "s"}: ${active} activa${active === 1 ? "" : "s"}, ${sold} vendida${sold === 1 ? "" : "s"} y ${dead} muerta${dead === 1 ? "" : "s"}.`;
+  return `TenÃ©s ${total} caravana${total === 1 ? "" : "s"} registrada${total === 1 ? "" : "s"}: ${active} activa${active === 1 ? "" : "s"}, ${sold} vendida${sold === 1 ? "" : "s"} y ${dead} muerta${dead === 1 ? "" : "s"}.`;
 };
 
 const isAnimalTagsQuery = (normalized: string) =>
@@ -1429,29 +1429,29 @@ const buildHerdDetailAnswer = async (establishmentId: string, establishmentName:
     animals.countDocuments({ establishmentId, status: "ACTIVO" }),
     animals.aggregate([
       { $match: { establishmentId } },
-      { $group: { _id: { $ifNull: ["$category", "Sin categoría"] }, count: { $sum: 1 } } },
+      { $group: { _id: { $ifNull: ["$category", "Sin categorÃ­a"] }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]).toArray(),
-    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÑEZ_CONFIRMADA" }),
+    traceabilityEvents.distinct("earTag", { establishmentId, type: "PREÃ‘EZ_CONFIRMADA" }),
     tasks.find({ establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, dueDate: 1, createdAt: -1 }).limit(5).toArray(),
     traceabilityEvents.find({ establishmentId }).sort({ occurredAt: -1 }).limit(5).toArray(),
   ]);
 
   const categoryLines = animalsByCategory.length
-    ? animalsByCategory.map((row) => `• ${row._id}: ${row.count}`).join("\n")
-    : "• Sin animales individuales categorizados.";
+    ? animalsByCategory.map((row) => `â€¢ ${row._id}: ${row.count}`).join("\n")
+    : "â€¢ Sin animales individuales categorizados.";
   const taskLines = pendingTasks.length
-    ? pendingTasks.map((task) => `• ${task.priority}: ${task.title}${task.paddockName ? ` · ${task.paddockName}` : ""}`).join("\n")
-    : "• Sin tareas pendientes.";
+    ? pendingTasks.map((task) => `â€¢ ${task.priority}: ${task.title}${task.paddockName ? ` Â· ${task.paddockName}` : ""}`).join("\n")
+    : "â€¢ Sin tareas pendientes.";
   const eventLines = recentEvents.length
-    ? recentEvents.map((event) => `• ${event.earTag}: ${TRACEABILITY_EVENT_LABELS[event.type] ?? event.type}${event.paddockName ? ` · ${event.paddockName}` : ""}`).join("\n")
-    : "• Sin eventos recientes.";
+    ? recentEvents.map((event) => `â€¢ ${event.earTag}: ${TRACEABILITY_EVENT_LABELS[event.type] ?? event.type}${event.paddockName ? ` Â· ${event.paddockName}` : ""}`).join("\n")
+    : "â€¢ Sin eventos recientes.";
 
   return [
     `Detalle del rodeo de ${establishmentName}:`,
-    `Animales activos: ${activeAnimals}. Preñadas registradas: ${pregnantEarTags.length}.`,
+    `Animales activos: ${activeAnimals}. PreÃ±adas registradas: ${pregnantEarTags.length}.`,
     "",
-    "Composición por categoría individual:",
+    "ComposiciÃ³n por categorÃ­a individual:",
     categoryLines,
     "",
     stockDetail,
@@ -1459,7 +1459,7 @@ const buildHerdDetailAnswer = async (establishmentId: string, establishmentName:
     "Tareas pendientes principales:",
     taskLines,
     "",
-    "Últimos eventos de trazabilidad:",
+    "Ãšltimos eventos de trazabilidad:",
     eventLines,
   ].join("\n");
 };
@@ -1467,7 +1467,7 @@ const buildHerdDetailAnswer = async (establishmentId: string, establishmentName:
 const buildPregnantFemalesAnswer = async (establishmentId: string) => {
   const { traceabilityEvents } = await getCollections();
   const events = await traceabilityEvents
-    .find({ establishmentId, type: "PREÑEZ_CONFIRMADA" })
+    .find({ establishmentId, type: "PREÃ‘EZ_CONFIRMADA" })
     .sort({ occurredAt: -1 })
     .limit(200)
     .toArray();
@@ -1481,10 +1481,10 @@ const buildPregnantFemalesAnswer = async (establishmentId: string) => {
     return acc;
   }, {});
   if (!latestByEarTag.size) {
-    return "No encontré hembras con preñez confirmada para este establecimiento.";
+    return "No encontrÃ© hembras con preÃ±ez confirmada para este establecimiento.";
   }
-  return `Tenés ${latestByEarTag.size} hembras preñadas:\n${Object.entries(grouped)
-    .map(([paddock, items]) => `\n${paddock}: ${items.length} hembra${items.length === 1 ? "" : "s"}\n${items.map((item) => `• ${item.earTag}${item.notes ? ` · ${item.notes}` : ""}`).join("\n")}`)
+  return `TenÃ©s ${latestByEarTag.size} hembras preÃ±adas:\n${Object.entries(grouped)
+    .map(([paddock, items]) => `\n${paddock}: ${items.length} hembra${items.length === 1 ? "" : "s"}\n${items.map((item) => `â€¢ ${item.earTag}${item.notes ? ` Â· ${item.notes}` : ""}`).join("\n")}`)
     .join("\n")}`;
 };
 
@@ -1493,20 +1493,20 @@ const buildDeathStatsAnswer = async (establishmentId: string, normalized: string
   const now = new Date();
   let since: Date;
   let periodLabel: string;
-  if (/este\s*a[nñ]o|a[nñ]o\s*actual/.test(normalized)) {
+  if (/este\s*a[nÃ±]o|a[nÃ±]o\s*actual/.test(normalized)) {
     since = new Date(now.getFullYear(), 0, 1);
-    periodLabel = `este año (${now.getFullYear()})`;
+    periodLabel = `este aÃ±o (${now.getFullYear()})`;
   } else if (/esta\s*semana|ultimos?\s*7/.test(normalized)) {
     since = new Date(now);
     since.setDate(since.getDate() - 7);
-    periodLabel = "los últimos 7 días";
+    periodLabel = "los Ãºltimos 7 dÃ­as";
   } else {
     since = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthName = now.toLocaleString("es-UY", { month: "long" });
     periodLabel = `este mes (${monthName})`;
   }
   const events = await traceabilityEvents.find({ establishmentId, type: "MUERTE", occurredAt: { $gte: since.toISOString() } }).sort({ occurredAt: -1 }).toArray();
-  if (!events.length) return `No registré ninguna baja por muerte en ${periodLabel}.`;
+  if (!events.length) return `No registrÃ© ninguna baja por muerte en ${periodLabel}.`;
   const byPaddock = events.reduce<Record<string, typeof events>>((acc, e) => {
     const key = e.paddockName ?? "Sin potrero";
     acc[key] = [...(acc[key] ?? []), e];
@@ -1522,11 +1522,11 @@ const buildAnimalHistoryAnswer = async (establishmentId: string, earTag: string)
     animals.findOne({ establishmentId, earTag }),
     traceabilityEvents.find({ establishmentId, earTag }).sort({ occurredAt: -1 }).limit(10).toArray(),
   ]);
-  if (!events.length && !animal) return `No encontré registros para la caravana ${earTag}.`;
-  const statusLine = animal ? `Animal ${earTag}: estado ${animal.status}, categoría ${animal.category ?? "sin categoría"}${animal.birthDate ? `, nacido ${new Date(animal.birthDate).toLocaleDateString("es-UY")}` : ""}.` : `Caravana ${earTag} sin ficha de animal registrada.`;
+  if (!events.length && !animal) return `No encontrÃ© registros para la caravana ${earTag}.`;
+  const statusLine = animal ? `Animal ${earTag}: estado ${animal.status}, categorÃ­a ${animal.category ?? "sin categorÃ­a"}${animal.birthDate ? `, nacido ${new Date(animal.birthDate).toLocaleDateString("es-UY")}` : ""}.` : `Caravana ${earTag} sin ficha de animal registrada.`;
   if (!events.length) return `${statusLine} Sin eventos de trazabilidad registrados.`;
-  const eventLines = events.map((e) => `• ${new Date(e.occurredAt).toLocaleDateString("es-UY")} — ${TRACEABILITY_EVENT_LABELS[e.type] ?? e.type}${e.product ? ` (${e.product})` : ""}${e.weight ? ` ${e.weight} kg` : ""}${e.paddockName ? ` · ${e.paddockName}` : ""}`).join("\n");
-  return `${statusLine}\nÚltimos ${events.length} eventos:\n${eventLines}`;
+  const eventLines = events.map((e) => `â€¢ ${new Date(e.occurredAt).toLocaleDateString("es-UY")} â€” ${TRACEABILITY_EVENT_LABELS[e.type] ?? e.type}${e.product ? ` (${e.product})` : ""}${e.weight ? ` ${e.weight} kg` : ""}${e.paddockName ? ` Â· ${e.paddockName}` : ""}`).join("\n");
+  return `${statusLine}\nÃšltimos ${events.length} eventos:\n${eventLines}`;
 };
 
 const ensureSystemTaskForTraceabilityEvent = async (event: TraceabilityEvent) => {
@@ -1561,12 +1561,12 @@ const verifyPassword = (password: string, hash: string) => {
   return timingSafeEqual(expected, current);
 };
 
-const signSessionToken = (payload: { userId: string; tenantId: string; role: Membership["role"] }) =>
+const signSessionToken = (payload: { userId: string; tenantId: string; role: Membership["role"]; email: string }) =>
   jwt.sign(payload, SESSION_SECRET, { algorithm: "HS256", expiresIn: "8h" });
 
 const verifySessionToken = (token: string) => {
   try {
-    return jwt.verify(token, SESSION_SECRET) as { userId: string; tenantId: string; role: Membership["role"] };
+    return jwt.verify(token, SESSION_SECRET) as { userId: string; tenantId: string; role: Membership["role"]; email: string };
   } catch {
     return null;
   }
@@ -1676,7 +1676,7 @@ app.addHook("preHandler", async (request, reply) => {
     const access = resolveSubscriptionStatus(session.subscription);
     const perpetualAccess = hasPerpetualAccess(session.user.email);
     if (!access.canAccess && !perpetualAccess) {
-      return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripci�n vencida. Renov� para continuar." });
+      return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
     }
   }
 
@@ -1907,7 +1907,7 @@ const mapMercadoPagoStatus = (status: string | null | undefined): Subscription["
 
 const mercadoPagoRequest = async <T>(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) => {
   if (!MERCADOPAGO_ACCESS_TOKEN) {
-    throw new Error("Mercado Pago no está configurado.");
+    throw new Error("Mercado Pago no estÃ¡ configurado.");
   }
 
   const response = await fetch(`https://api.mercadopago.com${path}`, {
@@ -1925,7 +1925,7 @@ const mercadoPagoRequest = async <T>(path: string, options: { method?: string; b
     const message =
       typeof data === "object" && data && "message" in data
         ? String((data as { message?: string }).message)
-        : "Mercado Pago rechazó la solicitud.";
+        : "Mercado Pago rechazÃ³ la solicitud.";
     throw new Error(message);
   }
 
@@ -1957,7 +1957,7 @@ const createMercadoPagoSubscription = async (input: {
 }) => {
   const amount = Number((input.plan.amountCents / 100).toFixed(2));
   if (!amount || amount <= 0) {
-    throw new Error("El plan seleccionado no tiene precio mensual automático.");
+    throw new Error("El plan seleccionado no tiene precio mensual automÃ¡tico.");
   }
 
   const payerEmail = MERCADOPAGO_PAYER_EMAIL_OVERRIDE || input.email;
@@ -1992,7 +1992,7 @@ type DodoCheckoutSession = {
 
 const dodoRequest = async <T>(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) => {
   if (!DODO_PAYMENTS_API_KEY) {
-    throw new Error("Dodo Payments no está configurado.");
+    throw new Error("Dodo Payments no estÃ¡ configurado.");
   }
 
   const response = await fetch(`${DODO_PAYMENTS_API_BASE}${path}`, {
@@ -2010,7 +2010,7 @@ const dodoRequest = async <T>(path: string, options: { method?: string; body?: R
     const message =
       typeof data === "object" && data && "message" in data
         ? String((data as { message?: string }).message)
-        : "Dodo Payments rechazó la solicitud.";
+        : "Dodo Payments rechazÃ³ la solicitud.";
     throw new Error(message);
   }
 
@@ -2056,7 +2056,7 @@ const ensureDefaultPlans = async () => {
     {
       id: randomUUID(),
       code: "BASIC",
-      name: "Plan Básico",
+      name: "Plan BÃ¡sico",
       billingPeriodDays: 30,
       amountCents: 76050,
       currency: "UYU",
@@ -2066,7 +2066,7 @@ const ensureDefaultPlans = async () => {
       animalLimit: 250,
       description: "Ideal para ordenar el establecimiento, registrar movimientos y empezar a trabajar con trazabilidad digital.",
       ctaLabel: "Contratar",
-      featureList: ["Hasta 250 animales", "Modo campo y modo gestión", "Trazabilidad por caravana", "Soporte comercial por WhatsApp"],
+      featureList: ["Hasta 250 animales", "Modo campo y modo gestiÃ³n", "Trazabilidad por caravana", "Soporte comercial por WhatsApp"],
       sortOrder: 10,
     },
     {
@@ -2080,7 +2080,7 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: 1000,
-      description: "Pensado para operaciones que necesitan más control, más seguimiento y mejor lectura del negocio en tiempo real.",
+      description: "Pensado para operaciones que necesitan mÃ¡s control, mÃ¡s seguimiento y mejor lectura del negocio en tiempo real.",
       ctaLabel: "Contratar",
       featureList: ["Hasta 1000 animales", "Sanidad, insumos y tareas programadas", "Trazabilidad con historial por caravana", "Alertas y reportes operativos"],
       sortOrder: 20,
@@ -2144,15 +2144,15 @@ const ensureDefaultPlans = async () => {
       isDemo: false,
       active: true,
       animalLimit: null,
-      description: "Para empresas que buscan una implementación acompañada, integraciones y una propuesta comercial a medida.",
+      description: "Para empresas que buscan una implementaciÃ³n acompaÃ±ada, integraciones y una propuesta comercial a medida.",
       ctaLabel: "Solicitar demo",
-      featureList: ["Animales ilimitados", "Integraciones y acompañamiento", "Configuración operativa a medida", "Prioridad de soporte"],
+      featureList: ["Animales ilimitados", "Integraciones y acompaÃ±amiento", "ConfiguraciÃ³n operativa a medida", "Prioridad de soporte"],
       sortOrder: 30,
     },
     {
       id: randomUUID(),
       code: "DEMO_5D",
-      name: "Demo 5 días",
+      name: "Demo 5 dÃ­as",
       billingPeriodDays: DEMO_TRIAL_DAYS,
       amountCents: 0,
       currency: "UYU",
@@ -2162,7 +2162,7 @@ const ensureDefaultPlans = async () => {
       animalLimit: 50,
       description: "Demo breve para validar el flujo operativo antes de contratar.",
       ctaLabel: "Probar demo",
-      featureList: ["Acceso temporal", "Carga de prueba", "Modo campo y gestión"],
+      featureList: ["Acceso temporal", "Carga de prueba", "Modo campo y gestiÃ³n"],
       sortOrder: 5,
     },
   ];
@@ -2254,7 +2254,7 @@ const ensureEstablishmentMasters = async (establishmentId: string, nowIso = new 
           contactName: null,
           phone: null,
           email: null,
-          notes: "Carga inicial automática.",
+          notes: "Carga inicial automÃ¡tica.",
           createdAt: nowIso,
         },
       },
@@ -2272,7 +2272,7 @@ const ensureEstablishmentMasters = async (establishmentId: string, nowIso = new 
           contactName: null,
           phone: null,
           email: null,
-          notes: "Carga inicial automática.",
+          notes: "Carga inicial automÃ¡tica.",
           createdAt: nowIso,
         },
       },
@@ -2380,7 +2380,7 @@ const TEST_ANIMAL_SEED = [
     sex: "HEMBRA" as const,
     category: "VACAS DE CRIA",
     birthDate: new Date(Date.now() - 1900 * 86400000).toISOString(),
-    notes: "Preñez confirmada y seguimiento sanitario al dia.",
+    notes: "PreÃ±ez confirmada y seguimiento sanitario al dia.",
   },
   {
     id: "00000000-0000-4000-8000-000000000902",
@@ -2406,7 +2406,7 @@ const TEST_TRACEABILITY_SEED = [
   {
     id: "00000000-0000-4000-8000-000000001001",
     earTag: "858001001001",
-    type: "PREÑEZ_CONFIRMADA" as const,
+    type: "PREÃ‘EZ_CONFIRMADA" as const,
     paddockId: "00000000-0000-4000-8000-000000000401",
     paddockName: "Potrero Norte",
     product: null,
@@ -2436,7 +2436,7 @@ const TEST_TRACEABILITY_SEED = [
     product: "Aftosa",
     dose: "1 dosis",
     weight: null,
-    notes: "Campaña sanitaria del lote.",
+    notes: "CampaÃ±a sanitaria del lote.",
     occurredAt: new Date(Date.now() - 12 * 86400000).toISOString(),
   },
 ] as const;
@@ -2742,7 +2742,7 @@ const ensureTestDemoData = async (nowIso = new Date().toISOString()) => {
       product: "Vacuna aftosa",
       dose: "1 dosis",
       route: null,
-      notes: "Campaña sanitaria demo para mostrar seguimiento.",
+      notes: "CampaÃ±a sanitaria demo para mostrar seguimiento.",
       supplyId: "00000000-0000-4000-8000-000000000501",
       supplyBatchId: "00000000-0000-4000-8000-000000000601",
       quantityUsed: 68,
@@ -3073,7 +3073,7 @@ const loadAIBehaviors = async (establishmentId: string) => {
         establishmentId,
         trigger: item.trigger,
         expectedBehavior: item.expectedBehavior,
-        notes: "Template base persistido automáticamente para Modo Campo.",
+        notes: "Template base persistido automÃ¡ticamente para Modo Campo.",
         createdAt: now,
         updatedAt: now,
       })),
@@ -3163,17 +3163,17 @@ const composeLocalAssistantResponse = (
 
   const intro = reason === "MISSING_KEY"
     ? "No hay API externa de IA configurada (OPENAI_API_KEY). Respondo con resumen local de datos:"
-    : "La API externa de IA devolvió un error. Respondo con resumen local de datos:";
+    : "La API externa de IA devolviÃ³ un error. Respondo con resumen local de datos:";
 
   const closing = reason === "MISSING_KEY"
-    ? `Tu consulta fue: "${prompt}". Configurá OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`
-    : `Tu consulta fue: "${prompt}". Revisá la API key/modelo configurados en Admin API key para volver a habilitar respuestas generativas completas.`;
+    ? `Tu consulta fue: "${prompt}". ConfigurÃ¡ OPENAI_API_KEY para habilitar respuestas generativas completas con este contexto.`
+    : `Tu consulta fue: "${prompt}". RevisÃ¡ la API key/modelo configurados en Admin API key para volver a habilitar respuestas generativas completas.`;
 
   return [
     intro,
     `- Stock total estimado: ${totalAnimals} cabezas.`,
     `- Potreros registrados: ${snapshot.paddocks.length}.`,
-    `- Categorías activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorías"}.`,
+    `- CategorÃ­as activas: ${snapshot.activeCategories.map((category) => category.name).join(", ") || "sin categorÃ­as"}.`,
     `- Resumen top stock: ${topStocks || "sin stock registrado"}.`,
     `- Movimientos recientes: ${snapshot.recentMovements.length}.`,
     `- Eventos sanitarios recientes: ${snapshot.recentHealthEvents.length}.`,
@@ -3268,25 +3268,25 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
         ? ` Potreros disponibles: ${paddockNames.slice(0, 8).join(", ")}.`
         : "";
       return [
-        "Entendí una orden de movimiento, pero no pude mapear algún potrero/categoría con datos válidos del establecimiento activo.",
-        "Probá repetirla usando nombres exactos de potreros y categoría.",
+        "EntendÃ­ una orden de movimiento, pero no pude mapear algÃºn potrero/categorÃ­a con datos vÃ¡lidos del establecimiento activo.",
+        "ProbÃ¡ repetirla usando nombres exactos de potreros y categorÃ­a.",
         paddockHint,
       ].join(" ").trim();
     }
 
     return [
       "Puedo ejecutarlo, pero me faltan datos para impactar la base.",
-      "Decime todo en una línea, por ejemplo:",
+      "Decime todo en una lÃ­nea, por ejemplo:",
       "\"Mover 10 terneros del Potrero 1 al Potrero 2\".",
-      "Después confirmá con: hazlo.",
+      "DespuÃ©s confirmÃ¡ con: hazlo.",
     ].join(" ");
   }
 
   const isHealthRequest = /\b(vacunar|vacunacion|desparasitar|tratamiento|tratar)\b/.test(normalized);
   if (isHealthRequest) {
     return [
-      "Puedo registrarlo, pero necesito datos mínimos.",
-      "Ejemplo: \"Vacunar 120 terneros con Clostridial 7 vías hoy\" y luego \"hazlo\".",
+      "Puedo registrarlo, pero necesito datos mÃ­nimos.",
+      "Ejemplo: \"Vacunar 120 terneros con Clostridial 7 vÃ­as hoy\" y luego \"hazlo\".",
     ].join(" ");
   }
 
@@ -3294,9 +3294,9 @@ const detectOperationalNudge = (prompt: string, paddockNames: string[] = []) => 
     || /\b(incidentes|incidencias|alertas)\b/.test(normalized);
   if (isIncidentReviewRequest) {
     return [
-      "Para revisar incidentes, pedímelo así:",
-      "\"Mostrame incidentes abiertos\" o \"Listar incidentes críticos del Potrero 3\".",
-      "Si querés registrar uno nuevo: \"Registrar incidente en Potrero 2: alambre caído, severidad alta\".",
+      "Para revisar incidentes, pedÃ­melo asÃ­:",
+      "\"Mostrame incidentes abiertos\" o \"Listar incidentes crÃ­ticos del Potrero 3\".",
+      "Si querÃ©s registrar uno nuevo: \"Registrar incidente en Potrero 2: alambre caÃ­do, severidad alta\".",
     ].join(" ");
   }
 
@@ -3317,10 +3317,10 @@ const TRACEABILITY_KEYWORD_MAP: Array<{ keywords: RegExp; type: TraceabilityEven
   { keywords: /\b(desparasit[ao]r?|desparasitacion|ivermectina|vermifugo)\b/i, type: "DESPARASITACION" },
   { keywords: /\b(trat[ao]r?|tratamiento|antibiotico|medicamento)\b/i, type: "TRATAMIENTO" },
   { keywords: /\b(inseminacion|inseminar|iatf|semen)\b/i, type: "INSEMINACION" },
-  { keywords: /\b(pre[nñ]ez|pre[nñ]ada|ecografia|preñada)\b/i, type: "PREÑEZ_CONFIRMADA" },
-  { keywords: /\b(traslad[ao]r?|traslado|mov[eé]r?|mover)\b/i, type: "TRASLADO" },
+  { keywords: /\b(pre[nÃ±]ez|pre[nÃ±]ada|ecografia|preÃ±ada)\b/i, type: "PREÃ‘EZ_CONFIRMADA" },
+  { keywords: /\b(traslad[ao]r?|traslado|mov[eÃ©]r?|mover)\b/i, type: "TRASLADO" },
   { keywords: /\b(asignar?\s+potrero|potrero\s+\d+|asignacion\s+potrero)\b/i, type: "ASIGNACION_POTRERO" },
-  { keywords: /\b(muerte|muerto|muri[oó]|falleci[oó]|crepado)\b/i, type: "MUERTE" },
+  { keywords: /\b(muerte|muerto|muri[oÃ³]|falleci[oÃ³]|crepado)\b/i, type: "MUERTE" },
   { keywords: /\b(frigorifico|enviar\s+a\s+frigorifico|remision|faena)\b/i, type: "ENVIO_FRIGORIFICO" },
 ];
 
@@ -3333,7 +3333,7 @@ const detectTraceabilityEventType = (text: string): TraceabilityEventType => {
 };
 
 const isTraceabilityQuery = (text: string): boolean =>
-  /\b(qu[eé]\s+pas[oó]|historial|eventos|resumen|estado|d[oó]nde\s+est[aá]|cu[aá]ndo|ver\s+caravana|consultar)\b/i.test(text);
+  /\b(qu[eÃ©]\s+pas[oÃ³]|historial|eventos|resumen|estado|d[oÃ³]nde\s+est[aÃ¡]|cu[aÃ¡]ndo|ver\s+caravana|consultar)\b/i.test(text);
 
 const detectAnimalRegistrationIntent = (text: string): boolean =>
   /\b(registra(?:me|r)?|alta(?:\s+de)?\s+animal|cargar\s+animal|nueva?\s+vaquillona|ingresar\s+vaquillona)\b/i.test(text);
@@ -3347,18 +3347,18 @@ const detectAnimalCategoryInText = (text: string): string | null => {
 };
 
 const TRACEABILITY_EVENT_LABELS: Record<TraceabilityEventType, string> = {
-  ASIGNACION_POTRERO: "asignación a potrero",
-  INSEMINACION: "inseminación",
-  "PREÑEZ_CONFIRMADA": "preñez confirmada",
-  VACUNACION_PENDIENTE: "vacunación pendiente",
-  VACUNACION_REALIZADA: "vacunación realizada",
-  DESPARASITACION: "desparasitación",
+  ASIGNACION_POTRERO: "asignaciÃ³n a potrero",
+  INSEMINACION: "inseminaciÃ³n",
+  "PREÃ‘EZ_CONFIRMADA": "preÃ±ez confirmada",
+  VACUNACION_PENDIENTE: "vacunaciÃ³n pendiente",
+  VACUNACION_REALIZADA: "vacunaciÃ³n realizada",
+  DESPARASITACION: "desparasitaciÃ³n",
   TRATAMIENTO: "tratamiento",
   PESAJE: "pesaje",
   TRASLADO: "traslado",
   MUERTE: "muerte",
-  ENVIO_FRIGORIFICO: "envío a frigorífico",
-  OBSERVACION: "observación",
+  ENVIO_FRIGORIFICO: "envÃ­o a frigorÃ­fico",
+  OBSERVACION: "observaciÃ³n",
 };
 
 const buildTraceabilitySummary = (events: TraceabilityEvent[], earTag: string): string => {
@@ -3367,17 +3367,17 @@ const buildTraceabilitySummary = (events: TraceabilityEvent[], earTag: string): 
   }
   const latest = events[0];
   const insemination = events.find((e) => e.type === "INSEMINACION");
-  const pregnancy = events.find((e) => e.type === "PREÑEZ_CONFIRMADA");
+  const pregnancy = events.find((e) => e.type === "PREÃ‘EZ_CONFIRMADA");
   const pendingVaccination = events.find((e) => e.type === "VACUNACION_PENDIENTE");
   const lastPaddock = events.find((e) => e.type === "ASIGNACION_POTRERO" || e.type === "TRASLADO");
 
   return [
     `La caravana ${earTag} tiene ${events.length} evento(s) registrado(s).`,
-    lastPaddock?.paddockName ? `Último potrero conocido: ${lastPaddock.paddockName}.` : "",
-    insemination ? `Inseminación registrada el ${new Date(insemination.occurredAt).toLocaleDateString("es-UY")}.` : "",
-    pregnancy ? `Preñez confirmada el ${new Date(pregnancy.occurredAt).toLocaleDateString("es-UY")}.` : "",
-    pendingVaccination ? "Tiene al menos una vacunación pendiente." : "",
-    `Último evento: ${TRACEABILITY_EVENT_LABELS[latest.type]} (${new Date(latest.occurredAt).toLocaleString("es-UY")}).`,
+    lastPaddock?.paddockName ? `Ãšltimo potrero conocido: ${lastPaddock.paddockName}.` : "",
+    insemination ? `InseminaciÃ³n registrada el ${new Date(insemination.occurredAt).toLocaleDateString("es-UY")}.` : "",
+    pregnancy ? `PreÃ±ez confirmada el ${new Date(pregnancy.occurredAt).toLocaleDateString("es-UY")}.` : "",
+    pendingVaccination ? "Tiene al menos una vacunaciÃ³n pendiente." : "",
+    `Ãšltimo evento: ${TRACEABILITY_EVENT_LABELS[latest.type]} (${new Date(latest.occurredAt).toLocaleString("es-UY")}).`,
   ].filter(Boolean).join(" ");
 };
 
@@ -3396,10 +3396,10 @@ const callOpenAIChat = async (
   }
 
   const systemPrompt = [
-    "Sos un asistente experto en gestión ganadera argentina.",
-    "Respondé siempre en español claro, con pasos accionables y cálculos simples cuando ayuden.",
-    "Usá siempre la palabra 'potrero' y nunca 'paddock' en las respuestas al usuario.",
-    "Si faltan datos, avisalo y pedí aclaración de forma breve.",
+    "Sos un asistente experto en gestiÃ³n ganadera argentina.",
+    "RespondÃ© siempre en espaÃ±ol claro, con pasos accionables y cÃ¡lculos simples cuando ayuden.",
+    "UsÃ¡ siempre la palabra 'potrero' y nunca 'paddock' en las respuestas al usuario.",
+    "Si faltan datos, avisalo y pedÃ­ aclaraciÃ³n de forma breve.",
     `Establecimiento activo: ${establishment.name} (${establishment.id}).`,
     `Contexto de datos (JSON): ${JSON.stringify(snapshot)}`,
     `Comportamientos entrenados acumulados (JSON): ${JSON.stringify(
@@ -3442,7 +3442,7 @@ const callOpenAIChat = async (
   };
 
   const content = payload.choices?.[0]?.message?.content?.trim();
-  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", "La respuesta de OpenAI llegó vacía");
+  return content || composeLocalAssistantResponse(snapshot, prompt, "UPSTREAM_ERROR", "La respuesta de OpenAI llegÃ³ vacÃ­a");
 };
 
 const findHerdByPaddockCategory = async (paddockId: string, category: string) => {
@@ -3574,13 +3574,13 @@ app.post("/admin/openai-settings", async (request, reply) => {
   const parsed = aiSettingsSchema.safeParse(request.body);
   if (!parsed.success) {
     reply.status(400);
-    return { message: "Payload inválido.", issues: parsed.error.flatten() };
+    return { message: "Payload invÃ¡lido.", issues: parsed.error.flatten() };
   }
 
   const { username, password, apiKey, model } = parsed.data;
   if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
     reply.status(401);
-    return { message: "Credenciales de admin inválidas." };
+    return { message: "Credenciales de admin invÃ¡lidas." };
   }
 
   const normalizedModel = model?.trim() || DEFAULT_OPENAI_MODEL;
@@ -3612,12 +3612,12 @@ const adminCredentialsSchema = z.object({
 app.post("/admin/openai-settings/test", async (request, reply) => {
   const parsed = adminCredentialsSchema.safeParse(request.body);
   if (!parsed.success) {
-    return reply.status(400).send({ message: "Credenciales inválidas." });
+    return reply.status(400).send({ message: "Credenciales invÃ¡lidas." });
   }
 
   const { username, password } = parsed.data;
   if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
-    return reply.status(401).send({ message: "Credenciales de admin inválidas." });
+    return reply.status(401).send({ message: "Credenciales de admin invÃ¡lidas." });
   }
 
   const settings = await loadAISettings();
@@ -3640,7 +3640,7 @@ app.post("/admin/openai-settings/test", async (request, reply) => {
       temperature: 0,
       max_tokens: 8,
       messages: [
-        { role: "system", content: "Respondé únicamente: OK" },
+        { role: "system", content: "RespondÃ© Ãºnicamente: OK" },
         { role: "user", content: "ping" },
       ],
     }),
@@ -3649,12 +3649,12 @@ app.post("/admin/openai-settings/test", async (request, reply) => {
   if (!response.ok) {
     const details = await response.text();
     const upstreamMessage = extractOpenAIErrorMessage(response.status, details);
-    return reply.status(502).send({ message: `OpenAI rechazó la configuración: ${upstreamMessage}` });
+    return reply.status(502).send({ message: `OpenAI rechazÃ³ la configuraciÃ³n: ${upstreamMessage}` });
   }
 
   return {
     ok: true,
-    message: "Conexión con OpenAI validada correctamente.",
+    message: "ConexiÃ³n con OpenAI validada correctamente.",
     model,
   };
 });
@@ -3741,7 +3741,7 @@ const animalPhotoSchema = z.object({
       return true;
     }
     return z.string().url().safeParse(value).success;
-  }, "Debe ser una URL válida o una imagen en base64."),
+  }, "Debe ser una URL vÃ¡lida o una imagen en base64."),
   caption: z.string().min(1).optional().nullable(),
   takenAt: z.string().datetime().optional().nullable(),
 });
@@ -4017,12 +4017,12 @@ app.post("/field/assistant", async (request, reply) => {
   const normalized = normalizeFieldText(prompt);
   const { tasks, paddocks } = await getCollections();
 
-  if (/\b(preñadas|prenadas|preñez|prenez)\b/.test(normalized) && /\b(donde|dónde|estan|están|tengo|detalle|lista|listar)\b/.test(normalized)) {
+  if (/\b(preÃ±adas|prenadas|preÃ±ez|prenez)\b/.test(normalized) && /\b(donde|dÃ³nde|estan|estÃ¡n|tengo|detalle|lista|listar)\b/.test(normalized)) {
     const message = await buildPregnantFemalesAnswer(body.data.establishmentId);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_PREGNANT_FEMALES", confidence: 0.82 });
   }
 
-  if (/\b(insumo|insumos|medicamento|medicamentos|vacuna|vacunas|vencen|vence|vencimiento|vencimientos)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|lista|listar|que|qué|cuales|cu[aá]les)\b/.test(normalized)) {
+  if (/\b(insumo|insumos|medicamento|medicamentos|vacuna|vacunas|vencen|vence|vencimiento|vencimientos)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|lista|listar|que|quÃ©|cuales|cu[aÃ¡]les)\b/.test(normalized)) {
     const { supplies, supplyBatches } = await getCollections();
     const [supplyList, batchList] = await Promise.all([
       supplies.find({ establishmentId: body.data.establishmentId }).toArray(),
@@ -4030,10 +4030,10 @@ app.post("/field/assistant", async (request, reply) => {
     ]);
     const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
     const lines = batchList.map((batch) => `${names.get(batch.supplyId) ?? "Insumo"} lote ${batch.batchNumber}: ${batch.quantityAvailable} ${batch.unit}, vence ${new Date(batch.expirationDate).toLocaleDateString("es-UY")}`);
-    return reply.send({ mode: "ANSWER", intent: "QUERY_SUPPLIES", confidence: 0.84, message: lines.length ? `Insumos próximos: ${lines.join("; ")}.` : "No encontré insumos con stock disponible." });
+    return reply.send({ mode: "ANSWER", intent: "QUERY_SUPPLIES", confidence: 0.84, message: lines.length ? `Insumos prÃ³ximos: ${lines.join("; ")}.` : "No encontrÃ© insumos con stock disponible." });
   }
 
-  if (/\b(stock|existencia|existencias|cabezas|categorias|categorías)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|resumen|lista|listar|como|cómo)\b/.test(normalized)) {
+  if (/\b(stock|existencia|existencias|cabezas|categorias|categorÃ­as)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|detalle|detallame|resumen|lista|listar|como|cÃ³mo)\b/.test(normalized)) {
     const message = await buildStockDetailAnswer(body.data.establishmentId);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_HERD_SUMMARY", confidence: 0.84 });
   }
@@ -4045,7 +4045,7 @@ app.post("/field/assistant", async (request, reply) => {
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_ANIMAL_TAGS", confidence: 0.9 });
   }
 
-  if (/\b(resumen|dashboard|rode[oó]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen|detalle|detallame)\b/.test(normalized)) {
+  if (/\b(resumen|dashboard|rode[oÃ³]|establecimiento)\b/.test(normalized) && /\b(dame|mostrar|mostrame|ver|resumen|detalle|detallame)\b/.test(normalized)) {
     if (/\b(detalle|detallame|completo|completa)\b/.test(normalized)) {
       const message = await buildHerdDetailAnswer(body.data.establishmentId, establishment.name);
       return reply.send({ mode: "ANSWER", intent: "QUERY_HERD_SUMMARY", confidence: 0.86, message });
@@ -4055,28 +4055,28 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "ANSWER",
       intent: "QUERY_HERD_SUMMARY",
       confidence: 0.82,
-      message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preñadas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes. Pedime "detalle del rodeo", "detalle de caravanas" o "stock" para verlo desglosado.`,
+      message: `Resumen de ${establishment.name}: ${summary.kpis.totalAnimals} animales activos, ${summary.kpis.pregnantFemales} preÃ±adas registradas, ${summary.kpis.pendingTasks} tareas pendientes y ${summary.kpis.urgentTasks} urgentes. Pedime "detalle del rodeo", "detalle de caravanas" o "stock" para verlo desglosado.`,
       dashboard: summary,
     });
   }
 
-  if (/\b(muertes?|bajas?|muertos?|fallecidos?|mortandad|murieron|murio|murió)\b/.test(normalized) && /\b(cuant[oa]s?|total|habido|hubo|tuvimos|hay|registrad[oa]s?|dame|mostrame|ver|lista|listar|este|mes|ano|año|semana)\b/.test(normalized)) {
+  if (/\b(muertes?|bajas?|muertos?|fallecidos?|mortandad|murieron|murio|muriÃ³)\b/.test(normalized) && /\b(cuant[oa]s?|total|habido|hubo|tuvimos|hay|registrad[oa]s?|dame|mostrame|ver|lista|listar|este|mes|ano|aÃ±o|semana)\b/.test(normalized)) {
     const message = await buildDeathStatsAnswer(body.data.establishmentId, normalized);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_DEATH_STATS", confidence: 0.85 });
   }
 
-  if (detectedEarTag && /\b(historial|historia|eventos|que\s+paso|que\s+pasó|movimientos|registro|ficha|datos|antecedentes)\b/.test(normalized)) {
+  if (detectedEarTag && /\b(historial|historia|eventos|que\s+paso|que\s+pasÃ³|movimientos|registro|ficha|datos|antecedentes)\b/.test(normalized)) {
     const message = await buildAnimalHistoryAnswer(body.data.establishmentId, detectedEarTag);
     return reply.send({ mode: "ANSWER", message, intent: "QUERY_ANIMAL_HISTORY", confidence: 0.88 });
   }
 
-  if (/\b(marcar|marca|cerrar|cerrá|completar|completa|hecha|hecho|terminada|terminado)\b/.test(normalized) && /\b(tarea|recorrida|verificar|chequeo|revision|revisión)\b/.test(normalized)) {
+  if (/\b(marcar|marca|cerrar|cerrÃ¡|completar|completa|hecha|hecho|terminada|terminado)\b/.test(normalized) && /\b(tarea|recorrida|verificar|chequeo|revision|revisiÃ³n)\b/.test(normalized)) {
     const openTasks = await tasks.find({ establishmentId: body.data.establishmentId, status: { $in: ["PENDING", "IN_PROGRESS", "OVERDUE"] } }).sort({ priority: -1, createdAt: -1 }).limit(50).toArray();
-    const withoutVerb = normalizeFieldText(prompt.replace(/marcar|marca|cerrar|cerrá|completar|completa|como hecha|como hecho|tarea/gi, ""));
+    const withoutVerb = normalizeFieldText(prompt.replace(/marcar|marca|cerrar|cerrÃ¡|completar|completa|como hecha|como hecho|tarea/gi, ""));
     const selected = openTasks.find((task) => normalizeFieldText(task.title).includes(withoutVerb) || withoutVerb.includes(normalizeFieldText(task.title))) ?? openTasks[0];
-    if (!selected) return reply.send({ mode: "MISSING_DATA", message: "No encontré tareas pendientes para cerrar.", intent: "COMPLETE_TASK", confidence: 0.45, missingFields: ["tarea"] });
+    if (!selected) return reply.send({ mode: "MISSING_DATA", message: "No encontrÃ© tareas pendientes para cerrar.", intent: "COMPLETE_TASK", confidence: 0.45, missingFields: ["tarea"] });
     const updated = await completeFieldTask(selected, new Date().toISOString(), `Cerrada desde modo campo: ${prompt}`);
-    return reply.send({ mode: "ANSWER", message: `Listo, marqué como hecha: ${updated.title}.`, intent: "COMPLETE_TASK", confidence: 0.78, task: updated });
+    return reply.send({ mode: "ANSWER", message: `Listo, marquÃ© como hecha: ${updated.title}.`, intent: "COMPLETE_TASK", confidence: 0.78, task: updated });
   }
 
   if (isTaskCreationPrompt(normalized)) {
@@ -4107,8 +4107,8 @@ app.post("/field/assistant", async (request, reply) => {
   }
 
   if (/\b(dar de alta|crear|alta)\b/.test(normalized) && /\bpotrero\b/.test(normalized)) {
-    const nameMatch = prompt.match(/(?:potrero|nuevo potrero)[,\s]+([a-záéíóúñ0-9 ]{2,80}?)(?=,|\s+de\s+\d+|\s+\d+\s*(?:ha|hect)|$)/i);
-    const hectaresMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:ha|hect[aá]reas?)/i);
+    const nameMatch = prompt.match(/(?:potrero|nuevo potrero)[,\s]+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9 ]{2,80}?)(?=,|\s+de\s+\d+|\s+\d+\s*(?:ha|hect)|$)/i);
+    const hectaresMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:ha|hect[aÃ¡]reas?)/i);
     const name = nameMatch?.[1]?.trim() || "Potrero nuevo";
     const areaHa = hectaresMatch?.[1] ? Number(hectaresMatch[1].replace(",", ".")) : null;
     const confirmation = await buildFieldConfirmation({
@@ -4122,20 +4122,20 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "CONFIRMATION_REQUIRED",
       intent: "CREATE_PADDOCK",
       confidence: 0.82,
-      message: `Voy a crear el potrero ${name}${areaHa ? ` de ${areaHa} ha` : ""}. Confirmá para guardarlo.`,
+      message: `Voy a crear el potrero ${name}${areaHa ? ` de ${areaHa} ha` : ""}. ConfirmÃ¡ para guardarlo.`,
       preview: { title: "Alta de potrero", sections: [{ label: "Nombre", value: name }, { label: "Superficie", value: areaHa ? `${areaHa} ha` : "Sin informar", severity: areaHa ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "MEDIUM" },
     });
   }
 
-  if (/\b(vacun[aeoéó]r?|vacuné|vacunó|vacunamos|vacunaron|vacunaste|vacunacion)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
+  if (/\b(vacun[aeoÃ©Ã³]r?|vacunÃ©|vacunÃ³|vacunamos|vacunaron|vacunaste|vacunacion)\b/.test(normalized) && /\b(toda|todo|lote|tropa|potrero)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
     const productMatch =
       // "contra brucelosis", "con aftosa", "para carbunclo"
-      prompt.match(/\bcontra\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
-      ?? prompt.match(/\b(?:con|para|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      prompt.match(/\bcontra\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+(?:\s+[a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
+      ?? prompt.match(/\b(?:con|para|de)\b\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+(?:\s+[a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+){0,2}?)(?=\s+(?:potrero|lote|todo|toda|tropa)|[,.]|$)/i)
       // verb + product before paddock/lot reference
-      ?? prompt.match(/vacun\S+\s+([a-záéíóúñ0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
+      ?? prompt.match(/vacun\S+\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9 ]{2,40}?)(?=\s+(?:a\s+toda|toda|al\s+potrero|potrero|lote|todo)\b|,|$)/i);
     const product = productMatch?.[1]?.trim() || (normalized.includes("aftosa") ? "aftosa" : "vacuna");
     const confirmation = await buildFieldConfirmation({
       establishmentId: body.data.establishmentId,
@@ -4148,14 +4148,14 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "CONFIRMATION_REQUIRED",
       intent: "REGISTER_VACCINATION",
       confidence: 0.78,
-      message: `Voy a registrar vacunación ${product} para ${paddockName ?? "el lote indicado"}. Confirmá para guardar el evento sanitario.`,
-      preview: { title: "Vacunación por lote", sections: [{ label: "Vacuna", value: product }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
+      message: `Voy a registrar vacunaciÃ³n ${product} para ${paddockName ?? "el lote indicado"}. ConfirmÃ¡ para guardar el evento sanitario.`,
+      preview: { title: "VacunaciÃ³n por lote", sections: [{ label: "Vacuna", value: product }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "MEDIUM" },
     });
   }
 
   const detectedEarTag = detectEarTagInText(prompt);
-  if (detectedEarTag && /\b(murio|murió|muerta|muerto|muerte|baja)\b/.test(normalized)) {
+  if (detectedEarTag && /\b(murio|muriÃ³|muerta|muerto|muerte|baja)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
     const confirmation = await buildFieldConfirmation({
       establishmentId: body.data.establishmentId,
@@ -4168,19 +4168,19 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "CONFIRMATION_REQUIRED",
       intent: "REGISTER_DEATH",
       confidence: 0.86,
-      message: `Detecté baja por muerte de ${detectedEarTag}. Esto actualizará el animal y creará una tarea urgente de verificación.`,
+      message: `DetectÃ© baja por muerte de ${detectedEarTag}. Esto actualizarÃ¡ el animal y crearÃ¡ una tarea urgente de verificaciÃ³n.`,
       preview: { title: "Baja por muerte", sections: [{ label: "Caravana", value: detectedEarTag, severity: "critical" }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "HIGH" },
     });
   }
 
-  if (detectedEarTag && /\b(pario|parió|parto|nacimiento)\b/.test(normalized)) {
+  if (detectedEarTag && /\b(pario|pariÃ³|parto|nacimiento)\b/.test(normalized)) {
     const calfTags = Array.from(prompt.matchAll(/858\d{9}/g)).map((match) => match[0]);
     const calfEarTag = calfTags.find((tag) => tag !== detectedEarTag) ?? null;
     const weightMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)/i);
     const sex = /ternera|hembra/i.test(prompt) ? "HEMBRA" : /ternero|macho/i.test(prompt) ? "MACHO" : "OTRO";
     if (!calfEarTag) {
-      return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_BIRTH", confidence: 0.65, message: "Detecté un parto, pero falta la caravana de la cría.", missingFields: ["caravana de la cría"] });
+      return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_BIRTH", confidence: 0.65, message: "DetectÃ© un parto, pero falta la caravana de la crÃ­a.", missingFields: ["caravana de la crÃ­a"] });
     }
     const confirmation = await buildFieldConfirmation({
       establishmentId: body.data.establishmentId,
@@ -4193,17 +4193,17 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "CONFIRMATION_REQUIRED",
       intent: "REGISTER_BIRTH",
       confidence: 0.86,
-      message: `Voy a registrar parto de ${detectedEarTag} y alta de cría ${calfEarTag}.`,
-      preview: { title: "Registro de parto", sections: [{ label: "Madre", value: detectedEarTag }, { label: "Cría", value: calfEarTag }, { label: "Sexo", value: sex }, { label: "Peso", value: weightMatch?.[1] ? `${weightMatch[1]} kg` : "Sin informar", severity: weightMatch?.[1] ? "normal" : "warning" }] },
+      message: `Voy a registrar parto de ${detectedEarTag} y alta de crÃ­a ${calfEarTag}.`,
+      preview: { title: "Registro de parto", sections: [{ label: "Madre", value: detectedEarTag }, { label: "CrÃ­a", value: calfEarTag }, { label: "Sexo", value: sex }, { label: "Peso", value: weightMatch?.[1] ? `${weightMatch[1]} kg` : "Sin informar", severity: weightMatch?.[1] ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "HIGH" },
     });
   }
 
-  if (detectedEarTag && /\b(tratamiento|tratar|medicar|medicacion|antibiotico|antibiótico|medicamento|ivermectina|desparasitar|desparasitacion|inyect[aeo]r?|inyeccion|inyección)\b/.test(normalized) && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
+  if (detectedEarTag && /\b(tratamiento|tratar|medicar|medicacion|antibiotico|antibiÃ³tico|medicamento|ivermectina|desparasitar|desparasitacion|inyect[aeo]r?|inyeccion|inyecciÃ³n)\b/.test(normalized) && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
     const productMatch =
-      prompt.match(/\b(?:con|de)\b\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i)
-      ?? prompt.match(/(?:tratamiento|medicamento|antibiotico|inyeccion)\s+([a-záéíóúñ0-9]+(?:\s+[a-záéíóúñ0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i);
+      prompt.match(/\b(?:con|de)\b\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+(?:\s+[a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i)
+      ?? prompt.match(/(?:tratamiento|medicamento|antibiotico|inyeccion)\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+(?:\s+[a-zÃ¡Ã©Ã­Ã³ÃºÃ±0-9]+){0,2}?)(?=\s+(?:potrero|en\s+potrero)|[,.]|$)/i);
     const product = productMatch?.[1]?.trim() || null;
     const doseMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:mg|ml|cc|cm3|dosis)/i);
     const dose = doseMatch ? doseMatch[0].trim() : null;
@@ -4218,7 +4218,7 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "CONFIRMATION_REQUIRED",
       intent: "REGISTER_TREATMENT",
       confidence: 0.82,
-      message: `Voy a registrar tratamiento${product ? ` con ${product}` : ""} para ${detectedEarTag}. Confirmá para guardar el evento sanitario.`,
+      message: `Voy a registrar tratamiento${product ? ` con ${product}` : ""} para ${detectedEarTag}. ConfirmÃ¡ para guardar el evento sanitario.`,
       preview: { title: "Tratamiento individual", sections: [{ label: "Caravana", value: detectedEarTag }, { label: "Producto", value: product ?? "Sin especificar", severity: product ? "normal" : "warning" }, { label: "Dosis", value: dose ?? "Sin informar", severity: dose ? "normal" : "warning" }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
       confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "LOW" },
     });
@@ -4226,10 +4226,10 @@ app.post("/field/assistant", async (request, reply) => {
 
   if (detectedEarTag && !/\b(muerte|muerto|baja|pario|parto|nacimiento)\b/.test(normalized)) {
     const weightMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)/i);
-    if (weightMatch || /\b(peso|pesa|pesó|pesaje|pesar)\b/.test(normalized)) {
+    if (weightMatch || /\b(peso|pesa|pesÃ³|pesaje|pesar)\b/.test(normalized)) {
       const weight = weightMatch ? Number(weightMatch[1].replace(",", ".")) : null;
       if (!weight) {
-        return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_WEIGHT", confidence: 0.7, message: `Detecté un pesaje para ${detectedEarTag}, pero falta el valor en kg.`, missingFields: ["peso en kg"] });
+        return reply.send({ mode: "MISSING_DATA", intent: "REGISTER_WEIGHT", confidence: 0.7, message: `DetectÃ© un pesaje para ${detectedEarTag}, pero falta el valor en kg.`, missingFields: ["peso en kg"] });
       }
       const paddockName = extractPaddockNameFromText(prompt);
       const confirmation = await buildFieldConfirmation({
@@ -4243,7 +4243,7 @@ app.post("/field/assistant", async (request, reply) => {
         mode: "CONFIRMATION_REQUIRED",
         intent: "REGISTER_WEIGHT",
         confidence: 0.88,
-        message: `Voy a registrar ${weight} kg para ${detectedEarTag}. Confirmá para guardar el pesaje.`,
+        message: `Voy a registrar ${weight} kg para ${detectedEarTag}. ConfirmÃ¡ para guardar el pesaje.`,
         preview: { title: "Registro de peso", sections: [{ label: "Caravana", value: detectedEarTag }, { label: "Peso", value: `${weight} kg` }, { label: "Potrero", value: paddockName ?? "Sin identificar", severity: paddockName ? "normal" : "warning" }] },
         confirmation: { token: confirmation.confirmationToken, actionLabel: "Hacelo", cancelLabel: "Cancelar", riskLevel: "LOW" },
       });
@@ -4264,7 +4264,7 @@ app.post("/field/assistant", async (request, reply) => {
       : "HIGH";
     const incidentDescription = [
       description,
-      actionTaken ? `Acción tomada: ${actionTaken}` : null,
+      actionTaken ? `AcciÃ³n tomada: ${actionTaken}` : null,
       responsible ? `Responsable informado: ${responsible}` : null,
     ].filter(Boolean).join("\n");
     const registered = await registerFieldIncident({
@@ -4280,7 +4280,7 @@ app.post("/field/assistant", async (request, reply) => {
       mode: "ANSWER",
       intent: "INCIDENT_REPORT",
       confidence: parsedCommand.confidence,
-      message: `Incidente registrado: ${registered.incident.title}. Se creó la tarea de seguimiento: ${registered.task.title}.`,
+      message: `Incidente registrado: ${registered.incident.title}. Se creÃ³ la tarea de seguimiento: ${registered.task.title}.`,
       incident: registered.incident,
       task: registered.task,
       parsedCommand,
@@ -4290,8 +4290,8 @@ app.post("/field/assistant", async (request, reply) => {
     return reply.send({
       mode: parsedCommand.warnings.length || parsedCommand.errors.length ? "MISSING_DATA" : "CONFIRMATION_REQUIRED",
       message: parsedCommand.warnings.length || parsedCommand.errors.length
-        ? `Entendí ${parsedCommand.intent}, pero faltan datos: ${[...parsedCommand.errors, ...parsedCommand.warnings].join(" ")}`
-        : `Entendí ${parsedCommand.intent}. Confirmá para aplicarlo desde el flujo operativo existente.`,
+        ? `EntendÃ­ ${parsedCommand.intent}, pero faltan datos: ${[...parsedCommand.errors, ...parsedCommand.warnings].join(" ")}`
+        : `EntendÃ­ ${parsedCommand.intent}. ConfirmÃ¡ para aplicarlo desde el flujo operativo existente.`,
       intent: parsedCommand.intent,
       confidence: parsedCommand.confidence,
       parsedCommand,
@@ -4322,9 +4322,9 @@ app.post("/field/confirm", async (request, reply) => {
   if (!body.success) return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
   const { fieldConfirmations, traceabilityEvents, animals } = await getCollections();
   const confirmation = await fieldConfirmations.findOne({ establishmentId: body.data.establishmentId, confirmationToken: body.data.confirmationToken });
-  if (!confirmation) return reply.status(404).send({ code: "NOT_FOUND", message: "Confirmación no encontrada." });
-  if (confirmation.confirmedAt) return reply.status(409).send({ code: "ALREADY_CONFIRMED", message: "La confirmación ya fue aplicada." });
-  if (new Date(confirmation.expiresAt).getTime() < Date.now()) return reply.status(410).send({ code: "EXPIRED", message: "La confirmación venció." });
+  if (!confirmation) return reply.status(404).send({ code: "NOT_FOUND", message: "ConfirmaciÃ³n no encontrada." });
+  if (confirmation.confirmedAt) return reply.status(409).send({ code: "ALREADY_CONFIRMED", message: "La confirmaciÃ³n ya fue aplicada." });
+  if (new Date(confirmation.expiresAt).getTime() < Date.now()) return reply.status(410).send({ code: "EXPIRED", message: "La confirmaciÃ³n venciÃ³." });
 
   const now = new Date().toISOString();
   if (confirmation.intent === "CREATE_PADDOCK") {
@@ -4342,7 +4342,7 @@ app.post("/field/confirm", async (request, reply) => {
       establishmentId: confirmation.establishmentId,
       activityType: "PADDOCK_CREATED",
       title: `Potrero creado: ${paddock.name}`,
-      summary: `Alta desde modo campo${confirmation.payload.areaHa ? ` · ${confirmation.payload.areaHa} ha` : ""}`,
+      summary: `Alta desde modo campo${confirmation.payload.areaHa ? ` Â· ${confirmation.payload.areaHa} ha` : ""}`,
       occurredAt: now,
       priority: "MEDIUM",
       status: "INFO",
@@ -4373,7 +4373,7 @@ app.post("/field/confirm", async (request, reply) => {
       product,
       dose: null,
       route: null,
-      notes: String(confirmation.payload.notes ?? "Vacunación por lote desde modo campo"),
+      notes: String(confirmation.payload.notes ?? "VacunaciÃ³n por lote desde modo campo"),
       supplyId: null,
       supplyBatchId: null,
       quantityUsed: null,
@@ -4387,10 +4387,10 @@ app.post("/field/confirm", async (request, reply) => {
       updatedAt: now,
     };
     await healthEvents.insertOne(event);
-    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "HEALTH_EVENT_CREATED", title: `Vacunación: ${product}`, summary: `${qty} cabeza${qty === 1 ? "" : "s"}${paddock ? ` · ${paddock.name}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "health_events", sourceId: event.id, earTag: null, paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName });
-    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Programar próxima dosis ${product}`, description: "Revisar calendario sanitario y fecha de próxima campaña.", type: "HEALTH", priority: "LOW", paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName, source: "SYSTEM_RULE", sourceEventId: event.id });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "HEALTH_EVENT_CREATED", title: `VacunaciÃ³n: ${product}`, summary: `${qty} cabeza${qty === 1 ? "" : "s"}${paddock ? ` Â· ${paddock.name}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "health_events", sourceId: event.id, earTag: null, paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Programar prÃ³xima dosis ${product}`, description: "Revisar calendario sanitario y fecha de prÃ³xima campaÃ±a.", type: "HEALTH", priority: "LOW", paddockId: paddock?.id ?? null, paddockName: paddock?.name ?? paddockName, source: "SYSTEM_RULE", sourceEventId: event.id });
     await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
-    return reply.send({ summary: `Vacunación ${product} registrada para ${qty} cabeza${qty === 1 ? "" : "s"}.`, event });
+    return reply.send({ summary: `VacunaciÃ³n ${product} registrada para ${qty} cabeza${qty === 1 ? "" : "s"}.`, event });
   }
 
   if (confirmation.intent === "REGISTER_DEATH") {
@@ -4416,17 +4416,17 @@ app.post("/field/confirm", async (request, reply) => {
     const calfEarTag = String(confirmation.payload.calfEarTag ?? "").trim().toUpperCase();
     const calfSex = ["MACHO", "HEMBRA", "OTRO"].includes(String(confirmation.payload.calfSex)) ? confirmation.payload.calfSex as Animal["sex"] : "OTRO";
     const duplicatedCalf = await animals.findOne({ establishmentId: confirmation.establishmentId, earTag: calfEarTag });
-    if (duplicatedCalf) return reply.status(409).send({ code: "EAR_TAG_ALREADY_EXISTS", message: "La caravana de la cría ya existe." });
-    const calf: Animal = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: calfEarTag, name: calfEarTag, sex: calfSex, breed: null, birthDate: now, category: calfSex === "HEMBRA" ? "TERNERAS" : calfSex === "MACHO" ? "TERNEROS" : "TERNEROS", status: "ACTIVO", notes: `Cría de ${motherEarTag}. ${String(confirmation.payload.notes ?? "")}`.trim(), createdAt: now, updatedAt: now };
+    if (duplicatedCalf) return reply.status(409).send({ code: "EAR_TAG_ALREADY_EXISTS", message: "La caravana de la crÃ­a ya existe." });
+    const calf: Animal = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: calfEarTag, name: calfEarTag, sex: calfSex, breed: null, birthDate: now, category: calfSex === "HEMBRA" ? "TERNERAS" : calfSex === "MACHO" ? "TERNEROS" : "TERNEROS", status: "ACTIVO", notes: `CrÃ­a de ${motherEarTag}. ${String(confirmation.payload.notes ?? "")}`.trim(), createdAt: now, updatedAt: now };
     await animals.insertOne(calf);
-    await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag: motherEarTag }, { $set: { updatedAt: now, notes: `Parió cría ${calfEarTag}` } });
-    const motherEvent: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: motherEarTag, type: "OBSERVACION", paddockId: null, paddockName: typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null, product: null, dose: null, weight: null, destination: null, notes: `Parto registrado. Cría ${calfEarTag}.`, occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
+    await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag: motherEarTag }, { $set: { updatedAt: now, notes: `PariÃ³ crÃ­a ${calfEarTag}` } });
+    const motherEvent: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: motherEarTag, type: "OBSERVACION", paddockId: null, paddockName: typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null, product: null, dose: null, weight: null, destination: null, notes: `Parto registrado. CrÃ­a ${calfEarTag}.`, occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
     const calfEvent: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag: calfEarTag, type: "OBSERVACION", paddockId: null, paddockName: typeof confirmation.payload.paddockName === "string" ? confirmation.payload.paddockName : null, product: null, dose: null, weight: typeof confirmation.payload.calfWeightKg === "number" ? confirmation.payload.calfWeightKg : null, destination: null, notes: `Nacimiento. Madre ${motherEarTag}.`, occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
     await traceabilityEvents.insertMany([motherEvent, calfEvent]);
-    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Parto registrado: ${motherEarTag}`, summary: `Cría ${calfEarTag}${calfEvent.weight ? ` · ${calfEvent.weight} kg` : ""}`, occurredAt: now, priority: "HIGH", status: "INFO", sourceCollection: "traceability_events", sourceId: motherEvent.id, earTag: motherEarTag, paddockId: null, paddockName: motherEvent.paddockName });
-    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Chequeo veterinario cría ${calfEarTag}`, description: `Revisar cría de ${motherEarTag}, ombligo, calostrado y estado general.`, type: "BIRTH_FOLLOW_UP", priority: "HIGH", earTag: calfEarTag, source: "SYSTEM_RULE", sourceEventId: calfEvent.id });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Parto registrado: ${motherEarTag}`, summary: `CrÃ­a ${calfEarTag}${calfEvent.weight ? ` Â· ${calfEvent.weight} kg` : ""}`, occurredAt: now, priority: "HIGH", status: "INFO", sourceCollection: "traceability_events", sourceId: motherEvent.id, earTag: motherEarTag, paddockId: null, paddockName: motherEvent.paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Chequeo veterinario crÃ­a ${calfEarTag}`, description: `Revisar crÃ­a de ${motherEarTag}, ombligo, calostrado y estado general.`, type: "BIRTH_FOLLOW_UP", priority: "HIGH", earTag: calfEarTag, source: "SYSTEM_RULE", sourceEventId: calfEvent.id });
     await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
-    return reply.send({ summary: `Parto registrado: madre ${motherEarTag}, cría ${calfEarTag}.`, calf, events: [motherEvent, calfEvent] });
+    return reply.send({ summary: `Parto registrado: madre ${motherEarTag}, crÃ­a ${calfEarTag}.`, calf, events: [motherEvent, calfEvent] });
   }
 
   if (confirmation.intent === "REGISTER_TREATMENT") {
@@ -4441,8 +4441,8 @@ app.post("/field/confirm", async (request, reply) => {
     }
     const event: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag, type: "TRATAMIENTO", paddockId, paddockName, product, dose, weight: null, destination: null, notes: String(confirmation.payload.notes ?? "Tratamiento individual desde modo campo"), occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
     await traceabilityEvents.insertOne(event);
-    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Tratamiento: ${earTag}`, summary: `${product ?? "Producto sin especificar"}${dose ? ` · ${dose}` : ""}${paddockName ? ` · ${paddockName}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
-    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Seguimiento tratamiento ${earTag}`, description: `Verificar respuesta al tratamiento${product ? ` con ${product}` : ""} y evolución del animal.`, type: "HEALTH", priority: "HIGH", earTag, paddockId: paddockId ?? null, paddockName: paddockName ?? null, source: "SYSTEM_RULE", sourceEventId: event.id });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Tratamiento: ${earTag}`, summary: `${product ?? "Producto sin especificar"}${dose ? ` Â· ${dose}` : ""}${paddockName ? ` Â· ${paddockName}` : ""}`, occurredAt: now, priority: "MEDIUM", status: "DONE", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
+    await createFieldTask({ establishmentId: confirmation.establishmentId, title: `Seguimiento tratamiento ${earTag}`, description: `Verificar respuesta al tratamiento${product ? ` con ${product}` : ""} y evoluciÃ³n del animal.`, type: "HEALTH", priority: "HIGH", earTag, paddockId: paddockId ?? null, paddockName: paddockName ?? null, source: "SYSTEM_RULE", sourceEventId: event.id });
     await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
     return reply.send({ summary: `Tratamiento${product ? ` con ${product}` : ""} registrado para ${earTag}.`, event });
   }
@@ -4459,12 +4459,12 @@ app.post("/field/confirm", async (request, reply) => {
     const event: TraceabilityEvent = { id: randomUUID(), establishmentId: confirmation.establishmentId, earTag, type: "PESAJE", paddockId, paddockName, product: null, dose: null, weight, destination: null, notes: String(confirmation.payload.notes ?? "Pesaje desde modo campo"), occurredAt: now, source: "COMANDO_IA", createdBy: null, createdAt: now };
     await traceabilityEvents.insertOne(event);
     await animals.updateOne({ establishmentId: confirmation.establishmentId, earTag }, { $set: { updatedAt: now } });
-    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Pesaje: ${earTag}`, summary: `${weight} kg${paddockName ? ` · ${paddockName}` : ""}`, occurredAt: now, priority: "LOW", status: "INFO", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
+    await appendActivityFeed({ establishmentId: confirmation.establishmentId, activityType: "TRACEABILITY_EVENT_CREATED", title: `Pesaje: ${earTag}`, summary: `${weight} kg${paddockName ? ` Â· ${paddockName}` : ""}`, occurredAt: now, priority: "LOW", status: "INFO", sourceCollection: "traceability_events", sourceId: event.id, earTag, paddockId, paddockName });
     await fieldConfirmations.updateOne({ id: confirmation.id }, { $set: { confirmedAt: now } });
     return reply.send({ summary: `Pesaje registrado: ${earTag} = ${weight} kg.`, event });
   }
 
-  return reply.status(400).send({ code: "UNSUPPORTED_CONFIRMATION", message: "La confirmación no tiene un handler disponible." });
+  return reply.status(400).send({ code: "UNSUPPORTED_CONFIRMATION", message: "La confirmaciÃ³n no tiene un handler disponible." });
 });
 
 
@@ -4533,7 +4533,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
     if (!quantity || !category || !fromPaddockId || !toPaddockId) {
-      return failConfirm(400, "INVALID_MOVE_PAYLOAD", "No se pudo confirmar el movimiento porque faltan datos en la previsualización.");
+      return failConfirm(400, "INVALID_MOVE_PAYLOAD", "No se pudo confirmar el movimiento porque faltan datos en la previsualizaciÃ³n.");
     }
 
     const [fromPaddock, toPaddock] = await Promise.all([
@@ -4703,7 +4703,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const occurredAt = parsed.proposedOperations?.[0]?.occurredAt;
 
     if (!qty || !category || !product || !responsible || !paddockId) {
-      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan producto, responsable, potrero, categoría o cantidad.");
+      return failConfirm(400, "INVALID_HEALTH_EVENT_PAYLOAD", "No se pudo confirmar el evento sanitario porque faltan producto, responsable, potrero, categorÃ­a o cantidad.");
     }
 
     const paddock = await findPaddockById(paddockId);
@@ -4756,7 +4756,7 @@ app.post("/commands/confirm", async (request, reply) => {
     const observedAt = parsed.proposedOperations?.[0]?.occurredAt;
 
     if (!paddockId || !title || !description) {
-      return failConfirm(400, "INVALID_INCIDENT_PAYLOAD", "No se pudo confirmar el incidente porque faltan potrero, título o descripción.");
+      return failConfirm(400, "INVALID_INCIDENT_PAYLOAD", "No se pudo confirmar el incidente porque faltan potrero, tÃ­tulo o descripciÃ³n.");
     }
 
     try {
@@ -4766,7 +4766,7 @@ app.post("/commands/confirm", async (request, reply) => {
         title,
         description: [
           description,
-          actionTaken ? `Acción tomada: ${actionTaken}` : null,
+          actionTaken ? `AcciÃ³n tomada: ${actionTaken}` : null,
           responsible ? `Responsable: ${responsible}` : null,
         ].filter(Boolean).join("\n"),
         severity,
@@ -4792,7 +4792,7 @@ app.post("/commands/confirm", async (request, reply) => {
       const fromCategory = typeof payload.category === "string" ? payload.category : "";
       const toCategory = typeof payload.toCategory === "string" ? payload.toCategory : "TERNEROS_DESTETADOS";
       if (!qty || !fromCategory) {
-        return failConfirm(400, "INVALID_WEANING_PAYLOAD", "No se pudo confirmar el destete porque faltan categoría o cantidad.");
+        return failConfirm(400, "INVALID_WEANING_PAYLOAD", "No se pudo confirmar el destete porque faltan categorÃ­a o cantidad.");
       }
 
       const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, fromCategory, qty, now);
@@ -4818,7 +4818,7 @@ app.post("/commands/confirm", async (request, reply) => {
         const category = typeof item.category === "string" ? item.category : "";
         const qty = Number(item.qty);
         if (!category || !qty) {
-          return failConfirm(400, "INVALID_SHIPMENT_PAYLOAD", "No se pudo confirmar la consignación porque faltan categorías o cantidades.");
+          return failConfirm(400, "INVALID_SHIPMENT_PAYLOAD", "No se pudo confirmar la consignaciÃ³n porque faltan categorÃ­as o cantidades.");
         }
         requiredByCategory.set(category, (requiredByCategory.get(category) ?? 0) + qty);
       }
@@ -4826,7 +4826,7 @@ app.post("/commands/confirm", async (request, reply) => {
       for (const [category, needed] of requiredByCategory.entries()) {
         const available = await getCategoryAvailability(body.data.establishmentId, category);
         if (available < needed) {
-          return failConfirm(409, "INSUFFICIENT_STOCK", `Stock insuficiente para consignación en categoría ${category}. Disponible: ${available}, requerido: ${needed}.`);
+          return failConfirm(409, "INSUFFICIENT_STOCK", `Stock insuficiente para consignaciÃ³n en categorÃ­a ${category}. Disponible: ${available}, requerido: ${needed}.`);
         }
       }
 
@@ -4836,7 +4836,7 @@ app.post("/commands/confirm", async (request, reply) => {
         const qty = Number(item.qty);
         const allocations = await consumeStockAcrossPaddocks(body.data.establishmentId, category, qty, now);
         if (!allocations) {
-          return failConfirm(409, "INSUFFICIENT_STOCK", `No se pudo descontar stock para categoría ${category}.`);
+          return failConfirm(409, "INSUFFICIENT_STOCK", `No se pudo descontar stock para categorÃ­a ${category}.`);
         }
         itemAllocations.push({ category, qty, allocations });
       }
@@ -4873,7 +4873,7 @@ app.post("/commands/confirm", async (request, reply) => {
     intent: parsed?.intent ?? null,
     message: createdEventIds.length
       ? "Operaciones confirmadas y aplicadas."
-      : "Confirmación guardada sin operaciones automáticas.",
+      : "ConfirmaciÃ³n guardada sin operaciones automÃ¡ticas.",
     payload: {
       createdEventIds,
       confirmationId: confirmation.id,
@@ -4887,7 +4887,7 @@ app.post("/commands/confirm", async (request, reply) => {
     createdEventIds,
     summary: createdEventIds.length
       ? "Operaciones confirmadas y aplicadas."
-      : "Confirmación guardada sin operaciones automáticas.",
+      : "ConfirmaciÃ³n guardada sin operaciones automÃ¡ticas.",
   });
 });
 
@@ -4941,7 +4941,7 @@ app.post("/ai/chat", async (request, reply) => {
     });
 
     return reply.send({
-      response: `✅ Tarea creada y guardada en backend: ${task.title}. Fecha: ${task.scheduledAt}${task.assignedRole ? `. Responsable: ${task.assignedRole}` : ". Sin responsable asignado"}. Ya queda visible en modo campo para marcarla como cumplida.`,
+      response: `âœ… Tarea creada y guardada en backend: ${task.title}. Fecha: ${task.scheduledAt}${task.assignedRole ? `. Responsable: ${task.assignedRole}` : ". Sin responsable asignado"}. Ya queda visible en modo campo para marcarla como cumplida.`,
       task,
       suggestedApiCall: {
         action: "crear_tarea_campo",
@@ -4954,7 +4954,7 @@ app.post("/ai/chat", async (request, reply) => {
     });
   }
 
-  // Detección de caravana individual — tiene prioridad sobre el parser de lotes
+  // DetecciÃ³n de caravana individual â€” tiene prioridad sobre el parser de lotes
   const detectedEarTag = detectEarTagInText(body.data.prompt);
   if (detectedEarTag) {
     const { traceabilityEvents: traceabilityCol } = await getCollections();
@@ -4991,13 +4991,13 @@ app.post("/ai/chat", async (request, reply) => {
         earTag: detectedEarTag,
         type: "ASIGNACION_POTRERO" as const,
         paddockName: detectedPaddockName,
-        notes: `Alta automática de animal. ${body.data.prompt.trim()}`,
+        notes: `Alta automÃ¡tica de animal. ${body.data.prompt.trim()}`,
         source: "COMANDO_IA" as const,
         occurredAt: new Date().toISOString(),
       };
 
       return reply.send({
-        response: `Detecté la caravana **${detectedEarTag}**. Voy a dar de alta una **${detectedCategory}** y asociarla al potrero **${detectedPaddockName}**. Confirmá con "Hacelo" para guardar.`,
+        response: `DetectÃ© la caravana **${detectedEarTag}**. Voy a dar de alta una **${detectedCategory}** y asociarla al potrero **${detectedPaddockName}**. ConfirmÃ¡ con "Hacelo" para guardar.`,
         suggestedApiCall: {
           action: "registrar_animal_y_asignar_potrero",
           endpoint: "/animals + /traceability/events",
@@ -5015,7 +5015,7 @@ app.post("/ai/chat", async (request, reply) => {
     }
 
     const eventType = detectTraceabilityEventType(body.data.prompt);
-    const productMatch = body.data.prompt.match(/(?:con|producto|vacuna)\s+([a-záéíóúñ][a-záéíóúñ\s]+)/i);
+    const productMatch = body.data.prompt.match(/(?:con|producto|vacuna)\s+([a-zÃ¡Ã©Ã­Ã³ÃºÃ±][a-zÃ¡Ã©Ã­Ã³ÃºÃ±\s]+)/i);
     const doseMatch = body.data.prompt.match(/(\d+(?:\.\d+)?\s?ml)/i);
 
     const suggestedPayload = {
@@ -5031,7 +5031,7 @@ app.post("/ai/chat", async (request, reply) => {
     };
 
     return reply.send({
-      response: `Detecté la caravana **${detectedEarTag}**. Voy a registrar: ${TRACEABILITY_EVENT_LABELS[eventType]}. Confirmá con "Hacelo" para guardar.`,
+      response: `DetectÃ© la caravana **${detectedEarTag}**. Voy a registrar: ${TRACEABILITY_EVENT_LABELS[eventType]}. ConfirmÃ¡ con "Hacelo" para guardar.`,
       suggestedApiCall: {
         action: "registrar_evento_trazabilidad",
         endpoint: "/traceability/events",
@@ -5120,11 +5120,11 @@ app.post("/ai/chat", async (request, reply) => {
 
     return reply.send({
       response: hasBlockingIssues
-        ? `Entendí un comando operativo (${parsedCommand.intent}) pero faltan datos: ${[
+        ? `EntendÃ­ un comando operativo (${parsedCommand.intent}) pero faltan datos: ${[
           ...(parsedCommand.errors ?? []),
           ...(parsedCommand.warnings ?? []),
         ].join(" ")}`
-        : `Entendí el comando operativo (${parsedCommand.intent}). Puedo convertirlo en llamada API y dejarlo listo para confirmar.`,
+        : `EntendÃ­ el comando operativo (${parsedCommand.intent}). Puedo convertirlo en llamada API y dejarlo listo para confirmar.`,
       suggestedApiCall: {
         action: actionName,
         endpoint: "/commands/confirm",
@@ -5195,7 +5195,7 @@ app.post("/ai/chat", async (request, reply) => {
 app.get("/ai/behaviors", async (request, reply) => {
   const establishmentId = z.string().uuid().safeParse((request.query as { establishmentId?: string }).establishmentId);
   if (!establishmentId.success) {
-    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "establishmentId inválido." });
+    return reply.status(400).send({ code: "VALIDATION_ERROR", message: "establishmentId invÃ¡lido." });
   }
   const establishment = await findEstablishmentById(establishmentId.data);
   if (!establishment) {
@@ -5474,7 +5474,7 @@ app.get("/notifications", async (request, reply) => {
   ]);
   const names = new Map(supplyList.map((supply) => [supply.id, supply.name]));
   const supplyNotifications = buildSupplyNotifications(batchList.map((batch) => ({ ...batch, supplyName: names.get(batch.supplyId) ?? "Insumo" })));
-  const taskNotifications = overdueTasks.map((task) => ({ id: `task-${task.id}`, type: "TASK_OVERDUE", severity: task.priority === "URGENT" ? "CRITICAL" : "WARNING", title: `Tarea vencida: ${task.title}`, message: task.description ?? "Pendiente de resolución.", dueDate: task.dueDate ?? task.scheduledAt ?? task.createdAt, sourceId: task.id }));
+  const taskNotifications = overdueTasks.map((task) => ({ id: `task-${task.id}`, type: "TASK_OVERDUE", severity: task.priority === "URGENT" ? "CRITICAL" : "WARNING", title: `Tarea vencida: ${task.title}`, message: task.description ?? "Pendiente de resoluciÃ³n.", dueDate: task.dueDate ?? task.scheduledAt ?? task.createdAt, sourceId: task.id }));
   return { notifications: [...supplyNotifications, ...taskNotifications].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()) };
 });
 
@@ -5649,7 +5649,7 @@ app.post("/reproduction-events", async (request, reply) => {
     if (effectiveEmptyQty < 0 || body.data.pregnantQty + effectiveEmptyQty > body.data.diagnosedQty) {
       return reply.status(400).send({
         code: "INVALID_PREGNANCY_COUNTS",
-        message: "Los valores de diagnóstico no son consistentes.",
+        message: "Los valores de diagnÃ³stico no son consistentes.",
       });
     }
   }
@@ -5860,7 +5860,7 @@ app.post("/commands/undo", async (request, reply) => {
   }
 
   if (!confirmation.createdEventIds.length) {
-    return reply.status(400).send({ code: "NOTHING_TO_UNDO", message: "La confirmación no tiene impactos de base de datos para deshacer." });
+    return reply.status(400).send({ code: "NOTHING_TO_UNDO", message: "La confirmaciÃ³n no tiene impactos de base de datos para deshacer." });
   }
 
   const now = new Date().toISOString();
@@ -5870,7 +5870,7 @@ app.post("/commands/undo", async (request, reply) => {
     const movementId = confirmation.createdEventIds[0];
     const movement = await movements.findOne({ id: movementId });
     if (!movement) {
-      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontró el movimiento original para deshacer." });
+      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontrÃ³ el movimiento original para deshacer." });
     }
 
     const canRevert = await ensureStockAvailable(movement.toPaddockId, movement.category, movement.quantity);
@@ -5898,7 +5898,7 @@ app.post("/commands/undo", async (request, reply) => {
     const eventId = confirmation.createdEventIds[0];
     const event = await operationalEvents.findOne({ id: eventId, establishmentId: confirmation.establishmentId, source: "COMMAND" });
     if (!event) {
-      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontró el evento operativo original para deshacer." });
+      return reply.status(404).send({ code: "EVENT_NOT_FOUND", message: "No se encontrÃ³ el evento operativo original para deshacer." });
     }
 
     if (confirmation.parsedIntent === "WEANING") {
@@ -5908,7 +5908,7 @@ app.post("/commands/undo", async (request, reply) => {
       const fromCategory = typeof event.payload.category === "string" ? event.payload.category : "";
       const toCategory = typeof event.payload.toCategory === "string" ? event.payload.toCategory : "";
       if (!allocations.length || !fromCategory || !toCategory) {
-        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer el destete porque faltan datos de asignación." });
+        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer el destete porque faltan datos de asignaciÃ³n." });
       }
 
       for (const allocation of allocations) {
@@ -5932,7 +5932,7 @@ app.post("/commands/undo", async (request, reply) => {
         ? event.payload.allocations as Array<{ category: string; allocations: Array<{ paddockId: string; quantity: number }> }>
         : [];
       if (!items.length) {
-        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer la consignación porque faltan asignaciones." });
+        return reply.status(409).send({ code: "INVALID_UNDO_DATA", message: "No se puede deshacer la consignaciÃ³n porque faltan asignaciones." });
       }
 
       for (const item of items) {
@@ -5947,7 +5947,7 @@ app.post("/commands/undo", async (request, reply) => {
   } else {
     return reply.status(400).send({
       code: "UNSUPPORTED_UNDO",
-      message: "Este tipo de operación todavía no soporta deshacer.",
+      message: "Este tipo de operaciÃ³n todavÃ­a no soporta deshacer.",
     });
   }
 
@@ -5977,7 +5977,7 @@ app.post("/commands/undo", async (request, reply) => {
     ok: true,
     confirmationId: confirmation.id,
     revertedEventIds,
-    summary: "Operación deshecha correctamente.",
+    summary: "OperaciÃ³n deshecha correctamente.",
   });
 });
 
@@ -6004,7 +6004,7 @@ const establishmentSchema = z.object({
       return true;
     }
     return z.string().url().safeParse(value).success;
-  }, "Debe ser una URL válida o una imagen en base64.").optional().nullable(),
+  }, "Debe ser una URL vÃ¡lida o una imagen en base64.").optional().nullable(),
 });
 
 const establishmentUpdateSchema = z.object({
@@ -6015,7 +6015,7 @@ const establishmentUpdateSchema = z.object({
       return true;
     }
     return z.string().url().safeParse(value).success;
-  }, "Debe ser una URL válida o una imagen en base64.").optional().nullable(),
+  }, "Debe ser una URL vÃ¡lida o una imagen en base64.").optional().nullable(),
 });
 
 app.get("/establishments", async () => {
@@ -6314,7 +6314,7 @@ app.post("/operational-events/slaughter-shipment", async (request, reply) => {
   if (body.data.slaughterhouseId) {
     const slaughterhouse = await slaughterhouses.findOne({ id: body.data.slaughterhouseId });
     if (!slaughterhouse || slaughterhouse.establishmentId !== body.data.establishmentId || slaughterhouse.status !== "ACTIVE") {
-      return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado o inactivo." });
+      return reply.status(404).send({ code: "NOT_FOUND", message: "FrigorÃ­fico no encontrado o inactivo." });
     }
   }
 
@@ -6567,7 +6567,7 @@ app.get("/slaughterhouses/:id", async (request, reply) => {
   const { slaughterhouses } = await getCollections();
   const slaughterhouse = await slaughterhouses.findOne({ id: request.params.id });
   if (!slaughterhouse) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "FrigorÃ­fico no encontrado." });
   }
   return reply.send(slaughterhouse);
 });
@@ -6608,7 +6608,7 @@ app.patch("/slaughterhouses/:id", async (request, reply) => {
   const { slaughterhouses } = await getCollections();
   const existing = await slaughterhouses.findOne({ id: request.params.id });
   if (!existing) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "FrigorÃ­fico no encontrado." });
   }
   const updated = {
     ...existing,
@@ -6637,7 +6637,7 @@ app.delete("/slaughterhouses/:id", async (request, reply) => {
   const { slaughterhouses } = await getCollections();
   const existing = await slaughterhouses.findOne({ id: request.params.id });
   if (!existing) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Frigorífico no encontrado." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "FrigorÃ­fico no encontrado." });
   }
   await slaughterhouses.deleteOne({ id: request.params.id });
   return reply.status(204).send();
@@ -6658,7 +6658,7 @@ app.get("/herd-categories/:id", async (request, reply) => {
   const { herdCategories } = await getCollections();
   const category = await herdCategories.findOne({ id: request.params.id });
   if (!category) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "CategorÃ­a no encontrada." });
   }
   return reply.send(category);
 });
@@ -6681,7 +6681,7 @@ app.post("/herd-categories", async (request, reply) => {
   if (duplicated) {
     return reply.status(409).send({
       code: "CATEGORY_ALREADY_EXISTS",
-      message: "La categoría ya existe para el establecimiento seleccionado.",
+      message: "La categorÃ­a ya existe para el establecimiento seleccionado.",
     });
   }
   const now = new Date().toISOString();
@@ -6705,7 +6705,7 @@ app.patch("/herd-categories/:id", async (request, reply) => {
   const { herdCategories } = await getCollections();
   const existing = await herdCategories.findOne({ id: request.params.id });
   if (!existing) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "CategorÃ­a no encontrada." });
   }
   const nextName = body.data.name ? body.data.name.trim().toUpperCase() : existing.name;
   if (nextName !== existing.name) {
@@ -6716,7 +6716,7 @@ app.patch("/herd-categories/:id", async (request, reply) => {
     if (duplicated && duplicated.id !== request.params.id) {
       return reply.status(409).send({
         code: "CATEGORY_ALREADY_EXISTS",
-        message: "Ya existe otra categoría con ese nombre.",
+        message: "Ya existe otra categorÃ­a con ese nombre.",
       });
     }
   }
@@ -6740,7 +6740,7 @@ app.delete("/herd-categories/:id", async (request, reply) => {
   const { herdCategories } = await getCollections();
   const existing = await herdCategories.findOne({ id: request.params.id });
   if (!existing) {
-    return reply.status(404).send({ code: "NOT_FOUND", message: "Categoría no encontrada." });
+    return reply.status(404).send({ code: "NOT_FOUND", message: "CategorÃ­a no encontrada." });
   }
   await herdCategories.deleteOne({ id: request.params.id });
   return reply.status(204).send();
@@ -6925,7 +6925,7 @@ app.post("/animals/:id/photos", async (request, reply) => {
   };
 
   if (photo.imageUrl.startsWith("data:image/") && photo.imageUrl.length > 14_000_000) {
-    return reply.status(413).send({ code: "IMAGE_TOO_LARGE", message: "La imagen supera el tamaño máximo permitido." });
+    return reply.status(413).send({ code: "IMAGE_TOO_LARGE", message: "La imagen supera el tamaÃ±o mÃ¡ximo permitido." });
   }
 
   await animalPhotos.insertOne(photo);
@@ -6939,7 +6939,7 @@ app.delete("/animals/:id/photos/:photoId", async (request, reply) => {
   return reply.status(204).send();
 });
 
-// ─── Trazabilidad individual ──────────────────────────────────────────────────
+// â”€â”€â”€ Trazabilidad individual â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 app.post("/traceability/events", async (request, reply) => {
   const body = traceabilityEventCreateSchema.safeParse(request.body);
@@ -6994,7 +6994,7 @@ app.post("/traceability/events", async (request, reply) => {
       birthDate: null,
       category: inferredCategory,
       status: body.data.type === "MUERTE" ? "MUERTO" : "ACTIVO",
-      notes: "Alta automática desde modo campo",
+      notes: "Alta automÃ¡tica desde modo campo",
       createdAt: now,
       updatedAt: now,
     };
@@ -7151,7 +7151,7 @@ app.get("/public/plans", async () => {
     ctaLabel: plan.ctaLabel,
     featureList: plan.featureList,
     isDemo: plan.isDemo,
-    isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE" && availableProviders.length > 0,
+    isSelfService: !plan.isDemo && plan.code !== "ENTERPRISE" && (plan.trialDays > 0 || availableProviders.length > 0),
     availableProviders,
     defaultProvider: resolveDefaultProvider(plan, availableProviders),
   };
@@ -7268,9 +7268,11 @@ app.post("/auth/register-subscription", async (request, reply) => {
     return reply.status(409).send({ code: "EMAIL_IN_USE", message: "Ese correo ya se encuentra registrado." });
   }
   const availableProviders = resolveAvailableProviders(plan);
-  const requestedProvider = body.data.billingProvider ?? resolveDefaultProvider(plan, availableProviders);
-  if (!requestedProvider || !availableProviders.includes(requestedProvider)) {
-    return reply.status(400).send({ code: "INVALID_PROVIDER", message: "La pasarela seleccionada no está disponible para este plan." });
+  const requestedProvider = body.data.billingProvider && availableProviders.includes(body.data.billingProvider)
+    ? body.data.billingProvider
+    : resolveDefaultProvider(plan, availableProviders);
+  if (!requestedProvider && plan.trialDays <= 0) {
+    return reply.status(400).send({ code: "INVALID_PROVIDER", message: "La pasarela seleccionada no estÃ¡ disponible para este plan." });
   }
   const now = new Date().toISOString();
   const checkout: BillingCheckout = {
@@ -7304,7 +7306,7 @@ app.post("/auth/register-subscription", async (request, reply) => {
 
   if (requestedProvider === "mercadopago" && plan.amountCents > 0) {
     if (!isMercadoPagoConfigured()) {
-      return reply.status(503).send({ code: "MERCADOPAGO_UNAVAILABLE", message: "Mercado Pago no está configurado." });
+      return reply.status(503).send({ code: "MERCADOPAGO_UNAVAILABLE", message: "Mercado Pago no estÃ¡ configurado." });
     }
     try {
       const mpSubscription = await createMercadoPagoSubscription({
@@ -7318,14 +7320,14 @@ app.post("/auth/register-subscription", async (request, reply) => {
     } catch (error) {
       return reply.status(503).send({
         code: "MERCADOPAGO_UNAVAILABLE",
-        message: error instanceof Error ? error.message : "No se pudo crear la suscripción en Mercado Pago.",
+        message: error instanceof Error ? error.message : "No se pudo crear la suscripciÃ³n en Mercado Pago.",
       });
     }
   }
 
   if (requestedProvider === "dodo" && plan.amountCents > 0) {
     if (!isDodoConfigured()) {
-      return reply.status(503).send({ code: "DODO_UNAVAILABLE", message: "Dodo Payments no está configurado." });
+    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER", email: checkout.email });
     }
     try {
       const dodoCheckout = await createDodoCheckout({
@@ -7383,13 +7385,13 @@ app.post("/auth/register-subscription", async (request, reply) => {
     nextPath: activatedAccess ? "/dashboard" : null,
     message: activatedAccess
       ? checkout.checkoutUrl
-        ? `Cuenta creada y acceso habilitado por ${plan.trialDays} días. Podés completar el pago ahora o más adelante desde la suscripción.`
-        : `Cuenta creada y acceso habilitado por ${plan.trialDays} días.`
+        ? `Cuenta creada y acceso habilitado por ${plan.trialDays} dÃ­as. PodÃ©s completar el pago ahora o mÃ¡s adelante desde la suscripciÃ³n.`
+        : `Cuenta creada y acceso habilitado por ${plan.trialDays} dÃ­as.`
       : checkout.checkoutUrl
         ? requestedProvider === "dodo"
-          ? "Cuenta creada. Redirigí al cliente a Dodo Payments para completar el pago."
-          : "Cuenta creada. Redirigí al cliente a Mercado Pago para activar la suscripción."
-        : "Checkout pendiente creado. Enviá `referenceId` a la pasarela y confirmá por webhook.",
+          ? "Cuenta creada. RedirigÃ­ al cliente a Dodo Payments para completar el pago."
+          : "Cuenta creada. RedirigÃ­ al cliente a Mercado Pago para activar la suscripciÃ³n."
+        : "Checkout pendiente creado. EnviÃ¡ `referenceId` a la pasarela y confirmÃ¡ por webhook.",
   });
 });
 
@@ -7465,7 +7467,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
   if (MERCADOPAGO_WEBHOOK_SECRET) {
     const providedSecret = request.headers["x-webhook-secret"];
     if (typeof providedSecret === "string" && providedSecret !== MERCADOPAGO_WEBHOOK_SECRET) {
-      return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Webhook de Mercado Pago inválido." });
+      return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Webhook de Mercado Pago invÃ¡lido." });
     }
   }
 
@@ -7478,7 +7480,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
   } catch (error) {
     return reply.status(502).send({
       code: "MERCADOPAGO_FETCH_FAILED",
-      message: error instanceof Error ? error.message : "No se pudo consultar la suscripción en Mercado Pago.",
+      message: error instanceof Error ? error.message : "No se pudo consultar la suscripciÃ³n en Mercado Pago.",
     });
   }
 
@@ -7486,7 +7488,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
   if (!referenceId) {
     return reply.status(400).send({
       code: "MERCADOPAGO_REFERENCE_MISSING",
-      message: "La suscripción de Mercado Pago no trae external_reference.",
+      message: "La suscripciÃ³n de Mercado Pago no trae external_reference.",
     });
   }
 
@@ -7512,7 +7514,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
       payload,
       processedAt: new Date().toISOString(),
     });
-    return reply.status(404).send({ code: "CHECKOUT_NOT_FOUND", message: "No existe un checkout asociado a esta suscripción." });
+    return reply.status(404).send({ code: "CHECKOUT_NOT_FOUND", message: "No existe un checkout asociado a esta suscripciÃ³n." });
   }
 
   const mappedStatus = mapMercadoPagoStatus(providerData.status);
@@ -7569,7 +7571,7 @@ app.post("/webhooks/mercadopago", async (request, reply) => {
 
   const plan = await subscriptionPlans.findOne({ code: checkout.planCode, active: true });
   if (!plan) {
-    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout inválido." });
+    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout invÃ¡lido." });
   }
 
   const tenantId = checkout.tenantId ?? randomUUID();
@@ -7787,7 +7789,7 @@ app.post("/billing/webhook", async (request, reply) => {
   const rawBody = JSON.stringify(request.body ?? {});
   const expectedSignature = createHmac("sha256", BILLING_WEBHOOK_SECRET).update(rawBody).digest("hex");
   if (typeof signature !== "string" || signature !== expectedSignature) {
-    return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Firma de webhook inválida." });
+    return reply.status(401).send({ code: "INVALID_SIGNATURE", message: "Firma de webhook invÃ¡lida." });
   }
   const body = webhookSchema.safeParse(request.body);
   if (!body.success) {
@@ -7846,7 +7848,7 @@ app.post("/billing/webhook", async (request, reply) => {
   }
   const plan = await subscriptionPlans.findOne({ code: checkout.planCode, active: true });
   if (!plan) {
-    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout inválido." });
+    return reply.status(500).send({ code: "PLAN_NOT_FOUND", message: "Plan de checkout invÃ¡lido." });
   }
   const now = new Date();
   const nowIso = now.toISOString();
@@ -8197,7 +8199,7 @@ app.post("/admin/users", async (request, reply) => {
   const email = body.data.email.toLowerCase();
   const existingUser = await users.findOne({ email });
   if (existingUser) {
-    return reply.status(409).send({ code: "USER_EXISTS", message: "El email ya está registrado." });
+    return reply.status(409).send({ code: "USER_EXISTS", message: "El email ya estÃ¡ registrado." });
   }
   const now = new Date().toISOString();
   const userId = randomUUID();
@@ -8397,7 +8399,7 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Credenciales invalidas.",
     });
-    return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." });
+    return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales invÃ¡lidas." });
   }
   const membership = await memberships.findOne({ userId: user.id });
   if (!membership) {
@@ -8411,7 +8413,7 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Usuario sin organizacion asociada.",
     });
-    return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organización asociada." });
+    return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organizaciÃ³n asociada." });
   }
   const latestSubscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
   if (!latestSubscription) {
@@ -8425,7 +8427,7 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Organizacion sin suscripcion activa.",
     });
-    return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
+    return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripciÃ³n activa para esta organizaciÃ³n." });
   }
   const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
   const access = resolveSubscriptionStatus(subscription);
@@ -8447,10 +8449,13 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(402).send({
       code: "SUBSCRIPTION_EXPIRED",
-      message: "Suscripción vencida. Renová para continuar.",
-      renewal: pendingCheckout
-        ? {
-            provider: pendingCheckout.provider,
+  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
+      } : perpetualAccess ? null : access.statusLabel === "TRIALING" ? {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Te quedan ${access.daysLeft} día(s) de prueba.`,
+      } : {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Tu suscripción tiene ${access.daysLeft} día(s) restantes.`,
             checkoutUrl: pendingCheckout.checkoutUrl,
             referenceId: pendingCheckout.referenceId,
           }
@@ -8506,7 +8511,7 @@ app.get("/auth/session", async (request, reply) => {
         message: READONLY_DEMO_MESSAGE,
       } : perpetualAccess || notifyType === "NONE" ? null : {
         level: notifyType,
-        message: `Tu suscripción vence en ${access.daysLeft} día(s).`,
+        message: `Tu suscripciÃ³n vence en ${access.daysLeft} dÃ­a(s).`,
       },
     },
   });

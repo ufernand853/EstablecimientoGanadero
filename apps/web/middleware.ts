@@ -3,13 +3,12 @@ import { NextResponse } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/planes", "/registro", "/pago", "/api"];
 const PUBLIC_FILE = /\.(?:ico|png|jpg|jpeg|gif|webp|avif|svg|txt|xml|webmanifest)$/i;
-const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/licencia", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
+const OPERATOR_ALLOWED_PREFIXES = ["/", "/campo", "/api", "/_next", "/favicon", "/robots.txt", "/sitemap.xml"];
 const READONLY_ALLOWED_PREFIXES = [
   "/",
   "/dashboard",
   "/animals",
   "/traceability",
-  "/licencia",
   "/api",
   "/_next",
   "/favicon",
@@ -25,13 +24,13 @@ const SUPERVISOR_ALLOWED_PREFIXES = [
   "/traceability",
   "/insumos",
   "/health",
-  "/licencia",
   "/api",
   "/_next",
   "/favicon",
   "/robots.txt",
   "/sitemap.xml",
 ];
+const ADMIN_ONLY_PREFIXES = ["/admin", "/masters", "/licencia"];
 
 function getHomePathForRole(role: string | null) {
   if (role === "OPERATOR") return "/campo";
@@ -39,15 +38,19 @@ function getHomePathForRole(role: string | null) {
   return "/dashboard";
 }
 
-function getSessionRoleFromToken(token: string | undefined): string | null {
-  if (!token) return null;
+function getSessionClaimsFromToken(token: string | undefined): { role: string | null; email: string | null } {
+  const emptyClaims = { role: null, email: null };
+  if (!token) return emptyClaims;
   const parts = token.split(".");
-  if (parts.length < 2) return null;
+  if (parts.length < 2) return emptyClaims;
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { role?: string };
-    return typeof payload.role === "string" ? payload.role : null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { role?: string; email?: string };
+    return {
+      role: typeof payload.role === "string" ? payload.role : null,
+      email: typeof payload.email === "string" ? payload.email.toLowerCase() : null,
+    };
   } catch {
-    return null;
+    return emptyClaims;
   }
 }
 
@@ -104,13 +107,26 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const sessionRole = getSessionRoleFromToken(sessionToken);
+  const sessionClaims = getSessionClaimsFromToken(sessionToken);
+  const sessionRole = sessionClaims.role;
+  const isPlatformAdmin = sessionClaims.email === "admin@linsse.com";
 
   if (isAuthenticated && pathname === "/login") {
     const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = withBasePath(getHomePathForRole(sessionRole));
     dashboardUrl.search = "";
     return NextResponse.redirect(dashboardUrl);
+  }
+
+  if (
+    isAuthenticated
+    && ADMIN_ONLY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+    && !isPlatformAdmin
+  ) {
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = withBasePath(getHomePathForRole(sessionRole));
+    homeUrl.search = "";
+    return NextResponse.redirect(homeUrl);
   }
 
   if (sessionRole === "OPERATOR" && !isAllowedPath(pathname, OPERATOR_ALLOWED_PREFIXES)) {

@@ -37,6 +37,25 @@ MongoDB crea la base automáticamente cuando se inserta el primer documento, as�
 npm run dev:web
 ```
 
+### Prueba local completa antes de producción
+
+Para validar en un solo comando la instalación, el build de producción, una base MongoDB temporal, la API, la web y el proxy interno, ejecutá:
+
+```bash
+npm install
+npm run smoke:local
+```
+
+La prueba usa por defecto los puertos `3301` (API) y `3300` (web), no modifica tu MongoDB real y elimina la base temporal al terminar. Los puertos pueden cambiarse con `SMOKE_API_PORT` y `SMOKE_WEB_PORT` si ya están ocupados.
+
+La primera ejecución descarga un binario temporal de MongoDB. Si la red del equipo no permite esa descarga, podés usar una instancia de prueba existente (nunca la base de producción):
+
+```bash
+SMOKE_MONGODB_URI='mongodb://127.0.0.1:27017/establecimiento_ganadero_smoke' npm run smoke:local
+```
+
+> Esta prueba confirma que todos los componentes arrancan, que las pantallas de demo/trial están en el build y que web/API se comunican. Antes de publicar, configurá secretos y credenciales reales y usá **un solo administrador de procesos** (systemd o el script manual), para no iniciar dos copias sobre el mismo puerto.
+
 ### Configurar API key de OpenAI desde frontend
 - Ingresá al módulo `Admin API key` en `/admin/ai-settings`.
 - Completá usuario/contraseña admin y la `OPENAI_API_KEY`.
