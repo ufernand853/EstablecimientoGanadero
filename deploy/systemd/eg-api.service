@@ -1,6 +1,8 @@
 [Unit]
 Description=Establecimiento Ganadero API
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -8,10 +10,12 @@ User=ubuntu
 WorkingDirectory=/workspace/EstablecimientoGanadero
 Environment=NODE_ENV=production
 EnvironmentFile=-/workspace/EstablecimientoGanadero/.env
-Environment=PORT=3001
+Environment=PORT=3201
 ExecStart=/usr/bin/env npm --workspace apps/api run start
-Restart=always
+Restart=on-failure
 RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 
