@@ -8,7 +8,11 @@
   "scripts": {
     "dev:api": "npm --workspace apps/api run dev",
     "dev:web": "npm --workspace apps/web run dev",
+    "smoke:local": "npm --workspace apps/web run build && node scripts/smoke-local.mjs",
     "test": "npm --workspace packages/shared run test",
     "lint": "npm --workspace packages/shared run lint"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
   }
 }

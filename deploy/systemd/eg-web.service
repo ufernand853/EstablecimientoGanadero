@@ -9,7 +9,8 @@ User=ubuntu
 WorkingDirectory=/workspace/EstablecimientoGanadero
 Environment=NODE_ENV=production
 EnvironmentFile=-/workspace/EstablecimientoGanadero/.env
-Environment=PORT=3000
+Environment=PORT=3200
+Environment=API_INTERNAL_URL=http://127.0.0.1:3201
 ExecStart=/usr/bin/env npm --workspace apps/web run start
 Restart=always
 RestartSec=5
