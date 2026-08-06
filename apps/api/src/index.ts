@@ -7327,7 +7327,7 @@ app.post("/auth/register-subscription", async (request, reply) => {
 
   if (requestedProvider === "dodo" && plan.amountCents > 0) {
     if (!isDodoConfigured()) {
-    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER", email: checkout.email });
+      return reply.status(503).send({ code: "DODO_UNAVAILABLE", message: "Dodo Payments no está configurado." });
     }
     try {
       const dodoCheckout = await createDodoCheckout({
@@ -7352,7 +7352,7 @@ app.post("/auth/register-subscription", async (request, reply) => {
   if (plan.trialDays > 0) {
     activatedAccess = await provisionCheckoutAccess(checkout, plan);
     checkout.tenantId = activatedAccess.tenantId;
-    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER" });
+    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER", email: checkout.email });
     setSessionCookie(reply, token);
   }
 
@@ -8385,7 +8385,7 @@ app.post("/auth/login", async (request, reply) => {
     return reply.status(400).send({ code: "VALIDATION_ERROR", issues: body.error.issues });
   }
   await ensureTestLoginData(body.data.email);
-  const { users, memberships, subscriptions } = await getCollections();
+  const { users, memberships, subscriptions, billingCheckouts } = await getCollections();
   const normalizedEmail = body.data.email.toLowerCase();
   const user = await users.findOne({ email: normalizedEmail, status: "ACTIVE" });
   if (!user || !verifyPassword(body.data.password, user.passwordHash)) {
@@ -8399,7 +8399,7 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Credenciales invalidas.",
     });
-    return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales invÃ¡lidas." });
+    return reply.status(401).send({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." });
   }
   const membership = await memberships.findOne({ userId: user.id });
   if (!membership) {
@@ -8413,7 +8413,7 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Usuario sin organizacion asociada.",
     });
-    return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organizaciÃ³n asociada." });
+    return reply.status(403).send({ code: "NO_MEMBERSHIP", message: "El usuario no tiene una organización asociada." });
   }
   const latestSubscription = await subscriptions.findOne({ tenantId: membership.tenantId }, { sort: { updatedAt: -1 } });
   if (!latestSubscription) {
@@ -8427,15 +8427,12 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Organizacion sin suscripcion activa.",
     });
-      message: "Suscripci\u00f3n vencida. Renov\u00e1 para continuar.",
+    return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripción activa para esta organización." });
   }
-  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
-      } : perpetualAccess ? null : access.statusLabel === "TRIALING" ? {
-        level: notifyType === "NONE" ? "INFO" : notifyType,
-        message: `Te quedan ${access.daysLeft} día(s) de prueba.`,
-      } : {
-        level: notifyType === "NONE" ? "INFO" : notifyType,
-        message: `Tu suscripción tiene ${access.daysLeft} día(s) restantes.`,
+  const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
+  const access = resolveSubscriptionStatus(subscription);
+  const perpetualAccess = hasPerpetualAccess(user.email);
+  if (!access.canAccess && !perpetualAccess) {
     const pendingCheckout = await billingCheckouts.findOne(
       { tenantId: membership.tenantId, status: "PENDING_PAYMENT", kind: "SUBSCRIPTION" },
       { sort: { updatedAt: -1 } },
@@ -8452,7 +8449,7 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(402).send({
       code: "SUBSCRIPTION_EXPIRED",
-      message: "SuscripciÃ³n vencida. RenovÃ¡ para continuar.",
+      message: "Suscripción vencida. Renová para continuar.",
       renewal: pendingCheckout
         ? {
             provider: pendingCheckout.provider,
@@ -8462,7 +8459,7 @@ app.post("/auth/login", async (request, reply) => {
         : null,
     });
   }
-  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role });
+  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
   setSessionCookie(reply, token);
   await users.updateOne({ id: user.id }, { $set: { lastLoginAt: new Date().toISOString() } });
   await appendAccessLog({
@@ -8647,4 +8644,3 @@ const start = async () => {
 };
 
 start();
-
