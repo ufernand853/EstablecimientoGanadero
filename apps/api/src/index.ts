@@ -1561,12 +1561,12 @@ const verifyPassword = (password: string, hash: string) => {
   return timingSafeEqual(expected, current);
 };
 
-const signSessionToken = (payload: { userId: string; tenantId: string; role: Membership["role"] }) =>
+const signSessionToken = (payload: { userId: string; tenantId: string; role: Membership["role"]; email: string }) =>
   jwt.sign(payload, SESSION_SECRET, { algorithm: "HS256", expiresIn: "8h" });
 
 const verifySessionToken = (token: string) => {
   try {
-    return jwt.verify(token, SESSION_SECRET) as { userId: string; tenantId: string; role: Membership["role"] };
+    return jwt.verify(token, SESSION_SECRET) as { userId: string; tenantId: string; role: Membership["role"]; email: string };
   } catch {
     return null;
   }
@@ -7327,7 +7327,7 @@ app.post("/auth/register-subscription", async (request, reply) => {
 
   if (requestedProvider === "dodo" && plan.amountCents > 0) {
     if (!isDodoConfigured()) {
-      return reply.status(503).send({ code: "DODO_UNAVAILABLE", message: "Dodo Payments no estÃ¡ configurado." });
+    const token = signSessionToken({ userId: activatedAccess.userId, tenantId: activatedAccess.tenantId, role: "OWNER", email: checkout.email });
     }
     try {
       const dodoCheckout = await createDodoCheckout({
@@ -8449,10 +8449,13 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(402).send({
       code: "SUBSCRIPTION_EXPIRED",
-      message: "SuscripciÃ³n vencida. RenovÃ¡ para continuar.",
-      renewal: pendingCheckout
-        ? {
-            provider: pendingCheckout.provider,
+  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
+      } : perpetualAccess ? null : access.statusLabel === "TRIALING" ? {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Te quedan ${access.daysLeft} día(s) de prueba.`,
+      } : {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Tu suscripción tiene ${access.daysLeft} día(s) restantes.`,
             checkoutUrl: pendingCheckout.checkoutUrl,
             referenceId: pendingCheckout.referenceId,
           }

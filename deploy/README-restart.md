@@ -2,13 +2,14 @@ Uso en el server:
 
 ```bash
 cd /home/adminuser/EstablecimientoGanadero
+git pull --ff-only origin master
 chmod +x deploy/restart-ganaderia.sh
 ./deploy/restart-ganaderia.sh
 ```
 
 Que hace:
 
-- actualiza `master`
+- verifica que el checkout no tenga cambios locales y despliega el commit ya actualizado
 - instala dependencias
 - recompila `apps/web`
 - reinicia API en `3201`
@@ -16,6 +17,35 @@ Que hace:
 - espera healthcheck real de la API
 - reinicia web en `3200`
 - espera respuesta real de la web
+
+El `git pull` se hace antes del restart. El script no modifica ni actualiza el repositorio mientras se esta ejecutando, porque actualizar el propio script a mitad del deploy puede dejar una ejecucion inconsistente.
+
+### Si `git pull` informa cambios locales
+
+Primero revisa exactamente que se modifico:
+
+```bash
+git status --short
+git diff -- deploy/restart-ganaderia.sh
+```
+
+Si ese cambio local no se necesita (caso habitual para una copia de produccion), restaura solo el archivo bloqueante y actualiza:
+
+```bash
+git restore deploy/restart-ganaderia.sh
+git pull --ff-only origin master
+./deploy/restart-ganaderia.sh
+```
+
+Si necesitas conservarlo, guardalo temporalmente antes de actualizar:
+
+```bash
+git stash push -m "cambios locales antes de deploy" -- deploy/restart-ganaderia.sh
+git pull --ff-only origin master
+./deploy/restart-ganaderia.sh
+```
+
+No uses `git reset --hard` si no verificaste antes que cambios locales se perderian.
 
 Puertos usados:
 

@@ -75,9 +75,12 @@ wait_for_http() {
 
 cd "$APP_DIR"
 
-echo "[1/8] Actualizando master..."
-git checkout master
-git pull origin master
+echo "[1/8] Verificando checkout..."
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "ERROR: hay cambios locales en archivos versionados. No se inicia el deploy para no sobrescribirlos."
+  echo "Ejecuta 'git status --short', guarda los cambios con git stash o descartalos, hace git pull y vuelve a ejecutar este script."
+  exit 1
+fi
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 echo "Commit a desplegar: $DEPLOY_COMMIT"
 
