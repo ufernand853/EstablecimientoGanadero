@@ -60,6 +60,8 @@ cd /home/adminuser/EstablecimientoGanadero
 sudo ./deploy/verify-ports.sh
 ```
 
+La version actual imprime `VERIFY_PORTS_VERSION=2` al comienzo y termina con una seccion `Resultado comprobado`, seguida por `Diagnostico OK` o `Diagnostico FALLIDO`. Si la salida termina solamente en `Resumen esperado`, el servidor esta ejecutando una copia anterior del script: comproba `git rev-parse HEAD`, actualiza `master` y volve a ejecutarlo.
+
 El script compara los puertos esperados (`API_PORT=3201`, `WEB_PORT=3200` por defecto), los procesos que realmente estan escuchando, los healthchecks locales directos a Node, los checks pasando por Nginx con `Host: ganaderia.linsse.com`, los checks publicos por HTTPS y los `proxy_pass` efectivos de Nginx. Si despues de un `git pull` vuelve a fallar, revisa especialmente que `/etc/nginx/sites-enabled/ganaderia.linsse.com.conf` siga apuntando a `3201`/`3200` y no a `3001`/`3000`.
 
 Si los checks directos a `127.0.0.1:3201` y `127.0.0.1:3200` funcionan pero los checks con Host o dominio fallan, el problema ya no esta en Node: revisa Nginx, DNS, certificado, firewall o si falta recargar Nginx. Para reinstalar la config del repo y recargar Nginx:

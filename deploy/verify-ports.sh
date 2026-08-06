@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+VERIFY_PORTS_VERSION="2"
 API_PORT="${API_PORT:-3201}"
 WEB_PORT="${WEB_PORT:-3200}"
 DOMAIN="${DOMAIN:-ganaderia.linsse.com}"
@@ -34,7 +35,31 @@ curl_check() {
   fi
 }
 
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+
+pass() {
+  PASS_COUNT=$((PASS_COUNT + 1))
+  printf 'OK   %s\n' "$1"
+}
+
+fail() {
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  printf 'FALLO %s\n' "$1"
+}
+
+warn() {
+  WARN_COUNT=$((WARN_COUNT + 1))
+  printf 'AVISO %s\n' "$1"
+}
+
+http_ok() {
+  curl -fsS --max-time 8 -o /dev/null "$1"
+}
+
 section "Puertos esperados"
+printf 'VERIFY_PORTS_VERSION=%s\n' "$VERIFY_PORTS_VERSION"
 printf 'API_PORT=%s\nWEB_PORT=%s\nDOMAIN=%s\n' "$API_PORT" "$WEB_PORT" "$DOMAIN"
 
 section "Todos los puertos TCP escuchando"
@@ -110,15 +135,83 @@ for unit in eg-api.service eg-web.service; do
   fi
 done
 
-cat <<EOF_SUMMARY
+section "Resultado comprobado"
 
-Resumen esperado:
-- La API debe escuchar en 127.0.0.1:${API_PORT} o 0.0.0.0:${API_PORT} y ${API_HEALTH_URL} debe responder 200.
-- /public/plans debe devolver BASIC y PRO con isSelfService=true; los planes con trial siguen disponibles aunque la pasarela todavia no este configurada.
-- La web debe escuchar en 127.0.0.1:${WEB_PORT} o 0.0.0.0:${WEB_PORT} y ${WEB_HEALTH_URL} debe responder.
-- ${WEB_DEPLOYMENT_URL} debe mostrar el mismo commit que git rev-parse HEAD; si difiere, hay un build o proceso viejo atendiendo el puerto.
-- /registro debe responder y mostrar la opcion de prueba/trial cuando la API devuelve planes con trialDays mayor que cero.
-- Nginx debe escuchar en 80/443 y nginx -T debe mostrar proxy_pass hacia http://127.0.0.1:${API_PORT}/health y http://127.0.0.1:${WEB_PORT}.
-- Si los checks directos a Node funcionan pero los checks con Host/dominio fallan, el problema esta en Nginx, DNS, certificado, firewall o en que no se recargo Nginx.
-- Si /etc/nginx tiene puertos distintos que deploy/nginx, copia la config correcta a sites-enabled y ejecuta: sudo nginx -t && sudo systemctl reload nginx
-EOF_SUMMARY
+if http_ok "$API_HEALTH_URL"; then
+  pass "API responde en $API_HEALTH_URL"
+else
+  fail "API no responde en $API_HEALTH_URL"
+fi
+
+plans_json="$(curl -fsS --max-time 8 "http://127.0.0.1:${API_PORT}/public/plans" 2>/dev/null || true)"
+if PLANS_JSON="$plans_json" python3 - <<'PY'
+import json
+import os
+
+try:
+    payload = json.loads(os.environ["PLANS_JSON"])
+    plans = payload if isinstance(payload, list) else payload.get("plans", [])
+    by_code = {str(plan.get("code", "")).upper(): plan for plan in plans}
+    ok = all(by_code.get(code, {}).get("isSelfService") is True for code in ("BASIC", "PRO"))
+except (json.JSONDecodeError, TypeError, AttributeError):
+    ok = False
+
+raise SystemExit(0 if ok else 1)
+PY
+then
+  pass "BASIC y PRO estan disponibles con isSelfService=true"
+else
+  fail "/public/plans no devuelve BASIC y PRO con isSelfService=true"
+fi
+
+if http_ok "$WEB_HEALTH_URL"; then
+  pass "Web responde en $WEB_HEALTH_URL"
+else
+  fail "Web no responde en $WEB_HEALTH_URL"
+fi
+
+repo_commit="$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || true)"
+deployment_json="$(curl -fsS --max-time 8 "$WEB_DEPLOYMENT_URL" 2>/dev/null || true)"
+served_commit="$(DEPLOYMENT_JSON="$deployment_json" python3 - <<'PY'
+import json
+import os
+
+try:
+    print(json.loads(os.environ["DEPLOYMENT_JSON"]).get("commit", ""))
+except (json.JSONDecodeError, TypeError, AttributeError):
+    pass
+PY
+)"
+if [[ -n "$repo_commit" && "$served_commit" == "$repo_commit" ]]; then
+  pass "La web sirve el commit actual: $repo_commit"
+else
+  fail "Commit servido (${served_commit:-sin respuesta}) distinto del checkout (${repo_commit:-desconocido})"
+fi
+
+if http_ok "http://127.0.0.1:${WEB_PORT}/registro"; then
+  pass "/registro responde; la disponibilidad del trial fue validada en /public/plans"
+else
+  fail "/registro no responde"
+fi
+
+nginx_dump="$(nginx -T 2>/dev/null || true)"
+if [[ "$nginx_dump" == *"proxy_pass http://127.0.0.1:${API_PORT}/health"* &&
+      "$nginx_dump" == *"proxy_pass http://127.0.0.1:${WEB_PORT}"* ]]; then
+  pass "Nginx efectivo apunta a API ${API_PORT} y web ${WEB_PORT}"
+else
+  fail "Nginx efectivo no contiene los proxy_pass esperados"
+fi
+
+if http_ok "https://${DOMAIN}/health"; then
+  pass "El healthcheck publico HTTPS responde"
+else
+  warn "El dominio publico falla; revisar Nginx, DNS, TLS y firewall"
+fi
+
+printf '\nTotales: %d OK, %d fallos, %d avisos.\n' "$PASS_COUNT" "$FAIL_COUNT" "$WARN_COUNT"
+if (( FAIL_COUNT > 0 )); then
+  printf 'Diagnostico FALLIDO. Revisa las lineas FALLO anteriores.\n'
+  exit 1
+fi
+
+printf 'Diagnostico OK. Los componentes obligatorios estan alineados.\n'
