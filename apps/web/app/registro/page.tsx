@@ -145,6 +145,11 @@ function RegisterPageContent() {
           </div>
         ) : null}
         {loading ? <p className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300">{t("plans.loading")}</p> : null}
+        {!loading && !error && plans.length === 0 ? (
+          <p className="mt-5 rounded-2xl border border-amber-700/60 bg-amber-950/30 p-4 text-sm text-amber-100">
+            {t("register.noPlans")}
+          </p>
+        ) : null}
         {error ? <p className="mt-5 rounded-2xl border border-rose-900 bg-rose-950/40 p-4 text-sm text-rose-200">{error}</p> : null}
         {result ? (
           <div className="mt-5 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-4 text-sm text-emerald-100">
@@ -175,7 +180,7 @@ function RegisterPageContent() {
               ))}
             </select>
           ) : null}
-          <button type="submit" disabled={submitting || loading} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-70">
+          <button type="submit" disabled={submitting || loading || plans.length === 0} className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-70">
             {submitting ? t("register.creating") : t("register.submit")}
           </button>
         </form>

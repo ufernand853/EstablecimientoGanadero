@@ -111,6 +111,7 @@ export const pt: TranslationDictionary = {
   "register.accountTitle": "Dados da conta",
   "register.accountBody": "A conta fica pronta com um unico acesso geral para comecar a trabalhar e depois somar a informacao real do estabelecimento.",
   "register.loadError": "Nao foi possivel carregar os planos.",
+  "register.noPlans": "Nao ha planos disponiveis para cadastro. Verifique a configuracao da API ou do meio de pagamento.",
   "register.createError": "Nao foi possivel criar a conta.",
   "register.loading": "Carregando cadastro...",
   "register.company": "Nome do estabelecimento ou empresa",
