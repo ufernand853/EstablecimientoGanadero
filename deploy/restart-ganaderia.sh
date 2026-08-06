@@ -87,6 +87,8 @@ echo "Commit a desplegar: $DEPLOY_COMMIT"
 echo "[2/8] Instalando dependencias si hace falta..."
 npm install
 
+"$APP_DIR/deploy/check-api-syntax.sh"
+
 echo "[3/8] Recompilando frontend..."
 NEXT_PUBLIC_APP_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/web run build
 

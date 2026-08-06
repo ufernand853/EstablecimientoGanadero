@@ -1676,7 +1676,7 @@ app.addHook("preHandler", async (request, reply) => {
     const access = resolveSubscriptionStatus(session.subscription);
     const perpetualAccess = hasPerpetualAccess(session.user.email);
     if (!access.canAccess && !perpetualAccess) {
-      return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripción vencida. Renová para continuar." });
+      return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripci\u00f3n vencida. Renov\u00e1 para continuar." });
     }
   }
 
@@ -8427,12 +8427,15 @@ app.post("/auth/login", async (request, reply) => {
       userAgent: getRequestUserAgent(request),
       message: "Organizacion sin suscripcion activa.",
     });
-    return reply.status(403).send({ code: "NO_SUBSCRIPTION", message: "No existe suscripciÃ³n activa para esta organizaciÃ³n." });
+      message: "Suscripci\u00f3n vencida. Renov\u00e1 para continuar.",
   }
-  const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
-  const access = resolveSubscriptionStatus(subscription);
-  const perpetualAccess = hasPerpetualAccess(user.email);
-  if (!access.canAccess && !perpetualAccess) {
+  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
+      } : perpetualAccess ? null : access.statusLabel === "TRIALING" ? {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Te quedan ${access.daysLeft} día(s) de prueba.`,
+      } : {
+        level: notifyType === "NONE" ? "INFO" : notifyType,
+        message: `Tu suscripción tiene ${access.daysLeft} día(s) restantes.`,
     const pendingCheckout = await billingCheckouts.findOne(
       { tenantId: membership.tenantId, status: "PENDING_PAYMENT", kind: "SUBSCRIPTION" },
       { sort: { updatedAt: -1 } },
@@ -8449,13 +8452,10 @@ app.post("/auth/login", async (request, reply) => {
     });
     return reply.status(402).send({
       code: "SUBSCRIPTION_EXPIRED",
-  const token = signSessionToken({ userId: user.id, tenantId: membership.tenantId, role: membership.role, email: user.email.toLowerCase() });
-      } : perpetualAccess ? null : access.statusLabel === "TRIALING" ? {
-        level: notifyType === "NONE" ? "INFO" : notifyType,
-        message: `Te quedan ${access.daysLeft} día(s) de prueba.`,
-      } : {
-        level: notifyType === "NONE" ? "INFO" : notifyType,
-        message: `Tu suscripción tiene ${access.daysLeft} día(s) restantes.`,
+      message: "SuscripciÃ³n vencida. RenovÃ¡ para continuar.",
+      renewal: pendingCheckout
+        ? {
+            provider: pendingCheckout.provider,
             checkoutUrl: pendingCheckout.checkoutUrl,
             referenceId: pendingCheckout.referenceId,
           }
@@ -8647,5 +8647,4 @@ const start = async () => {
 };
 
 start();
-
 

@@ -127,11 +127,16 @@ fi
 
 section "Systemd de la app, si aplica"
 for unit in eg-api.service eg-web.service; do
-  if systemctl list-unit-files "$unit" >/dev/null 2>&1; then
-    run systemctl status "$unit" --no-pager || true
+  load_state="$(systemctl show "$unit" -p LoadState --value 2>/dev/null || true)"
+  if [[ "$load_state" != "not-found" && -n "$load_state" ]]; then
+    run systemctl status "$unit" --no-pager --full || true
     run systemctl show "$unit" -p Environment -p ExecStart -p WorkingDirectory --no-pager || true
+    if command -v journalctl >/dev/null 2>&1; then
+      printf '\n-- Ultimas 80 lineas completas de %s --\n' "$unit"
+      run journalctl -u "$unit" -n 80 --no-pager --output=short-precise --all || true
+    fi
   else
-    echo "$unit no registrado en systemd."
+    echo "$unit no esta instalado/cargado en systemd (LoadState=${load_state:-desconocido})."
   fi
 done
 
