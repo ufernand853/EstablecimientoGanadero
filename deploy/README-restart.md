@@ -12,11 +12,37 @@ Que hace:
 - verifica que el checkout no tenga cambios locales y despliega el commit ya actualizado
 - instala dependencias
 - recompila `apps/web`
-- reinicia API en `3201`
+- reinicia y valida la API en `3201` antes de detener la web anterior
 - exporta `API_INTERNAL_URL=http://127.0.0.1:3201` al levantar la web
 - espera healthcheck real de la API
 - reinicia web en `3200`
 - espera respuesta real de la web
+
+El orden es deliberado: si la API nueva no logra iniciar (por ejemplo, por una
+variable de entorno o un error de arranque), el script termina pero deja la web
+anterior respondiendo. Asi Nginx no queda mostrando `502 Bad Gateway` para todo
+el sitio a causa de un fallo previo al reinicio del frontend.
+
+### Si el navegador ya muestra `502 Bad Gateway`
+
+Ese mensaje lo genera Nginx cuando no puede conectarse a la web en `3200`. En el
+servidor, actualiza el checkout y ejecuta el reinicio completo:
+
+```bash
+cd /home/adminuser/EstablecimientoGanadero
+git pull --ff-only origin master
+./deploy/restart-ganaderia.sh
+```
+
+Si el reinicio no termina en `Listo.`, conserva su error y ejecuta:
+
+```bash
+sudo ./deploy/verify-ports.sh
+tail -n 100 api.err api.log web.err web.log
+```
+
+No hace falta reiniciar Nginx cuando el problema es que `127.0.0.1:3200` no
+responde; primero hay que recuperar el proceso web con el script anterior.
 
 El `git pull` se hace antes del restart. El script no modifica ni actualiza el repositorio mientras se esta ejecutando, porque actualizar el propio script a mitad del deploy puede dejar una ejecucion inconsistente.
 

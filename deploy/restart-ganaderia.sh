@@ -17,19 +17,19 @@ systemctl_run() {
   fi
 }
 
-stop_systemd_units() {
+stop_systemd_unit() {
+  local unit="$1"
+
   if ! command -v systemctl >/dev/null 2>&1; then
     return 0
   fi
 
-  for unit in eg-api.service eg-web.service; do
-    if systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^$unit"; then
-      echo "Deteniendo $unit para no mezclar systemd con deploy manual..."
-      systemctl_run stop "$unit" || echo "No se pudo detener $unit; revisa permisos/systemd."
-      systemctl_run disable "$unit" || echo "No se pudo deshabilitar $unit; revisa permisos/systemd."
-      systemctl_run reset-failed "$unit" || true
-    fi
-  done
+  if systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^$unit"; then
+    echo "Deteniendo $unit para no mezclar systemd con deploy manual..."
+    systemctl_run stop "$unit" || echo "No se pudo detener $unit; revisa permisos/systemd."
+    systemctl_run disable "$unit" || echo "No se pudo deshabilitar $unit; revisa permisos/systemd."
+    systemctl_run reset-failed "$unit" || true
+  fi
 }
 
 stop_port_listener() {
@@ -92,12 +92,9 @@ npm install
 echo "[3/8] Recompilando frontend..."
 NEXT_PUBLIC_APP_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/web run build
 
-echo "[4/8] Bajando procesos anteriores..."
-stop_systemd_units
-pkill -f "next start" || true
-pkill -f "next-server" || true
+echo "[4/8] Bajando API anterior (la web sigue atendiendo durante esta etapa)..."
+stop_systemd_unit eg-api.service
 pkill -f "src/index.ts" || true
-stop_port_listener "$WEB_PORT" "web"
 stop_port_listener "$API_PORT" "API"
 sleep 2
 
@@ -111,6 +108,10 @@ wait_for_http "$API_HEALTH_URL" "API" || {
 }
 
 echo "[7/8] Levantando web en puerto $WEB_PORT..."
+stop_systemd_unit eg-web.service
+pkill -f "next start" || true
+pkill -f "next-server" || true
+stop_port_listener "$WEB_PORT" "web"
 nohup bash -lc "cd '$APP_DIR/apps/web' && API_INTERNAL_URL='http://127.0.0.1:${API_PORT}' PORT='$WEB_PORT' npm run start" > "$APP_DIR/web.log" 2> "$APP_DIR/web.err" &
 
 echo "[8/8] Validando web..."
