@@ -7,6 +7,7 @@ import { getApiUrl } from "../lib/api-url";
 import { LanguageSelector } from "./language-selector";
 import { useI18n } from "../lib/i18n";
 import { canSeeLink, isCommercialDemoUser } from "../lib/roles";
+import { ContextualHelp } from "./contextual-help";
 
 const stripBasePath = (href: string) => {
   if (!BASE_PATH) return href;
@@ -102,6 +103,7 @@ export function AppHeader() {
           <h1 className="text-2xl font-semibold">Gestion Ganadera</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
+          <ContextualHelp />
           <LanguageSelector />
           {sessionUser ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2 text-right">
