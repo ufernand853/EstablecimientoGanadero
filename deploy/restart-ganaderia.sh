@@ -5,8 +5,11 @@ set -euo pipefail
 APP_DIR="/home/adminuser/EstablecimientoGanadero"
 WEB_PORT="${WEB_PORT:-3200}"
 API_PORT="${API_PORT:-3201}"
+WEB_PREFLIGHT_PORT="${WEB_PREFLIGHT_PORT:-3299}"
 API_HEALTH_URL="http://127.0.0.1:${API_PORT}/health"
 WEB_HEALTH_URL="http://127.0.0.1:${WEB_PORT}/login"
+WEB_PREFLIGHT_URL="http://127.0.0.1:${WEB_PREFLIGHT_PORT}/login"
+WEB_PREFLIGHT_PID=""
 
 
 systemctl_run() {
@@ -73,9 +76,32 @@ wait_for_http() {
   return 1
 }
 
+stop_web_preflight() {
+  if [[ -n "$WEB_PREFLIGHT_PID" ]] && kill -0 "$WEB_PREFLIGHT_PID" 2>/dev/null; then
+    kill -TERM "$WEB_PREFLIGHT_PID" 2>/dev/null || true
+    wait "$WEB_PREFLIGHT_PID" 2>/dev/null || true
+  fi
+  WEB_PREFLIGHT_PID=""
+}
+
+start_web() {
+  local port="$1"
+  local stdout_file="$2"
+  local stderr_file="$3"
+
+  nohup env \
+    API_INTERNAL_URL="http://127.0.0.1:${API_PORT}" \
+    PORT="$port" \
+    npm --prefix "$APP_DIR/apps/web" run start \
+    > "$stdout_file" 2> "$stderr_file" &
+  WEB_STARTED_PID="$!"
+}
+
+trap stop_web_preflight EXIT
+
 cd "$APP_DIR"
 
-echo "[1/8] Verificando checkout..."
+echo "[1/9] Verificando checkout..."
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: hay cambios locales en archivos versionados. No se inicia el deploy para no sobrescribirlos."
   echo "Ejecuta 'git status --short', guarda los cambios con git stash o descartalos, hace git pull y vuelve a ejecutar este script."
@@ -84,37 +110,55 @@ fi
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 echo "Commit a desplegar: $DEPLOY_COMMIT"
 
-echo "[2/8] Instalando dependencias si hace falta..."
+echo "[2/9] Instalando dependencias si hace falta..."
 npm install
 
 "$APP_DIR/deploy/check-api-syntax.sh"
 
-echo "[3/8] Recompilando frontend..."
+echo "[3/9] Recompilando frontend..."
 NEXT_PUBLIC_APP_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/web run build
 
-echo "[4/8] Bajando API anterior (la web sigue atendiendo durante esta etapa)..."
+echo "[4/9] Bajando API anterior (la web sigue atendiendo durante esta etapa)..."
 stop_systemd_unit eg-api.service
 pkill -f "src/index.ts" || true
 stop_port_listener "$API_PORT" "API"
 sleep 2
 
-echo "[5/8] Levantando API en puerto $API_PORT..."
+echo "[5/9] Levantando API en puerto $API_PORT..."
 nohup env PORT="$API_PORT" APP_GIT_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/api run start > "$APP_DIR/api.log" 2> "$APP_DIR/api.err" &
 
-echo "[6/8] Validando API..."
+echo "[6/9] Validando API..."
 wait_for_http "$API_HEALTH_URL" "API" || {
   echo "Revisar logs: $APP_DIR/api.err y $APP_DIR/api.log"
   exit 1
 }
 
-echo "[7/8] Levantando web en puerto $WEB_PORT..."
-stop_systemd_unit eg-web.service
-pkill -f "next start" || true
-pkill -f "next-server" || true
-stop_port_listener "$WEB_PORT" "web"
-nohup bash -lc "cd '$APP_DIR/apps/web' && API_INTERNAL_URL='http://127.0.0.1:${API_PORT}' PORT='$WEB_PORT' npm run start" > "$APP_DIR/web.log" 2> "$APP_DIR/web.err" &
+echo "[7/9] Prevalidando el build web en puerto temporal $WEB_PREFLIGHT_PORT..."
+if [[ "$WEB_PREFLIGHT_PORT" == "$WEB_PORT" || "$WEB_PREFLIGHT_PORT" == "$API_PORT" ]]; then
+  echo "ERROR: WEB_PREFLIGHT_PORT debe ser distinto de WEB_PORT y API_PORT."
+  exit 1
+fi
+if fuser "${WEB_PREFLIGHT_PORT}/tcp" >/dev/null 2>&1; then
+  echo "ERROR: el puerto temporal $WEB_PREFLIGHT_PORT ya esta ocupado."
+  echo "Elegí otro con WEB_PREFLIGHT_PORT=<puerto> sin interrumpir el servicio existente."
+  exit 1
+fi
+start_web "$WEB_PREFLIGHT_PORT" "$APP_DIR/web-preflight.log" "$APP_DIR/web-preflight.err"
+WEB_PREFLIGHT_PID="$WEB_STARTED_PID"
+wait_for_http "$WEB_PREFLIGHT_URL" "web de prevalidacion" || {
+  echo "El build nuevo no arranca. La web anterior sigue atendiendo en el puerto $WEB_PORT."
+  echo "Revisar logs: $APP_DIR/web-preflight.err y $APP_DIR/web-preflight.log"
+  exit 1
+}
+stop_web_preflight
 
-echo "[8/8] Validando web..."
+echo "[8/9] Levantando web en puerto $WEB_PORT..."
+stop_systemd_unit eg-web.service
+stop_port_listener "$WEB_PORT" "web"
+start_web "$WEB_PORT" "$APP_DIR/web.log" "$APP_DIR/web.err"
+disown "$WEB_STARTED_PID" 2>/dev/null || true
+
+echo "[9/9] Validando web..."
 wait_for_http "$WEB_HEALTH_URL" "web" || {
   echo "Revisar logs: $APP_DIR/web.err y $APP_DIR/web.log"
   exit 1

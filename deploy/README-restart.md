@@ -15,13 +15,24 @@ Que hace:
 - reinicia y valida la API en `3201` antes de detener la web anterior
 - exporta `API_INTERNAL_URL=http://127.0.0.1:3201` al levantar la web
 - espera healthcheck real de la API
+- arranca el build web nuevo en el puerto temporal `3299` y lo valida antes de
+  interrumpir la web que esta en produccion
 - reinicia web en `3200`
 - espera respuesta real de la web
 
 El orden es deliberado: si la API nueva no logra iniciar (por ejemplo, por una
 variable de entorno o un error de arranque), el script termina pero deja la web
 anterior respondiendo. Asi Nginx no queda mostrando `502 Bad Gateway` para todo
-el sitio a causa de un fallo previo al reinicio del frontend.
+el sitio a causa de un fallo previo al reinicio del frontend. Lo mismo ocurre si
+el build web nuevo no puede arrancar durante la prevalidacion: los detalles
+quedan en `web-preflight.err`/`web-preflight.log` y la instancia anterior sigue
+atendiendo en `3200`.
+
+El puerto temporal se puede cambiar, si esta ocupado por otro servicio, con
+`WEB_PREFLIGHT_PORT=3298 ./deploy/restart-ganaderia.sh`. Debe ser distinto de los
+puertos de API y web. El reinicio solo libera los puertos de Ganaderia que tiene
+configurados; no usa `pkill` y por lo tanto no detiene otras aplicaciones Next.js
+del servidor.
 
 ### Si el navegador ya muestra `502 Bad Gateway`
 
