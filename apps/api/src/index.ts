@@ -6018,8 +6018,15 @@ const establishmentUpdateSchema = z.object({
   }, "Debe ser una URL vÃ¡lida o una imagen en base64.").optional().nullable(),
 });
 
-app.get("/establishments", async () => {
+app.get("/establishments", async (request) => {
+  const session = await getSessionFromRequest(request);
   const establishments = await loadEstablishments();
+  if (session) {
+    const { tenantEstablishments } = await getCollections();
+    const links = await tenantEstablishments.find({ tenantId: session.membership.tenantId }).toArray();
+    const allowedIds = new Set(links.map((link) => link.establishmentId));
+    return { establishments: establishments.filter((establishment) => allowedIds.has(establishment.id)) };
+  }
   return { establishments };
 });
 
@@ -6050,6 +6057,15 @@ app.post("/establishments", async (request, reply) => {
     updatedAt: now,
   };
   await insertEstablishment(newEstablishment);
+  const session = await getSessionFromRequest(request);
+  if (session) {
+    const { tenantEstablishments } = await getCollections();
+    await tenantEstablishments.updateOne(
+      { tenantId: session.membership.tenantId, establishmentId: newEstablishment.id },
+      { $set: { tenantId: session.membership.tenantId, establishmentId: newEstablishment.id } },
+      { upsert: true },
+    );
+  }
   return reply.status(201).send(newEstablishment);
 });
 

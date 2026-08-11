@@ -67,6 +67,7 @@ const menuGroups: MenuGroup[] = [
     titleKey: "home.group.settings.title",
     descriptionKey: "home.group.settings.description",
     links: [
+      { href: withBasePath("/onboarding"), labelKey: "home.link.onboarding" },
       { href: withBasePath("/masters"), labelKey: "home.link.masters" },
       { href: withBasePath("/masters/herd-categories"), labelKey: "masters.categories.title" },
       { href: withBasePath("/masters/breeds"), labelKey: "masters.breeds.title" },

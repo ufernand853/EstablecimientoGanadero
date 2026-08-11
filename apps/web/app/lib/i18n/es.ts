@@ -179,6 +179,7 @@ export const es = {
   "home.link.fieldMode": "Modo Campo (operario)",
   "home.link.masters": "Maestros",
   "home.link.aiSettings": "API y ajustes IA",
+  "home.link.onboarding": "Configuración inicial",
   "masters.categories.placeholder": "Ej: TOROS",
   "masters.consignors.emptyAddress": "Sin direccion",
   "masters.consignors.emptyContact": "Sin contacto",

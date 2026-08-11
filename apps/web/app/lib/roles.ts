@@ -33,6 +33,7 @@ const TENANT_MANAGEMENT_LINKS = new Set([
   "/commands",
   "/traceability",
   "/insumos",
+  "/onboarding",
 ]);
 
 export const isPlatformAdmin = (email?: string | null) => email?.trim().toLowerCase() === PLATFORM_ADMIN_EMAIL;

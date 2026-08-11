@@ -181,6 +181,7 @@ export const pt: TranslationDictionary = {
   "home.link.fieldMode": "Modo Campo (operador)",
   "home.link.masters": "Cadastros mestres",
   "home.link.aiSettings": "API e ajustes IA",
+  "home.link.onboarding": "Configuração inicial",
   "masters.categories.placeholder": "Ex: TOUROS",
   "masters.consignors.emptyAddress": "Sem endereco",
   "masters.consignors.emptyContact": "Sem contato",

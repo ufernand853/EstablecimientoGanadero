@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { getApiUrl } from "../lib/api-url";
 import { withBasePath } from "../lib/base-path";
 import { LicenseResponse, formatLicenseDate, formatTrialDays } from "../lib/billing";
@@ -39,6 +39,7 @@ type HealthEvent = {
 
 export default function DashboardPage() {
   const pathname = usePathname();
+  const router = useRouter();
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [paddocks, setPaddocks] = useState<Paddock[]>([]);
   const [herds, setHerds] = useState<Herd[]>([]);
@@ -75,6 +76,7 @@ export default function DashboardPage() {
         setMovements([]);
         setHealthEvents([]);
         setHealthSchedules([]);
+        router.replace(withBasePath("/onboarding"));
         return;
       }
 
@@ -98,6 +100,10 @@ export default function DashboardPage() {
       const healthSchedulesData = (await healthSchedulesResponse.json()) as { schedules: HealthSchedule[] };
 
       setPaddocks(paddocksData.paddocks);
+      if (paddocksData.paddocks.length === 0) {
+        router.replace(withBasePath("/onboarding"));
+        return;
+      }
       setHerds(stockData.herds);
       setMovements(movementsData.movements);
       setHealthEvents(healthEventsData.healthEvents);
