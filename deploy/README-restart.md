@@ -28,11 +28,12 @@ el build web nuevo no puede arrancar durante la prevalidacion: los detalles
 quedan en `web-preflight.err`/`web-preflight.log` y la instancia anterior sigue
 atendiendo en `3200`.
 
-El puerto temporal se puede cambiar, si esta ocupado por otro servicio, con
-`WEB_PREFLIGHT_PORT=3298 ./deploy/restart-ganaderia.sh`. Debe ser distinto de los
-puertos de API y web. El reinicio solo libera los puertos de Ganaderia que tiene
-configurados; no usa `pkill` y por lo tanto no detiene otras aplicaciones Next.js
-del servidor.
+Si el puerto temporal esta ocupado por otro servicio, el script busca
+automaticamente otro libre en los 100 puertos siguientes sin detener ese
+servicio. El puerto inicial tambien se puede cambiar con
+`WEB_PREFLIGHT_PORT=3298 ./deploy/restart-ganaderia.sh`. El reinicio solo libera
+los puertos de Ganaderia que tiene configurados; no detiene otras aplicaciones
+Next.js del servidor.
 
 ### Si el navegador ya muestra `502 Bad Gateway`
 
