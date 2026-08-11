@@ -8508,7 +8508,7 @@ app.get("/auth/session", async (request, reply) => {
         message: READONLY_DEMO_MESSAGE,
       } : perpetualAccess || notifyType === "NONE" ? null : {
         level: notifyType,
-        message: `Tu suscripciÃ³n vence en ${access.daysLeft} dÃ­a(s).`,
+        message: `Tu suscripción vence en ${access.daysLeft} ${access.daysLeft === 1 ? "día" : "días"}.`,
       },
     },
   });
