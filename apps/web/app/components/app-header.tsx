@@ -102,20 +102,20 @@ export function AppHeader() {
           </a>
           <h1 className="text-2xl font-semibold">Gestion Ganadera</h1>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:w-auto sm:gap-3">
           <ContextualHelp />
           <LanguageSelector />
           {sessionUser ? (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-2 text-right">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{t("header.loggedUser")}</p>
-              <p className="text-sm font-semibold text-white">{sessionUser.fullName ?? t("header.generalAccount")}</p>
-              <p className="text-xs text-slate-400">{sessionUser.email ?? t("header.noEmail")}</p>
+            <div className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-900/70 px-2.5 py-1.5 text-right sm:flex-none sm:px-3">
+              <p className="hidden text-[10px] uppercase tracking-[0.18em] text-slate-400 sm:block">{t("header.loggedUser")}</p>
+              <p className="truncate text-xs font-semibold text-white sm:text-sm">{sessionUser.fullName ?? t("header.generalAccount")}</p>
+              <p className="hidden max-w-48 truncate text-[11px] text-slate-400 md:block">{sessionUser.email ?? t("header.noEmail")}</p>
             </div>
           ) : null}
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-xl border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:border-rose-500"
+            className="h-9 shrink-0 rounded-lg border border-rose-700 px-2.5 text-xs font-semibold text-rose-200 transition hover:border-rose-500 sm:px-3 sm:text-sm"
           >
             {t("header.logout")}
           </button>

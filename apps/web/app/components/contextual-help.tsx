@@ -122,9 +122,9 @@ export function ContextualHelp() {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-xl border border-emerald-700/70 bg-emerald-950/40 px-3 text-sm font-semibold text-emerald-100 transition hover:border-emerald-400 hover:bg-emerald-900/50" aria-haspopup="dialog" aria-expanded={open}>
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-emerald-700/70 bg-emerald-950/40 px-2.5 text-sm font-semibold text-emerald-100 transition hover:border-emerald-400 hover:bg-emerald-900/50 sm:px-3" aria-haspopup="dialog" aria-expanded={open} aria-label={labels.button}>
         <span className="flex h-5 w-5 items-center justify-center rounded-full border border-emerald-400 text-xs" aria-hidden="true">?</span>
-        {labels.button}
+        <span className="hidden sm:inline">{labels.button}</span>
       </button>
 
       {open ? (
