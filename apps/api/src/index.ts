@@ -4015,6 +4015,7 @@ app.post("/field/assistant", async (request, reply) => {
 
   const prompt = body.data.prompt.trim();
   const normalized = normalizeFieldText(prompt);
+  const detectedEarTag = detectEarTagInText(prompt);
   const { tasks, paddocks } = await getCollections();
 
   if (/\b(preÃ±adas|prenadas|preÃ±ez|prenez)\b/.test(normalized) && /\b(donde|dÃ³nde|estan|estÃ¡n|tengo|detalle|lista|listar)\b/.test(normalized)) {
@@ -4154,7 +4155,6 @@ app.post("/field/assistant", async (request, reply) => {
     });
   }
 
-  const detectedEarTag = detectEarTagInText(prompt);
   if (detectedEarTag && /\b(murio|muriÃ³|muerta|muerto|muerte|baja)\b/.test(normalized)) {
     const paddockName = extractPaddockNameFromText(prompt);
     const confirmation = await buildFieldConfirmation({
