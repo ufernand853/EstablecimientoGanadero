@@ -57,6 +57,37 @@ stop_port_listener() {
   fi
 }
 
+port_is_busy() {
+  local port="$1"
+
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${port}/tcp" >/dev/null 2>&1
+    return
+  fi
+
+  ss -ltnH "sport = :${port}" 2>/dev/null | grep -q .
+}
+
+select_web_preflight_port() {
+  local candidate="$WEB_PREFLIGHT_PORT"
+  local max_candidate=$((WEB_PREFLIGHT_PORT + 100))
+
+  while [[ "$candidate" -le "$max_candidate" ]]; do
+    if [[ "$candidate" != "$WEB_PORT" && "$candidate" != "$API_PORT" ]] && ! port_is_busy "$candidate"; then
+      if [[ "$candidate" != "$WEB_PREFLIGHT_PORT" ]]; then
+        echo "El puerto temporal $WEB_PREFLIGHT_PORT esta ocupado; se usara automaticamente el $candidate."
+      fi
+      WEB_PREFLIGHT_PORT="$candidate"
+      WEB_PREFLIGHT_URL="http://127.0.0.1:${WEB_PREFLIGHT_PORT}/login"
+      return 0
+    fi
+    candidate=$((candidate + 1))
+  done
+
+  echo "ERROR: no se encontro un puerto temporal libre entre $WEB_PREFLIGHT_PORT y $max_candidate."
+  return 1
+}
+
 wait_for_http() {
   local url="$1"
   local label="$2"
@@ -134,15 +165,7 @@ wait_for_http "$API_HEALTH_URL" "API" || {
 }
 
 echo "[7/9] Prevalidando el build web en puerto temporal $WEB_PREFLIGHT_PORT..."
-if [[ "$WEB_PREFLIGHT_PORT" == "$WEB_PORT" || "$WEB_PREFLIGHT_PORT" == "$API_PORT" ]]; then
-  echo "ERROR: WEB_PREFLIGHT_PORT debe ser distinto de WEB_PORT y API_PORT."
-  exit 1
-fi
-if fuser "${WEB_PREFLIGHT_PORT}/tcp" >/dev/null 2>&1; then
-  echo "ERROR: el puerto temporal $WEB_PREFLIGHT_PORT ya esta ocupado."
-  echo "Elegí otro con WEB_PREFLIGHT_PORT=<puerto> sin interrumpir el servicio existente."
-  exit 1
-fi
+select_web_preflight_port
 start_web "$WEB_PREFLIGHT_PORT" "$APP_DIR/web-preflight.log" "$APP_DIR/web-preflight.err"
 WEB_PREFLIGHT_PID="$WEB_STARTED_PID"
 wait_for_http "$WEB_PREFLIGHT_URL" "web de prevalidacion" || {

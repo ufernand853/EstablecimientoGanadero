@@ -6817,6 +6817,15 @@ app.delete("/breeds/:id", async (request, reply) => {
 
 app.get("/movement-types", async (request) => {
   const { establishmentId, status } = request.query as { establishmentId?: string; status?: "ACTIVE" | "INACTIVE" };
+  if (establishmentId) {
+    const establishment = await findEstablishmentById(establishmentId);
+    if (establishment) {
+      // Backfill masters for establishments created before movement types were
+      // seeded. Doing this on the endpoint also makes the list self-healing if
+      // a deployment did not run any migration or initialization step.
+      await ensureDefaultMovementTypes(establishmentId);
+    }
+  }
   const { movementTypes } = await getCollections();
   const filter: Record<string, unknown> = {};
   if (establishmentId) filter.establishmentId = establishmentId;
