@@ -18,7 +18,8 @@ Que hace:
 - arranca el build web nuevo en el puerto temporal `3299` y lo valida antes de
   interrumpir la web que esta en produccion
 - reinicia web en `3200`
-- espera respuesta real de la web
+- espera respuesta real de la web y, si el primer arranque falla, muestra el
+  estado del puerto y los logs antes de hacer un segundo intento limpio
 
 El orden es deliberado: si la API nueva no logra iniciar (por ejemplo, por una
 variable de entorno o un error de arranque), el script termina pero deja la web
@@ -55,6 +56,8 @@ tail -n 100 api.err api.log web.err web.log
 
 No hace falta reiniciar Nginx cuando el problema es que `127.0.0.1:3200` no
 responde; primero hay que recuperar el proceso web con el script anterior.
+Los healthchecks tienen tiempos limite para que una conexion bloqueada no deje
+el deploy esperando indefinidamente.
 
 El `git pull` se hace antes del restart. El script no modifica ni actualiza el repositorio mientras se esta ejecutando, porque actualizar el propio script a mitad del deploy puede dejar una ejecucion inconsistente.
 

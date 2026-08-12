@@ -95,7 +95,7 @@ wait_for_http() {
   local sleep_seconds="${4:-2}"
 
   for ((i=1; i<=attempts; i++)); do
-    if curl -fsS -o /dev/null "$url"; then
+    if curl -fsS --connect-timeout 2 --max-time 5 -o /dev/null "$url"; then
       echo "$label listo: $url"
       return 0
     fi
@@ -105,6 +105,22 @@ wait_for_http() {
 
   echo "No se pudo validar $label en $url"
   return 1
+}
+
+show_web_failure_diagnostics() {
+  echo "Estado del puerto $WEB_PORT:" >&2
+  ss -ltnp "sport = :${WEB_PORT}" 2>/dev/null || true
+  echo "Ultimas lineas de web.err:" >&2
+  tail -n 40 "$APP_DIR/web.err" 2>/dev/null || true
+  echo "Ultimas lineas de web.log:" >&2
+  tail -n 40 "$APP_DIR/web.log" 2>/dev/null || true
+}
+
+start_and_validate_production_web() {
+  stop_port_listener "$WEB_PORT" "web"
+  start_web "$WEB_PORT" "$APP_DIR/web.log" "$APP_DIR/web.err"
+  disown "$WEB_STARTED_PID" 2>/dev/null || true
+  wait_for_http "$WEB_HEALTH_URL" "web"
 }
 
 stop_web_preflight() {
@@ -177,15 +193,18 @@ stop_web_preflight
 
 echo "[8/9] Levantando web en puerto $WEB_PORT..."
 stop_systemd_unit eg-web.service
-stop_port_listener "$WEB_PORT" "web"
-start_web "$WEB_PORT" "$APP_DIR/web.log" "$APP_DIR/web.err"
-disown "$WEB_STARTED_PID" 2>/dev/null || true
 
 echo "[9/9] Validando web..."
-wait_for_http "$WEB_HEALTH_URL" "web" || {
-  echo "Revisar logs: $APP_DIR/web.err y $APP_DIR/web.log"
-  exit 1
-}
+if ! start_and_validate_production_web; then
+  echo "El primer arranque web fallo; mostrando diagnostico y reintentando una vez..." >&2
+  show_web_failure_diagnostics
+  if ! start_and_validate_production_web; then
+    echo "ERROR: la web no responde despues de dos intentos." >&2
+    echo "Revisar logs: $APP_DIR/web.err y $APP_DIR/web.log" >&2
+    show_web_failure_diagnostics
+    exit 1
+  fi
+fi
 
 DEPLOYED_COMMIT="$(curl -fsS "http://127.0.0.1:${WEB_PORT}/api/deployment-info" | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data).commit ?? ""));')"
 if [[ "$DEPLOYED_COMMIT" != "$DEPLOY_COMMIT" ]]; then
