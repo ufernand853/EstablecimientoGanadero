@@ -159,16 +159,26 @@ export default function OperationsPage() {
           <select className="rounded bg-slate-800 p-2 text-sm" value={fromPaddockId} onChange={(e) => setFromPaddockId(e.target.value)}>
             {paddocks.map((p) => <option key={p.id} value={p.id}>{t("operations.from")}: {p.name}</option>)}
           </select>
-          <select className="rounded bg-slate-800 p-2 text-sm" value={toPaddockId} onChange={(e) => setToPaddockId(e.target.value)}>
+          <select
+            className="rounded bg-slate-800 p-2 text-sm"
+            value={toPaddockId}
+            onChange={(e) => {
+              setToPaddockId(e.target.value);
+              if (e.target.value) setToPaddockName("");
+            }}
+          >
             <option value="">{t("operations.toTemporary")}</option>
             {paddocks.map((p) => <option key={p.id} value={p.id}>{t("operations.to")}: {p.name}</option>)}
           </select>
-          <input
-            className="rounded bg-slate-800 p-2 text-sm"
-            placeholder={t("operations.toPlaceholder")}
-            value={toPaddockName}
-            onChange={(e) => setToPaddockName(e.target.value)}
-          />
+          {!toPaddockId && (
+            <input
+              className="rounded bg-slate-800 p-2 text-sm"
+              placeholder={t("operations.toPlaceholder")}
+              value={toPaddockName}
+              onChange={(e) => setToPaddockName(e.target.value)}
+              required
+            />
+          )}
           <select className="rounded bg-slate-800 p-2 text-sm" value={movementTypeId} onChange={(e) => setMovementTypeId(e.target.value)}>
             <option value="">{t("operations.typePlaceholder")}</option>
             {movementTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
