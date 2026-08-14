@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppHeader } from "./components/app-header";
+import { WhatsAppHelp } from "./components/whatsapp-help";
 import { LanguageProvider } from "./lib/i18n";
 import { SWRegister } from "./sw-register";
 
@@ -33,10 +34,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen">
         <LanguageProvider>
           <SWRegister />
-          <div className="mx-auto max-w-6xl px-6 py-8">
+          <div className="mx-auto max-w-6xl px-6 pb-24 pt-8">
             <AppHeader />
             {children}
           </div>
+          <WhatsAppHelp />
         </LanguageProvider>
       </body>
     </html>
