@@ -58,7 +58,7 @@ Environment=NODE_ENV=production
 EnvironmentFile=-${PROJECT_DIR}/.env
 Environment=PORT=${API_PORT}
 ExecStart=/usr/bin/env npm --workspace apps/api run start
-Restart=on-failure
+Restart=always
 RestartSec=5
 TimeoutStopSec=15
 KillMode=control-group
@@ -87,7 +87,7 @@ Environment=PORT=${WEB_PORT}
 Environment=API_INTERNAL_URL=http://127.0.0.1:${API_PORT}
 ExecStartPre=/usr/bin/test -f ${PROJECT_DIR}/apps/web/.next/BUILD_ID
 ExecStart=/usr/bin/env npm --workspace apps/web run start
-Restart=on-failure
+Restart=always
 RestartSec=5
 TimeoutStopSec=15
 KillMode=control-group

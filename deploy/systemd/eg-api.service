@@ -12,7 +12,7 @@ Environment=NODE_ENV=production
 EnvironmentFile=-/workspace/EstablecimientoGanadero/.env
 Environment=PORT=3201
 ExecStart=/usr/bin/env npm --workspace apps/api run start
-Restart=on-failure
+Restart=always
 RestartSec=5
 TimeoutStopSec=15
 KillMode=control-group

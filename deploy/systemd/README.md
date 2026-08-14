@@ -75,7 +75,13 @@ sudo systemctl show eg-api.service eg-web.service -p LoadState -p ActiveState
 ```
 
 Las unidades limitan la detencion a 15 segundos y usan `KillMode=control-group` para cerrar tambien los procesos hijos de `npm`/Next.js, evitando esperas de 90 segundos durante un restart.
-Ademas, systemd limita los reintentos a cinco por minuto. Un error permanente como `EADDRINUSE` queda en estado `failed` en lugar de generar decenas de miles de procesos fallidos. El instalador reinicia explicitamente las unidades despues de reemplazarlas; `enable --now` por si solo no reinicia una unidad que ya estaba activa.
+Ademas, systemd limita los reintentos a cinco por minuto. Las unidades usan
+`Restart=always`: tambien recuperan una terminacion inesperada con codigo cero,
+que de otro modo dejaria a Nginx respondiendo `502`. Un error permanente como
+`EADDRINUSE` queda en estado `failed` en lugar de generar decenas de miles de
+procesos fallidos. El instalador reinicia explicitamente las unidades despues
+de reemplazarlas; `enable --now` por si solo no reinicia una unidad que ya
+estaba activa.
 El instalador espera que `http://127.0.0.1:3201/health` responda antes de reiniciar la web. Si la API falla, conserva la web existente y muestra automaticamente el estado y las ultimas 80 lineas completas del journal de la API.
 Antes de copiar o reiniciar unidades tambien ejecuta `deploy/check-api-syntax.sh`. Un error de TypeScript/TSX detiene el deploy antes de tocar los procesos que estaban funcionando.
 
