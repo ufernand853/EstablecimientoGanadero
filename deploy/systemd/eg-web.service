@@ -15,7 +15,7 @@ Environment=PORT=3200
 Environment=API_INTERNAL_URL=http://127.0.0.1:3201
 ExecStartPre=/usr/bin/test -f /workspace/EstablecimientoGanadero/apps/web/.next/BUILD_ID
 ExecStart=/usr/bin/env npm --workspace apps/web run start
-Restart=on-failure
+Restart=always
 RestartSec=5
 TimeoutStopSec=15
 KillMode=control-group

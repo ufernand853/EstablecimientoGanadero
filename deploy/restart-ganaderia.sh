@@ -20,40 +20,11 @@ systemctl_run() {
   fi
 }
 
-stop_systemd_unit() {
-  local unit="$1"
-
-  if ! command -v systemctl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  if systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^$unit"; then
-    echo "Deteniendo $unit para no mezclar systemd con deploy manual..."
-    systemctl_run stop "$unit" || echo "No se pudo detener $unit; revisa permisos/systemd."
-    systemctl_run disable "$unit" || echo "No se pudo deshabilitar $unit; revisa permisos/systemd."
-    systemctl_run reset-failed "$unit" || true
-  fi
-}
-
-stop_port_listener() {
-  local port="$1"
-  local label="$2"
-
-  if ! command -v fuser >/dev/null 2>&1; then
-    echo "fuser no esta disponible; no puedo liberar automaticamente el puerto $port ($label)."
-    return 0
-  fi
-
-  if fuser "${port}/tcp" >/dev/null 2>&1; then
-    echo "Liberando puerto $port ($label)..."
-    fuser -k -TERM "${port}/tcp" >/dev/null 2>&1 || true
-    sleep 2
-  fi
-
-  if fuser "${port}/tcp" >/dev/null 2>&1; then
-    echo "El puerto $port sigue ocupado; forzando cierre..."
-    fuser -k -KILL "${port}/tcp" >/dev/null 2>&1 || true
-    sleep 1
+journalctl_run() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    journalctl "$@"
+  else
+    sudo journalctl "$@"
   fi
 }
 
@@ -107,22 +78,6 @@ wait_for_http() {
   return 1
 }
 
-show_web_failure_diagnostics() {
-  echo "Estado del puerto $WEB_PORT:" >&2
-  ss -ltnp "sport = :${WEB_PORT}" 2>/dev/null || true
-  echo "Ultimas lineas de web.err:" >&2
-  tail -n 40 "$APP_DIR/web.err" 2>/dev/null || true
-  echo "Ultimas lineas de web.log:" >&2
-  tail -n 40 "$APP_DIR/web.log" 2>/dev/null || true
-}
-
-start_and_validate_production_web() {
-  stop_port_listener "$WEB_PORT" "web"
-  start_web "$WEB_PORT" "$APP_DIR/web.log" "$APP_DIR/web.err"
-  disown "$WEB_STARTED_PID" 2>/dev/null || true
-  wait_for_http "$WEB_HEALTH_URL" "web"
-}
-
 stop_web_preflight() {
   if [[ -n "$WEB_PREFLIGHT_PID" ]] && kill -0 "$WEB_PREFLIGHT_PID" 2>/dev/null; then
     kill -TERM "$WEB_PREFLIGHT_PID" 2>/dev/null || true
@@ -148,7 +103,7 @@ trap stop_web_preflight EXIT
 
 cd "$APP_DIR"
 
-echo "[1/9] Verificando checkout..."
+echo "[1/7] Verificando checkout..."
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: hay cambios locales en archivos versionados. No se inicia el deploy para no sobrescribirlos."
   echo "Ejecuta 'git status --short', guarda los cambios con git stash o descartalos, hace git pull y vuelve a ejecutar este script."
@@ -157,30 +112,15 @@ fi
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 echo "Commit a desplegar: $DEPLOY_COMMIT"
 
-echo "[2/9] Instalando dependencias si hace falta..."
+echo "[2/7] Instalando dependencias si hace falta..."
 npm install
 
 "$APP_DIR/deploy/check-api-syntax.sh"
 
-echo "[3/9] Recompilando frontend..."
+echo "[3/7] Recompilando frontend..."
 NEXT_PUBLIC_APP_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/web run build
 
-echo "[4/9] Bajando API anterior (la web sigue atendiendo durante esta etapa)..."
-stop_systemd_unit eg-api.service
-pkill -f "src/index.ts" || true
-stop_port_listener "$API_PORT" "API"
-sleep 2
-
-echo "[5/9] Levantando API en puerto $API_PORT..."
-nohup env PORT="$API_PORT" APP_GIT_COMMIT="$DEPLOY_COMMIT" npm --workspace apps/api run start > "$APP_DIR/api.log" 2> "$APP_DIR/api.err" &
-
-echo "[6/9] Validando API..."
-wait_for_http "$API_HEALTH_URL" "API" || {
-  echo "Revisar logs: $APP_DIR/api.err y $APP_DIR/api.log"
-  exit 1
-}
-
-echo "[7/9] Prevalidando el build web en puerto temporal $WEB_PREFLIGHT_PORT..."
+echo "[4/7] Prevalidando el build web en puerto temporal $WEB_PREFLIGHT_PORT..."
 select_web_preflight_port
 start_web "$WEB_PREFLIGHT_PORT" "$APP_DIR/web-preflight.log" "$APP_DIR/web-preflight.err"
 WEB_PREFLIGHT_PID="$WEB_STARTED_PID"
@@ -191,21 +131,22 @@ wait_for_http "$WEB_PREFLIGHT_URL" "web de prevalidacion" || {
 }
 stop_web_preflight
 
-echo "[8/9] Levantando web en puerto $WEB_PORT..."
-stop_systemd_unit eg-web.service
+echo "[5/7] Instalando y reiniciando servicios persistentes..."
+"$APP_DIR/deploy/systemd/install-services.sh" \
+  --user "$(stat -c '%U' "$APP_DIR")" \
+  --project-dir "$APP_DIR" \
+  --api-port "$API_PORT" \
+  --web-port "$WEB_PORT"
 
-echo "[9/9] Validando web..."
-if ! start_and_validate_production_web; then
-  echo "El primer arranque web fallo; mostrando diagnostico y reintentando una vez..." >&2
-  show_web_failure_diagnostics
-  if ! start_and_validate_production_web; then
-    echo "ERROR: la web no responde despues de dos intentos." >&2
-    echo "Revisar logs: $APP_DIR/web.err y $APP_DIR/web.log" >&2
-    show_web_failure_diagnostics
-    exit 1
-  fi
-fi
+echo "[6/7] Validando API y web..."
+wait_for_http "$API_HEALTH_URL" "API"
+wait_for_http "$WEB_HEALTH_URL" "web" || {
+  systemctl_run status eg-web.service --no-pager --full || true
+  journalctl_run -u eg-web.service -n 80 --no-pager --output=short-precise --all || true
+  exit 1
+}
 
+echo "[7/7] Verificando version desplegada..."
 DEPLOYED_COMMIT="$(curl -fsS "http://127.0.0.1:${WEB_PORT}/api/deployment-info" | node -e 'let data=""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data).commit ?? ""));')"
 if [[ "$DEPLOYED_COMMIT" != "$DEPLOY_COMMIT" ]]; then
   echo "ERROR: la web responde con el commit '$DEPLOYED_COMMIT', pero se desplego '$DEPLOY_COMMIT'."
@@ -215,5 +156,4 @@ fi
 echo "Commit web verificado: $DEPLOYED_COMMIT"
 
 echo "Listo."
-echo "API log: $APP_DIR/api.log"
-echo "WEB log: $APP_DIR/web.log"
+echo "Logs: sudo journalctl -u eg-api.service -u eg-web.service -f"
