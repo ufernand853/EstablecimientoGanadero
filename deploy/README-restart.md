@@ -12,14 +12,14 @@ Que hace:
 - verifica que el checkout no tenga cambios locales y despliega el commit ya actualizado
 - instala dependencias
 - recompila `apps/web`
-- reinicia y valida la API en `3201` antes de detener la web anterior
+- instala los servicios systemd persistentes y reinicia/valida la API en `3201`
 - exporta `API_INTERNAL_URL=http://127.0.0.1:3201` al levantar la web
 - espera healthcheck real de la API
 - arranca el build web nuevo en el puerto temporal `3299` y lo valida antes de
   interrumpir la web que esta en produccion
-- reinicia web en `3200`
-- espera respuesta real de la web y, si el primer arranque falla, muestra el
-  estado del puerto y los logs antes de hacer un segundo intento limpio
+- reinicia web en `3200` mediante systemd y espera una respuesta real
+- deja API y web supervisadas con reinicio automatico, incluso si un proceso
+  termina limpiamente de forma inesperada
 
 El orden es deliberado: si la API nueva no logra iniciar (por ejemplo, por una
 variable de entorno o un error de arranque), el script termina pero deja la web
@@ -114,23 +114,12 @@ sudo systemctl reload nginx
 ```
 
 
-## Importante: no mezclar formas de levantar la app
+## Procesos persistentes
 
-Hay dos formas posibles de operar el deploy:
-
-1. **Script manual `deploy/restart-ganaderia.sh`**: baja procesos `node`/`next` anteriores y levanta API/web con `nohup`.
-2. **Servicios systemd `eg-api.service` y `eg-web.service`**: Linux mantiene los procesos vivos y los reinicia si fallan.
-
-Usa una sola forma a la vez. Si `sudo systemctl status eg-api.service` muestra `activating (auto-restart)` o `failed`, pero `curl http://127.0.0.1:3201/health` responde `200`, significa que probablemente la app esta corriendo por el script manual y systemd quedo instalado/fallando aparte. En ese caso elegi una opcion:
-
-- Para seguir con el script manual: desactiva systemd para evitar ruido y reinicios paralelos.
-
-```bash
-sudo systemctl disable --now eg-api.service eg-web.service
-./deploy/restart-ganaderia.sh
-```
-
-- Para usar systemd: reinstala las unidades del repo y maneja los reinicios con `systemctl`.
+`deploy/restart-ganaderia.sh` instala y usa las unidades systemd del repo. De
+esta forma no quedan procesos `nohup` sin supervision que puedan terminar y
+dejar a Nginx sin upstream (el `502` de la captura). Para reinstalar las
+unidades manualmente:
 
 ```bash
 sudo ./deploy/systemd/install-services.sh --user adminuser --project-dir /home/adminuser/EstablecimientoGanadero
@@ -139,7 +128,6 @@ sudo systemctl restart eg-api.service eg-web.service
 
 Logs:
 
-- `/home/adminuser/EstablecimientoGanadero/api.log`
-- `/home/adminuser/EstablecimientoGanadero/api.err`
-- `/home/adminuser/EstablecimientoGanadero/web.log`
-- `/home/adminuser/EstablecimientoGanadero/web.err`
+```bash
+sudo journalctl -u eg-api.service -u eg-web.service -n 100 --no-pager
+```
