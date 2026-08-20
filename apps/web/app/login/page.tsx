@@ -95,16 +95,6 @@ export default function LoginPage() {
               >
                 {t("login.createAccount")}
               </a>
-              <button
-                type="button"
-                className="rounded-xl border border-amber-700 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:border-amber-500"
-                onClick={() => {
-                  setEmail("prueba@linsse.com");
-                  setPassword("prueba1234");
-                }}
-              >
-                {t("login.loadDemo")}
-              </button>
             </div>
           </div>
 

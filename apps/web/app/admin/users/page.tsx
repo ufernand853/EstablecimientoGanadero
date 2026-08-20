@@ -158,6 +158,13 @@ export default function AdminUsersPage() {
     [filteredCustomers, selectedTenantId],
   );
 
+  const subscriptionSummary = useMemo(() => ({
+    total: customers.length,
+    active: customers.filter((customer) => customer.subscriptionStatus === "ACTIVE").length,
+    trialing: customers.filter((customer) => customer.subscriptionStatus === "TRIALING").length,
+    inactive: customers.filter((customer) => ["PENDING", "CANCELLED", "EXPIRED", "PAST_DUE", "MISSING"].includes(customer.subscriptionStatus)).length,
+  }), [customers]);
+
   const handleCreateAccess = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedCustomer) return;
@@ -233,6 +240,20 @@ export default function AdminUsersPage() {
           Mesa operativa para administrar clientes, revisar altas incompletas, crear accesos faltantes y resetear contraseñas sin tocar Mongo.
         </p>
       </header>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen de suscripciones">
+        {[
+          { label: "Clientes", value: subscriptionSummary.total, color: "text-white" },
+          { label: "Activas", value: subscriptionSummary.active, color: "text-emerald-300" },
+          { label: "En prueba", value: subscriptionSummary.trialing, color: "text-sky-300" },
+          { label: "Vencidas o pendientes", value: subscriptionSummary.inactive, color: "text-amber-300" },
+        ].map((item) => (
+          <article key={item.label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
+            <p className={`mt-2 text-3xl font-semibold ${item.color}`}>{item.value}</p>
+          </article>
+        ))}
+      </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">

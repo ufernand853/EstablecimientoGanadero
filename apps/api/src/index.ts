@@ -1674,8 +1674,8 @@ app.addHook("preHandler", async (request, reply) => {
     && path !== "/health"
   ) {
     const access = resolveSubscriptionStatus(session.subscription);
-    const perpetualAccess = hasPerpetualAccess(session.user.email);
-    if (!access.canAccess && !perpetualAccess) {
+    const unrestrictedAccess = hasUnrestrictedAccess(session.user.email);
+    if (!access.canAccess && !unrestrictedAccess) {
       return reply.status(402).send({ code: "SUBSCRIPTION_EXPIRED", message: "Suscripci\u00f3n vencida. Renov\u00e1 para continuar." });
     }
   }
@@ -1848,6 +1848,8 @@ const provisionCheckoutAccess = async (checkout: BillingCheckout, plan: Subscrip
 };
 
 const hasPerpetualAccess = (email: string) => PERPETUAL_ACCESS_EMAILS.has(email.toLowerCase());
+const hasUnrestrictedAccess = (email: string) =>
+  hasPerpetualAccess(email) || PLATFORM_ADMIN_EMAILS.has(email.toLowerCase());
 
 const isMercadoPagoConfigured = () => Boolean(MERCADOPAGO_ACCESS_TOKEN);
 const isDodoConfigured = () => Boolean(DODO_PAYMENTS_API_KEY);
@@ -8456,8 +8458,8 @@ app.post("/auth/login", async (request, reply) => {
   }
   const subscription = await normalizeSubscriptionLifecycle(latestSubscription);
   const access = resolveSubscriptionStatus(subscription);
-  const perpetualAccess = hasPerpetualAccess(user.email);
-  if (!access.canAccess && !perpetualAccess) {
+  const unrestrictedAccess = hasUnrestrictedAccess(user.email);
+  if (!access.canAccess && !unrestrictedAccess) {
     const pendingCheckout = await billingCheckouts.findOne(
       { tenantId: membership.tenantId, status: "PENDING_PAYMENT", kind: "SUBSCRIPTION" },
       { sort: { updatedAt: -1 } },
@@ -8501,8 +8503,8 @@ app.post("/auth/login", async (request, reply) => {
     ok: true,
     user: { id: user.id, email: user.email, fullName: user.fullName, role: membership.role },
     subscription: {
-      status: perpetualAccess ? "PERPETUAL" : access.statusLabel,
-      daysLeft: perpetualAccess ? null : access.daysLeft,
+      status: unrestrictedAccess ? "PERPETUAL" : access.statusLabel,
+      daysLeft: unrestrictedAccess ? null : access.daysLeft,
       currentPeriodEnd: subscription.currentPeriodEnd,
     },
   });
@@ -8514,7 +8516,7 @@ app.get("/auth/session", async (request, reply) => {
     return reply.status(401).send({ code: "UNAUTHORIZED" });
   }
   const access = resolveSubscriptionStatus(session.subscription);
-  const perpetualAccess = hasPerpetualAccess(session.user.email);
+  const unrestrictedAccess = hasUnrestrictedAccess(session.user.email);
   const demoReadonly = isReadOnlyDemoSession(session);
   const notifyType = access.daysLeft <= 1 ? "CRITICAL" : access.daysLeft <= 3 ? "WARNING" : access.daysLeft <= 5 ? "INFO" : "NONE";
   return reply.send({
@@ -8525,13 +8527,13 @@ app.get("/auth/session", async (request, reply) => {
       role: session.membership.role,
     },
     subscription: {
-      status: perpetualAccess ? "PERPETUAL" : access.statusLabel,
-      daysLeft: perpetualAccess ? null : access.daysLeft,
+      status: unrestrictedAccess ? "PERPETUAL" : access.statusLabel,
+      daysLeft: unrestrictedAccess ? null : access.daysLeft,
       currentPeriodEnd: session.subscription.currentPeriodEnd,
       notification: demoReadonly ? {
         level: "INFO",
         message: READONLY_DEMO_MESSAGE,
-      } : perpetualAccess || notifyType === "NONE" ? null : {
+      } : unrestrictedAccess || notifyType === "NONE" ? null : {
         level: notifyType,
         message: `Tu suscripción vence en ${access.daysLeft} ${access.daysLeft === 1 ? "día" : "días"}.`,
       },
